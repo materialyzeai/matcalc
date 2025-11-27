@@ -12,6 +12,7 @@ from pymatgen.core.surface import Slab, SlabGenerator
 
 from ._base import PropCalc
 from ._relaxation import RelaxCalc
+from .backend._ase import get_ase_optimizer
 from .utils import to_ase_atoms, to_pmg_molecule, to_pmg_structure
 
 if TYPE_CHECKING:
@@ -155,25 +156,33 @@ class AdsorptionCalc(PropCalc):
         """
         initial_adsorbate = to_pmg_molecule(adsorbate)
 
-        relaxer = RelaxCalc(
-            calculator=self.calculator,
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            relax_atoms=self.relax_adsorbate,
-            relax_cell=False,
-            optimizer=self.optimizer,
-            **(self.relax_calc_kwargs or {}),
-        )
+        if self.relax_adsorbate:
+            relaxer = RelaxCalc(
+                calculator=self.calculator,
+                fmax=self.fmax,
+                max_steps=self.max_steps,
+                relax_atoms=self.relax_adsorbate,
+                relax_cell=False,
+                optimizer=self.optimizer,
+                **(self.relax_calc_kwargs or {}),
+            )
 
-        adsorbate = to_ase_atoms(adsorbate)
-        # Add 15 Å of vacuum in all directions for relaxation
-        adsorbate.set_cell(np.max(adsorbate.positions, axis=0) - np.min(adsorbate.positions, axis=0) + 15)
-        adsorbate_opt = relaxer.calc(adsorbate)
-        final_adsorbate = to_pmg_molecule(adsorbate_opt["final_structure"])
-        final_adsorbate_energy = adsorbate_opt["energy"]
-
+            adsorbate = to_ase_atoms(adsorbate)
+            # Add 15 Å of vacuum in all directions for relaxation
+            adsorbate.set_cell(np.max(adsorbate.positions, axis=0) - np.min(adsorbate.positions, axis=0) + 15)
+            adsorbate_opt = relaxer.calc(adsorbate)
+        else:
+            adsorbate_opt = {
+                "final_structure": adsorbate,
+            }
         if adsorbate_energy is not None:
             final_adsorbate_energy = adsorbate_energy
+        else:
+            final_adsorbate_energy = self.calculator.get_potential_energy(
+                to_ase_atoms(adsorbate_opt["final_structure"])
+            )
+
+        final_adsorbate = to_pmg_molecule(adsorbate_opt["final_structure"])
 
         return {
             "adsorbate_energy": final_adsorbate_energy,
@@ -197,23 +206,27 @@ class AdsorptionCalc(PropCalc):
         :return: A dictionary containing the slab energy and final structure.
         :rtype: dict[str, Any]
         """
-        relaxer = RelaxCalc(
-            calculator=self.calculator,
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            relax_atoms=self.relax_slab,
-            relax_cell=False,
-            optimizer=self.optimizer,
-            **(self.relax_calc_kwargs or {}),
-        )
-        slab_opt = relaxer.calc(slab)
-        if slab_energy is not None:
-            slab_opt["energy"] = slab_energy
+        if self.relax_slab:
+            relaxer = RelaxCalc(
+                calculator=self.calculator,
+                fmax=self.fmax,
+                max_steps=self.max_steps,
+                relax_atoms=self.relax_slab,
+                relax_cell=False,
+                optimizer=self.optimizer,
+                **(self.relax_calc_kwargs or {}),
+            )
+            slab_opt = relaxer.calc(slab)
+        else:
+            slab_opt = {"final_structure": slab}
+
+        if slab_energy is None:
+            slab_energy = self.calculator.get_potential_energy(to_ase_atoms(slab))
 
         return {
             "slab": slab,
-            "slab_energy": slab_opt["energy"],
-            "slab_energy_per_atom": slab_opt["energy"] / len(slab_opt["final_structure"]),
+            "slab_energy": slab_energy,
+            "slab_energy_per_atom": slab_energy / len(slab),  # pyright: ignore [reportOptionalOperand]
             "final_slab": slab_opt["final_structure"],
         }
 
@@ -418,23 +431,13 @@ class AdsorptionCalc(PropCalc):
 
         n_adsorbate_atoms = len(structure["adsorbate"])
         n_slab_atoms = len(adslab) - n_adsorbate_atoms
-        if len(adslab) != n_slab_atoms + n_adsorbate_atoms:
-            raise ValueError(
-                "The number of atoms in the adslab does not equal the sum of the slab and adsorbate atoms."
-            )
 
-        relaxer = RelaxCalc(
-            calculator=self.calculator,
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            relax_cell=False,
-            relax_atoms=True,
-            optimizer=self.optimizer,
-            **(self.relax_calc_kwargs or {}),
-        )
-        adslab_opt = relaxer.calc(adslab)
-        final_adslab = adslab_opt["final_structure"]
-        adslab_energy = adslab_opt["energy"]
+        adslab_atoms = to_ase_atoms(adslab)
+        adslab_atoms.calc = self.calculator
+        opt = get_ase_optimizer(self.optimizer)(adslab_atoms)  # type:ignore[operator]
+        opt.run(fmax=self.fmax, steps=self.max_steps)
+        final_adslab = to_pmg_structure(adslab_atoms)
+        adslab_energy = adslab_atoms.get_potential_energy()
 
         ads_energy = (
             adslab_energy - n_slab_atoms * result_dict["slab_energy_per_atom"] - result_dict["adsorbate_energy"]
