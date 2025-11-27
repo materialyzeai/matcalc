@@ -206,7 +206,7 @@ module = ["requests.*", "tabulate.*"]
 ignore_missing_imports = true
 
 [tool.codespell]
-ignore-words-list = "mater,te,nd,Commun"
+ignore-words-list = "mater,te,nd,Commun,ontop"
 check-filenames = true
 
 [tool.coverage.run]

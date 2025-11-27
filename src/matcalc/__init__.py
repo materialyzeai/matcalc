@@ -9,6 +9,7 @@ try:
 except PackageNotFoundError:
     pass  # package not installed
 
+from ._adsorption import AdsorptionCalc
 from ._base import ChainedCalc, PropCalc
 from ._elasticity import ElasticityCalc
 from ._eos import EOSCalc

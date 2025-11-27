@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from ase import Atoms
 from ase.calculators.calculator import Calculator
-from pymatgen.core import Structure
+from pymatgen.core import Molecule, Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from .units import eVA3ToGPa
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
     from maml.apps.pes import LMPStaticCalculator
     from pyace.basis import ACEBBasisSet, ACECTildeBasisSet, BBasisConfiguration
-    from pymatgen.core import IStructure
+    from pymatgen.core import IMolecule, IStructure
 
 
 # Listing of supported universal calculators.
@@ -435,7 +435,7 @@ class PESCalculator(Calculator):
         return result
 
 
-def to_ase_atoms(structure: Atoms | Structure) -> Atoms:
+def to_ase_atoms(structure: Atoms | Structure | Molecule) -> Atoms:
     """
     Converts a given structure into an ASE Atoms object. This function checks
     if the input structure is already an ASE Atoms object. If not, it converts
@@ -466,3 +466,24 @@ def to_pmg_structure(structure: Atoms | Structure) -> Structure:
     :rtype: Structure
     """
     return structure if isinstance(structure, Structure) else AseAtomsAdaptor.get_structure(structure)  # type: ignore[return-value]
+
+
+def to_pmg_molecule(structure: Atoms | Structure | Molecule | IMolecule) -> IMolecule:
+    """
+    Converts a given structure of type Atoms or Structure into a Molecule
+    object. If the input structure is already of type Molecule, it is
+    returned unchanged. If the input structure is of type Atoms, it is
+    converted to a Molecule using the AseAtomsAdaptor.
+
+    :param structure: The input structure to be converted. This can be of
+        type Atoms or Structure or Molecule.
+    :type structure: Atoms | Structure | Molecule
+    :return: A Molecule object corresponding to the input structure. If the
+        input is already a Molecule, it is returned as-is. Otherwise, it is
+        converted.
+    :rtype: Molecule
+    """
+    if isinstance(structure, Atoms):
+        structure = AseAtomsAdaptor.get_molecule(structure)
+
+    return Molecule.from_sites(structure)  # type: ignore[return-value]
