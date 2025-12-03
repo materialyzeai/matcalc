@@ -12,6 +12,7 @@ except PackageNotFoundError:
 from ._base import ChainedCalc, PropCalc
 from ._elasticity import ElasticityCalc
 from ._eos import EOSCalc
+from ._gb import GBCalc
 from ._lammps import LAMMPSMDCalc
 from ._md import MDCalc
 from ._neb import MEP, NEBCalc
