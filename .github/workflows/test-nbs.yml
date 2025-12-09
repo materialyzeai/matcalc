@@ -7,9 +7,9 @@ on:
   pull_request:
     branches: [main]
     paths: ["examples/*.ipynb"]
-  release:
+  release: # This workflow is only ran on releases.
     types: [published]
-  workflow_call:
+  workflow_call: # make this workflow reusable by release.yml
   workflow_dispatch:
     inputs:
       task:
@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: docker.io/materialsvirtuallab/lammps_gnnp
+
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
       PMG_MAPI_KEY: ${{ secrets.PMG_MAPI_KEY }}
