@@ -59,12 +59,6 @@ def Si_atoms() -> Atoms:
 
 
 @pytest.fixture(scope="session")
-def m3gnet_calculator() -> PESCalculator:
-    """M3GNet calculator as session-scoped fixture."""
-    return PESCalculator.load_matgl("M3GNet-MP-2021.2.8-PES")
-
-
-@pytest.fixture(scope="session")
 def matpes_calculator() -> PESCalculator:
     """TensorNet calculator as session-scoped fixture."""
     return matcalc.load_fp("TensorNet-MatPES-PBE-v2025.1-PES")

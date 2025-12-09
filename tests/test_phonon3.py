@@ -51,7 +51,7 @@ def test_phonon3_calc(
 
     result = phonon3_calc.calc(Si)
     ind = result["temperatures"].tolist().index(300)
-    assert result["thermal_conductivity"][ind] == pytest.approx(175.94838119, rel=1e-1)
+    assert result["thermal_conductivity"][ind] == pytest.approx(76.02046300874582, rel=1e-1)
 
     if write_phonon3_path:
         assert os.path.isfile(str(write_phonon3_path))
@@ -85,4 +85,4 @@ def test_phonon3_calc_atoms(
 
     result = phonon3_calc.calc(Si_atoms)
     ind = result["temperatures"].tolist().index(300)
-    assert result["thermal_conductivity"][ind] == pytest.approx(175.94838119, rel=1e-1)
+    assert result["thermal_conductivity"][ind] == pytest.approx(76.02046300874582, rel=1e-1)

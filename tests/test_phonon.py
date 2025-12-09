@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 )
 def test_phonon_calc(
     Li2O: Structure,
-    m3gnet_calculator: PESCalculator,
+    matpes_calculator: PESCalculator,
     tmp_path: Path,
     force_const_file: str,
     band_struct_file: str,
@@ -46,7 +46,7 @@ def test_phonon_calc(
         "write_phonon": phonon_yaml,
     }
     phonon_calc = PhononCalc(
-        calculator=m3gnet_calculator,
+        calculator=matpes_calculator,
         supercell_matrix=((2, 0, 0), (0, 2, 0), (0, 0, 2)),
         fmax=0.1,
         t_step=50,
@@ -79,11 +79,11 @@ def test_phonon_calc(
 
 def test_phonon_calc_atoms(
     Si_atoms: Atoms,
-    m3gnet_calculator: PESCalculator,
+    matpes_calculator: PESCalculator,
 ) -> None:
     """Tests for PhononCalc class"""
     phonon_calc = PhononCalc(
-        calculator=m3gnet_calculator,
+        calculator=matpes_calculator,
         supercell_matrix=((2, 0, 0), (0, 2, 0), (0, 0, 2)),
         fmax=0.1,
         t_step=50,
