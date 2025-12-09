@@ -197,7 +197,7 @@ class PhononCalc(PropCalc):
         phonon.run_mesh()
         phonon.run_thermal_properties(t_step=self.t_step, t_max=self.t_max, t_min=self.t_min)
         if self.write_force_constants:
-            write_force_constants(phonon.force_constants, filename=self.write_force_constants)
+            write_force_constants(phonon.force_constants, filename=self.write_force_constants)  # type: ignore[arg-type]
         if self.write_band_structure:
             phonon.auto_band_structure(write_yaml=True, filename=self.write_band_structure)
         if self.write_total_dos:

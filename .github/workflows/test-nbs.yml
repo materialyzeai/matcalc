@@ -21,18 +21,21 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    container:
+      image: docker.io/materialsvirtuallab/lammps_gnnp
+
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
       PMG_MAPI_KEY: ${{ secrets.PMG_MAPI_KEY }}
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Install dependencies
         run: |
           pip install dgl==2.4.0 -f https://data.dgl.ai/wheels/torch-2.4/repo.html
           pip install -e '.[ci]'
 
       - name: Execute all notebook examples
-        # Ensures that all notebooks are still functioning as intended.
         run: |
           pytest --nbmake --nbmake-timeout=2000 examples/*.ipynb

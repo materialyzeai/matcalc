@@ -9,10 +9,12 @@ try:
 except PackageNotFoundError:
     pass  # package not installed
 
+from ._adsorption import AdsorptionCalc
 from ._base import ChainedCalc, PropCalc
 from ._elasticity import ElasticityCalc
 from ._eos import EOSCalc
 from ._gb import GBCalc
+from ._interface import InterfaceCalc
 from ._lammps import LAMMPSMDCalc
 from ._md import MDCalc
 from ._neb import MEP, NEBCalc

@@ -53,6 +53,12 @@ def Si() -> Structure:
 
 
 @pytest.fixture(scope="session")
+def SiO2() -> Structure:
+    """SiO2 structure as session-scoped fixture."""
+    return PymatgenTest.get_structure("SiO2")
+
+
+@pytest.fixture(scope="session")
 def Si_atoms() -> Atoms:
     """Si atoms as session-scoped fixture."""
     return to_ase_atoms(PymatgenTest.get_structure("Si"))
