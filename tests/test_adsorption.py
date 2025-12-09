@@ -69,7 +69,7 @@ def test_adsorption_calc_slab_inputs(
     Pt_slab: Slab,
     CO2: Molecule,
     Pt_adslab: Structure,
-    m3gnet_calculator: PESCalculator,
+    matpes_calculator: PESCalculator,
     test_input: dict,
     expected: tuple[float, float],
 ) -> None:
@@ -82,7 +82,7 @@ def test_adsorption_calc_slab_inputs(
     } | test_input
 
     ad_calc = AdsorptionCalc(
-        calculator=m3gnet_calculator,
+        calculator=matpes_calculator,
         relax_slab=False,
         relax_bulk=False,
         relax_adsorbate=False,
@@ -102,7 +102,7 @@ def test_adsorption_calc_slab_inputs(
 def test_adsorption_calc_adslabs(
     Pt_bulk: Slab,
     CO2: Molecule,
-    m3gnet_calculator: PESCalculator,
+    matpes_calculator: PESCalculator,
     relax_slab: bool,  # noqa: FBT001
     relax_bulk: bool,  # noqa: FBT001
     relax_adsorbate: bool,  # noqa: FBT001
@@ -110,7 +110,7 @@ def test_adsorption_calc_adslabs(
 ) -> None:
     """Test adsorption calculation over multiple adsorption sites."""
     ad_calc = AdsorptionCalc(
-        calculator=m3gnet_calculator,
+        calculator=matpes_calculator,
         relax_slab=relax_slab,
         relax_bulk=relax_bulk,
         relax_adsorbate=relax_adsorbate,
