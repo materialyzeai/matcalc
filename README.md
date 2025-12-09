@@ -177,8 +177,8 @@ Docker images with MatCalc and LAMMPS support are available at the [Materials Vi
 
 ## Tutorials
 
-Anubhav Jain (@computron) has created a nice [YouTube tutorial](https://youtu.be/57Elhe4IIhI?si=KbZh5s7HAyNGvmFT) on how to use MatCalc to quickly obtain properties
-of materials.
+Anubhav Jain (@computron) has created a nice [YouTube tutorial](https://youtu.be/57Elhe4IIhI?si=KbZh5s7HAyNGvmFT) on
+how to use MatCalc to quickly obtain properties of materials.
 
 ## Citing
 

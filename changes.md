@@ -6,6 +6,16 @@ nav_order: 2
 
 # Change Log
 
+## v0.4.5
+1. **PR #117 Add `InterfaceCalc` Class for Interface Structure and Energy Calculation**
+   - Author: @so2koo
+   - Description: Introduces `InterfaceCalc` for calculating interface structures and energies, similar to `SurfaceCalc`. Utilizes `pymatgen CoherentInterfaceBuilder` to generate interface structures from two different bulk structures. Employs `RelaxCalc` for structure relaxation and determines the lowest interface energy.
+   - Todos: Further work may be needed if this is a work in progress.
+2. **PR #118 Add `AdsorptionCalc` Class for Adsorption Energy Calculation**
+   - Author: @mkphuthi
+   - Description: Adds `AdsorptionCalc` for calculating adsorption energy of single molecules on surfaces. Capabilities include generating slabs with `SlabGenerator`, placing adsorbates with `AdsorbateSitefinder`, and directly supplying an adslab. Features include calculation of adsorption energies, support for customizable relaxation via `RelaxCalc` and ASE optimizers, extensive documentation, and type hints.
+   - Todos: Some unrelated tests need to be fixed.
+
 ## v0.4.4
 1. More data-efficient MEP class for storing NEB results.
 
