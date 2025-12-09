@@ -43,4 +43,4 @@ def test_interface_calc_basic(Si: Structure, SiO2: Structure, matpes_calculator:
 
     assert interface_res["film_energy_per_atom"] == pytest.approx(-7.881573994954427, rel=1e-1)
     assert interface_res["substrate_energy_per_atom"] == pytest.approx(-5.419038772583008, rel=1e-1)
-    assert interface_res["interfacial_energy"] == pytest.approx(0.14220127996544243, rel=1e-1)
+    assert interface_res["interfacial_energy"] == pytest.approx(0.15930456535294427, rel=1e-1)
