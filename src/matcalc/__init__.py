@@ -15,7 +15,7 @@ from ._eos import EOSCalc
 from ._gb import GBCalc
 from ._lammps import LAMMPSMDCalc
 from ._md import MDCalc
-from ._neb import NEBCalc
+from ._neb import MEP, NEBCalc
 from ._phonon import PhononCalc
 from ._phonon3 import Phonon3Calc
 from ._qha import QHACalc

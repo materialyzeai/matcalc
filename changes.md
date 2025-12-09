@@ -6,6 +6,9 @@ nav_order: 2
 
 # Change Log
 
+## v0.4.4
+1. More data-efficient MEP class for storing NEB results.
+
 ## v0.4.3
 1. **PR #102 fix:** add `required-environments` to enable Linux install by @MorrowChem
 2. **PR #97:** Make it possible to set COM momentum and/or rotation to zero in `MDCalc` by @Andrew-S-Rosen

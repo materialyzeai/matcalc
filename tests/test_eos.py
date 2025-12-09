@@ -18,14 +18,14 @@ if TYPE_CHECKING:
 def test_eos_calc(
     Li2O: Structure,
     LiFePO4: Structure,
-    m3gnet_calculator: PESCalculator,
+    matpes_calculator: PESCalculator,
 ) -> None:
     """Tests for EOSCalc class"""
     # Note that the fmax is probably too high. This is for testing purposes only.
-    eos_calc = EOSCalc(m3gnet_calculator, fmax=0.1, relax_calc_kwargs={"cell_filter": ExpCellFilter})
+    eos_calc = EOSCalc(matpes_calculator, fmax=0.1, relax_calc_kwargs={"cell_filter": ExpCellFilter})
     result = eos_calc.calc(Li2O)
 
-    assert result["bulk_modulus_bm"] == pytest.approx(65.57980045603279, rel=1e-1)
+    assert result["bulk_modulus_bm"] == pytest.approx(80.24729086994387, rel=1e-1)
     assert {*result["eos"]} == {"volumes", "energies"}
     assert result["eos"]["volumes"] == pytest.approx(
         [
@@ -45,33 +45,33 @@ def test_eos_calc(
     )
     assert result["eos"]["energies"] == pytest.approx(
         [
-            -13.536165237426758,
-            -13.774382591247559,
-            -13.94670295715332,
-            -14.081623077392578,
-            -14.15695858001709,
-            -14.176712989807129,
-            -14.155570030212402,
-            -14.104430198669434,
-            -14.030168533325195,
-            -13.936813354492188,
-            -13.826214790344238,
+            -13.237542152404785,
+            -13.61134147644043,
+            -13.849345207214355,
+            -13.988920211791992,
+            -14.05781078338623,
+            -14.077228546142578,
+            -14.057827949523926,
+            -14.006065368652344,
+            -13.925064086914062,
+            -13.817656517028809,
+            -13.688666343688965,
         ],
         rel=1e-3,
     )
-    eos_calc = EOSCalc(m3gnet_calculator, relax_structure=False)
+    eos_calc = EOSCalc(matpes_calculator, relax_structure=False)
     results = list(eos_calc.calc_many([Li2O, LiFePO4]))
     assert len(results) == 2
-    assert results[1]["bulk_modulus_bm"] == pytest.approx(54.5953851822073, rel=1e-1)
+    assert results[1]["bulk_modulus_bm"] == pytest.approx(69.10044665311513, rel=1e-1)
 
 
 def test_eos_calc_atoms(
     Si_atoms: Atoms,
-    m3gnet_calculator: PESCalculator,
+    matpes_calculator: PESCalculator,
 ) -> None:
     """Tests for EOSCalc class"""
     # Note that the fmax is probably too high. This is for testing purposes only.
-    eos_calc = EOSCalc(m3gnet_calculator, fmax=0.1, relax_structure=False)
+    eos_calc = EOSCalc(matpes_calculator, fmax=0.1, relax_structure=False)
     result = eos_calc.calc(Si_atoms)
 
     assert result["bulk_modulus_bm"] == pytest.approx(87.31159138735727, rel=1e-1)

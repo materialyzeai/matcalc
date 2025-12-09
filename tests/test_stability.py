@@ -23,8 +23,8 @@ def test_energetics_calc(
         "cohesive_energy_per_atom",
     ):
         assert key in result, f"{key=} not in result"
-    assert result["formation_energy_per_atom"] == pytest.approx(-1.8243033091227214, rel=1e-3)
-    assert result["cohesive_energy_per_atom"] == pytest.approx(-4.047695591427408, rel=1e-3)
+    assert result["formation_energy_per_atom"] == pytest.approx(-1.803759495417277, rel=1e-3)
+    assert result["cohesive_energy_per_atom"] == pytest.approx(-3.97813108998291, rel=1e-3)
 
     # Note that the value differs from MP primarily because of the correction. A correction of -0.70 eV is applied to
     # each O atom, which accounts almost entirely for the difference between this predicted formation energy and the
@@ -37,8 +37,8 @@ def test_energetics_calc(
         "cohesive_energy_per_atom",
     ):
         assert key in result, f"{key=} not in result"
-    assert result["formation_energy_per_atom"] == pytest.approx(-1.840031293927409, rel=1e-3)
-    assert result["cohesive_energy_per_atom"] == pytest.approx(-4.047695591427408, rel=1e-3)
+    assert result["formation_energy_per_atom"] == pytest.approx(-1.7704667924829103, rel=1e-3)
+    assert result["cohesive_energy_per_atom"] == pytest.approx(-3.97813108998291, rel=1e-3)
 
 
 def test_energetics_calc_element_atoms(

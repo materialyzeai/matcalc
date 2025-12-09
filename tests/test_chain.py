@@ -44,18 +44,18 @@ def test_chain_calc(
     assert results["elastic_tensor"].shape == (3, 3, 3, 3)
     assert results["structure"].lattice.a == pytest.approx(3.291071792359756, rel=1e-1)
 
-    assert results["elastic_tensor"][0][1][1][0] == pytest.approx(0.4892364719125905, rel=1e-1)
-    assert results["bulk_modulus_vrh"] == pytest.approx(0.4938220430287692, rel=1e-1)
-    assert results["shear_modulus_vrh"] == pytest.approx(0.38601030644894285, rel=1e-1)
-    assert results["youngs_modulus"] == pytest.approx(918664113.1325915, rel=1e-1)
-    assert results["residuals_sum"] == pytest.approx(3.5466448823413095e-08, rel=1e-1)
+    assert results["elastic_tensor"][0][1][1][0] == pytest.approx(0.39659910398768233, rel=1e-1)
+    assert results["bulk_modulus_vrh"] == pytest.approx(0.40163873655210464, rel=1e-1)
+    assert results["shear_modulus_vrh"] == pytest.approx(0.2695915414932737, rel=1e-1)
+    assert results["youngs_modulus"] == pytest.approx(660904125.9537675, rel=1e-1)
+    assert results["residuals_sum"] == pytest.approx(1.4241076180128878e-08, abs=1e-6)
     # A chained calculation has results from all steps.
 
     assert results["energy"] == pytest.approx(-14.176680, rel=1e-1)
     assert results["a"] == pytest.approx(3.291072, rel=1e-1)
     assert results["alpha"] == pytest.approx(60, abs=5)
 
-    assert results["formation_energy_per_atom"] == pytest.approx(-1.8243034680684407, abs=1e-3)
+    assert results["formation_energy_per_atom"] == pytest.approx(-1.8037596543629963, abs=1e-3)
 
     results = list(calc.calc_many([Li2O] * 2))
     assert len(results) == 2

@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 )
 def test_qha_calc(
     Li2O: Structure,
-    m3gnet_calculator: PESCalculator,
+    matpes_calculator: PESCalculator,
     tmp_path: Path,
     helmholtz_file: str,
     volume_temp_file: str,
@@ -82,7 +82,7 @@ def test_qha_calc(
 
     # Initialize QHACalc
     qha_calc = QHACalc(
-        calculator=m3gnet_calculator,
+        calculator=matpes_calculator,
         t_step=50,
         t_max=1000,
         scale_factors=[0.97, 0.98, 0.99, 1.00, 1.01, 1.02, 1.03],
@@ -96,9 +96,18 @@ def test_qha_calc(
         [23.07207, 23.79302, 24.52884, 25.27967, 26.04567, 26.82699, 27.62378],
         rel=1e-3,
     )
+
     assert result["electronic_energies"] == pytest.approx(
-        [-14.12540, -14.15696, -14.17359, -14.17671, -14.17039, -14.15557, -14.13327],
-        rel=1e-3,
+        [
+            -14.043658256530762,
+            -14.065637588500977,
+            -14.07603645324707,
+            -14.07599925994873,
+            -14.066689491271973,
+            -14.048959732055664,
+            -14.023341178894043,
+        ],
+        abs=1e-2,
     )
 
     # Test values at 300 K
@@ -107,7 +116,7 @@ def test_qha_calc(
     assert result["gibbs_free_energies"][ind] == pytest.approx(-14.04472, rel=1e-1)
     assert result["bulk_modulus_P"][ind] == pytest.approx(54.25954, rel=1e-1)
     assert result["heat_capacity_P"][ind] == pytest.approx(62.27455, rel=1e-1)
-    assert result["gruneisen_parameters"][ind] == pytest.approx(1.49330, rel=1e-1)
+    assert result["gruneisen_parameters"][ind] == pytest.approx(1.688877575687573, rel=1e-1)
 
     qha_calc_params = inspect.signature(QHACalc).parameters
     # get all keywords starting with write_ and their default values
@@ -123,13 +132,13 @@ def test_qha_calc(
 
 def test_qha_calc_atoms(
     Si_atoms: Atoms,
-    m3gnet_calculator: PESCalculator,
+    matpes_calculator: PESCalculator,
 ) -> None:
     """Tests for QHACalc class."""
 
     # Initialize QHACalc
     qha_calc = QHACalc(
-        calculator=m3gnet_calculator,
+        calculator=matpes_calculator,
         t_step=50,
         t_max=1000,
         scale_factors=[0.97, 0.98, 0.99, 1.00, 1.01, 1.02, 1.03],
@@ -139,4 +148,4 @@ def test_qha_calc_atoms(
 
     # Test values at 300 K
     ind = result["temperatures"].tolist().index(300)
-    assert result["thermal_expansion_coefficients"][ind] == pytest.approx(1.1186261906022136e-05, rel=1e-1)
+    assert result["thermal_expansion_coefficients"][ind] == pytest.approx(5.191273165438463e-06, rel=1e-1)

@@ -28,12 +28,12 @@ def test_calculate_property(LiFePO4: Structure) -> None:
     with ScratchDir(".") as _:
         cif_file = "cli_test.cif"
         LiFePO4.to(filename=cif_file)
-        a = args("M3GNet", "ElasticityCalc", [cif_file], "CLI.json")
+        a = args("TensorNet", "ElasticityCalc", [cif_file], "CLI.json")
         calculate_property(a)
 
         assert os.path.exists(a.outfile)
 
-        a = args("M3GNet", "BadCalc", ["cli_test.cif"], "CLI.json")
+        a = args("TensorNet", "BadCalc", ["cli_test.cif"], "CLI.json")
         with pytest.raises(KeyError):
             calculate_property(a)
 

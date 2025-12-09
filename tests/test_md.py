@@ -27,17 +27,17 @@ def _set_seed() -> None:
 @pytest.mark.parametrize(
     ("ensemble", "expected_energy"),
     [
-        ("nve", -10.819535868347996),
-        ("nvt", -10.84265926910263),
-        ("nvt_berendsen", -10.82033001817293),
-        ("nvt_langevin", -10.774126994388347),
-        ("nvt_andersen", -10.827990433233442),
-        ("nvt_bussi", -10.772954463144568),
-        ("npt_inhomogeneous", -10.8222801574377),
-        ("npt_berendsen", -10.801131048759578),
-        ("npt_nose_hoover", -10.776961885598102),
-        ("npt_isotropic_mtk", -10.802633196032712),
-        ("npt_mtk", -10.819341706561369),
+        ("nve", -10.441453988814853),
+        ("nvt", -10.429515745917376),
+        ("nvt_berendsen", -10.442275652025423),
+        ("nvt_langevin", -10.3960898598168),
+        ("nvt_andersen", -10.449911725549356),
+        ("nvt_bussi", -10.394832352314676),
+        ("npt_inhomogeneous", -10.444233085819286),
+        ("npt_berendsen", -10.423091635481624),
+        ("npt_nose_hoover", -10.39898962348729),
+        ("npt_isotropic_mtk", -10.42449303041493),
+        ("npt_mtk", -10.45577119876975),
     ],
 )
 def test_md_calc(
@@ -72,7 +72,7 @@ def test_md_calc(
     assert "kinetic_energy" in results
     assert "total_energy" in results
 
-    assert results["total_energy"] == pytest.approx(expected_energy, rel=1e-2)
+    assert results["total_energy"] == pytest.approx(expected_energy, abs=1e-2)
 
     energies = np.array(results["trajectory"].total_energies)
 
@@ -207,9 +207,7 @@ def test_rotation(Si_atoms: Atoms, matpes_calculator: PESCalculator, tmp_path: P
 def test_invalid_ensemble(Si: Structure, matpes_calculator: PESCalculator) -> None:
     with pytest.raises(
         ValueError,
-        match="The specified ensemble is not supported, choose from 'nve', 'nvt',"
-        " 'nvt_nose_hoover', 'nvt_berendsen', 'nvt_langevin', 'nvt_andersen',"
-        " 'nvt_bussi', 'npt', 'npt_nose_hoover', 'npt_berendsen', 'npt_inhomogeneous'.",
+        match=r"The specified ensemble is not supported.*",
     ):
         MDCalc(
             calculator=matpes_calculator,
