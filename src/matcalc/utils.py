@@ -32,7 +32,6 @@ _universal_calculators = [
     "SevenNet",
     "TensorNet",
     "GRACE",
-    "TensorPotential",
     "ORB",
     "PBE",
     "r2SCAN",
@@ -53,13 +52,51 @@ try:
 except Exception:  # noqa: BLE001
     warnings.warn("Unable to get pre-trained MatGL universal calculators.", stacklevel=1)
 
-# Provide simple aliases for some common models. The key in MODEL_ALIASES must be lower case.
+# Different backend libraries (MatGL, MACE, GRACE, etc.) use
+# inconsistent or non-canonical model names (e.g., "small-omat-0",
+# "TensorNet-MatPES-PBE-v2025.1-PES", "GRACE-1L-OMAT-medium-base").
+
+# Users and developers are encouraged to use the model naming convention below.
+# MatCalc Model Naming Convention (Unified model ID format):
+# [Model]-(#Layers)-[Dataset]-(Functional)-(Cutoff)-(Version)-(Size)-(Postprocess)
+# Not all fields must appear.
+
+# Examples:
+# TensorNet-MatPES-PBE-v2025.1-PES
+# MACE-MP-0-medium
+# GRACE-1L-MP-r6
+# GRACE-1L-OMAT-medium-base
+# GRACE-2L-OMAT-large-ft-AM
+
+# This table maps such identifiers into the backend model names that
+# each library expects.
+
+# This tabel will be gradually expanded as new models are released.
+
+# Keys must be lowercase and represent canonical identifiers
+# Values are the actual model names passed to the backend libraries.
+
 MODEL_ALIASES = {
+    # Using abbreviations will load the most advanced model.
     "tensornet": "TensorNet-MatPES-PBE-v2025.1-PES",
     "m3gnet": "M3GNet-MatPES-PBE-v2025.1-PES",
     "chgnet": "CHGNet-MatPES-PBE-2025.2.10-2.7M-PES",
+    "mace": "medium-mpa-0",
+    "grace": "GRACE-2L-OAM",
     "pbe": "TensorNet-MatPES-PBE-v2025.1-PES",
     "r2scan": "TensorNet-MatPES-r2SCAN-v2025.1-PES",
+    "mace-mp-0-small": "small",
+    "mace-mp-0-medium": "medium",
+    "mace-mp-0-large": "large",
+    "mace-mp-0b-small": "small-0b",
+    "mace-mp-0b-medium": "medium-0b",
+    "mace-mp-0b2-small": "small-0b2",
+    "mace-mp-0b2-medium": "medium-0b2",
+    "mace-mp-0b2-large": "large-0b2",
+    "mace-mp-0b3-medium": "medium-0b3",
+    "mace-mpa-0-medium": "medium-mpa-0",
+    "mace-omat-0-small": "small-omat-0",
+    "mace-omat-0-medium": "medium-omat-0",
 }
 
 
@@ -373,21 +410,22 @@ class PESCalculator(Calculator):
             name = MODEL_ALIASES.get(name.lower(), name)
             result = PESCalculator.load_matgl(name, **kwargs)
 
-        elif name.lower() == "mace":
+        elif name.lower().startswith("mace"):
+            name = MODEL_ALIASES.get(name.lower(), name)
             from mace.calculators import mace_mp
 
-            result = mace_mp(**kwargs)
+            result = mace_mp(model=name, **kwargs)
 
         elif name.lower() == "sevennet":
             from sevenn.calculator import SevenNetCalculator
 
             result = SevenNetCalculator(**kwargs)
 
-        elif name.lower() == "grace" or name.lower() == "tensorpotential":
+        elif name.lower().startswith("grace"):
+            name = MODEL_ALIASES.get(name.lower(), name)
             from tensorpotential.calculator.foundation_models import grace_fm
 
-            kwargs.setdefault("model", "GRACE-2L-OAM")
-            result = grace_fm(**kwargs)
+            result = grace_fm(model=name, **kwargs)
 
         elif name.lower() == "orb":
             from orb_models.forcefield.calculator import ORBCalculator

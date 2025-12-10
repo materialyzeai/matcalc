@@ -178,7 +178,61 @@ def test_pescalculator_calculate() -> None:
 
 def test_aliases() -> None:
     # Ensures that model aliases always point to valid models.
-    names = [u.name for u in UNIVERSAL_CALCULATORS]
+    names = {u.name for u in UNIVERSAL_CALCULATORS}
+    if find_spec("mace"):
+        from mace.calculators.foundations_models import mace_mp_names
+
+        mace_models = set(mace_mp_names)
+    else:
+        # This set is from https://github.com/ACEsuit/mace/blob/main/mace/calculators/foundations_models.py#L37
+        mace_models = {
+            "small",
+            "medium",
+            "large",
+            "small-0b",
+            "medium-0b",
+            "small-0b2",
+            "medium-0b2",
+            "large-0b2",
+            "medium-0b3",
+            "medium-mpa-0",
+            "small-omat-0",
+            "medium-omat-0",
+            "mace-matpes-pbe-0",
+            "mace-matpes-r2scan-0",
+            "mh-0",
+            "mh-1",
+        }
+    if find_spec("tensorpotential"):
+        from tensorpotential.calculator.foundation_models import MODELS_METADATA
+
+        grace_models = set(MODELS_METADATA.keys())
+    else:
+        # This set is from https://github.com/ICAMS/grace-tensorpotential/blob/master/tensorpotential/calculator/foundation_models.py#L46
+        grace_models = {
+            "GRACE-1L-MP-r6",
+            "GRACE-2L-MP-r5",
+            "GRACE-2L-MP-r6",
+            "GRACE-FS-OAM",
+            "GRACE-1L-OAM",
+            "GRACE-2L-OAM",
+            "GRACE-FS-OMAT",
+            "GRACE-1L-OMAT",
+            "GRACE-2L-OMAT",
+            "GRACE-1L-OMAT-medium-base",
+            "GRACE-1L-OMAT-medium-ft-E",
+            "GRACE-1L-OMAT-medium-ft-AM",
+            "GRACE-1L-OMAT-large-base",
+            "GRACE-1L-OMAT-large-ft-E",
+            "GRACE-1L-OMAT-large-ft-AM",
+            "GRACE-2L-OMAT-medium-base",
+            "GRACE-2L-OMAT-medium-ft-E",
+            "GRACE-2L-OMAT-medium-ft-AM",
+            "GRACE-2L-OMAT-large-base",
+            "GRACE-2L-OMAT-large-ft-E",
+            "GRACE-2L-OMAT-large-ft-AM",
+        }
+    names = names | mace_models | grace_models
     for v in MODEL_ALIASES.values():
         # We are not testing DGL based models.
         if "M3GNet" not in v and "CHGNet" not in v:
