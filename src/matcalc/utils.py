@@ -58,12 +58,13 @@ except Exception:  # noqa: BLE001
 
 # Users and developers are encouraged to use the model naming convention below.
 # MatCalc Model Naming Convention (Unified model ID format):
-# [Model]-(#Layers)-[Dataset]-(Functional)-(Version)-(Size)-(Postprocess)
+# [Model]-(#Layers)-[Dataset]-(Functional)-(Cutoff)-(Version)-(Size)-(Postprocess)
 # Not all fields must appear.
 
 # Examples:
 # TensorNet-MatPES-PBE-v2025.1-PES
 # MACE-MP-0-medium
+# GRACE-1L-MP-r6
 # GRACE-1L-OMAT-medium-base
 # GRACE-2L-OMAT-large-ft-AM
 
