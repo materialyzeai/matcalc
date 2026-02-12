@@ -345,9 +345,11 @@ class QHACalc(PropCalc):
             volumes=volumes,
             electronic_energies=electronic_energies,
             temperatures=temperatures,
-            free_energy=np.transpose(free_energies),
-            cv=np.transpose(heat_capacities),
-            entropy=np.transpose(entropies),
+            # Transpose thermal properties to convert from (volumes x temperatures) to
+            # (temperatures x volumes) format expected by PhonopyQHA
+            free_energy=np.transpose(np.asarray(free_energies)),
+            cv=np.transpose(np.asarray(heat_capacities)),
+            entropy=np.transpose(np.asarray(entropies)),
             pressure=pressure,
             eos=self.eos,
             t_max=self.t_max,
