@@ -232,12 +232,10 @@ class QHACalc(PropCalc):
         structure_in: Structure = result["final_structure"]
 
         if self.relax_structure:
-            relaxer = RelaxCalc(
-                self.calculator,
-                fmax=self.fmax,
-                optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
+            relax_calc_kwargs = {"fmax": self.fmax, "optimizer": self.optimizer, "max_steps": 5000} | (
+                self.relax_calc_kwargs or {}
             )
+            relaxer = RelaxCalc(self.calculator, **relax_calc_kwargs)
             result |= relaxer.calc(structure_in)
             structure_in = result["final_structure"]
 
@@ -306,15 +304,17 @@ class QHACalc(PropCalc):
         Returns:
             Dictionary of thermal properties containing free energies, entropies and heat capacities.
         """
+        phonon_calc_kwargs = {
+            "t_step": self.t_step,
+            "t_max": self.t_max,
+            "t_min": self.t_min,
+            "relax_structure": True,
+            "relax_calc_kwargs": {"relax_cell": False},
+            "write_phonon": False,
+        } | (self.phonon_calc_kwargs or {})
         phonon_calc = PhononCalc(
             self.calculator,
-            t_step=self.t_step,
-            t_max=self.t_max,
-            t_min=self.t_min,
-            relax_structure=True,
-            relax_calc_kwargs={"relax_cell": False},
-            write_phonon=False,
-            **(self.phonon_calc_kwargs or {}),
+            **phonon_calc_kwargs,
         )
         return phonon_calc.calc(structure)["thermal_properties"]
 

@@ -179,9 +179,10 @@ class PhononCalc(PropCalc):
         structure_in: Structure = result["final_structure"]
 
         if self.relax_structure:
-            relaxer = RelaxCalc(
-                self.calculator, fmax=self.fmax, optimizer=self.optimizer, **(self.relax_calc_kwargs or {})
+            relax_calc_kwargs = {"fmax": self.fmax, "optimizer": self.optimizer, "max_steps": 5000} | (
+                self.relax_calc_kwargs or {}
             )
+            relaxer = RelaxCalc(self.calculator, **relax_calc_kwargs)
             result |= relaxer.calc(structure_in)
             structure_in = result["final_structure"]
         cell = get_phonopy_structure(to_pmg_structure(structure_in))
