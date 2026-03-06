@@ -185,7 +185,6 @@ def test_qha_calc_atoms(
         t_max=1000,
         fmax=0.05,
         scale_factors=[0.97, 0.98, 0.99, 1.00, 1.01, 1.02, 1.03],
-        fmax=0.1,
     )
 
     result = qha_calc.calc(Si_atoms)
