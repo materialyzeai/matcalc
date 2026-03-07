@@ -55,6 +55,12 @@ class QHACalc(PropCalc):
     :type phonon_calc_kwargs: dict | None
     :ivar scale_factors: List of scale factors for lattice scaling.
     :type scale_factors: Sequence[float]
+    :ivar imaginary_freq_tol: Tolerance for imaginary frequency detection
+        in THz. Passed through to the internal PhononCalc instances. If set
+        to a float value, the calculator will raise a ValueError when
+        imaginary frequencies with magnitude exceeding this threshold are
+        found. A value of None (default) disables the check.
+    :type imaginary_freq_tol: float | None
     :ivar write_helmholtz_volume: Path or boolean to control saving Helmholtz free energy vs. volume data.
     :type write_helmholtz_volume: bool | str | Path
     :ivar write_volume_temperature: Path or boolean to control saving volume vs. temperature data.
@@ -91,6 +97,7 @@ class QHACalc(PropCalc):
         relax_calc_kwargs: dict | None = None,
         phonon_calc_kwargs: dict | None = None,
         scale_factors: Sequence[float] = tuple(np.arange(0.95, 1.05, 0.01)),
+        imaginary_freq_tol: float | None = None,
         write_helmholtz_volume: bool | str | Path = False,
         write_volume_temperature: bool | str | Path = False,
         write_thermal_expansion: bool | str | Path = False,
@@ -126,6 +133,10 @@ class QHACalc(PropCalc):
             phonon calculation routine.
         :param scale_factors: A sequence of scale factors for volume scaling during
             thermodynamic and phononic calculations.
+        :param imaginary_freq_tol: Tolerance for imaginary frequency detection in THz.
+            Passed through to internal PhononCalc instances. If a positive float, a ValueError
+            is raised when any imaginary frequency with magnitude exceeding this value is found.
+            Defaults to None, which means no check will be carried out.
         :param write_helmholtz_volume: Path, boolean, or string to indicate whether and where
             to save Helmholtz energy as a function of volume.
         :param write_volume_temperature: Path, boolean, or string to indicate whether and where
@@ -157,6 +168,7 @@ class QHACalc(PropCalc):
         self.relax_calc_kwargs = relax_calc_kwargs
         self.phonon_calc_kwargs = phonon_calc_kwargs
         self.scale_factors = scale_factors
+        self.imaginary_freq_tol = imaginary_freq_tol
         self.write_helmholtz_volume = write_helmholtz_volume
         self.write_volume_temperature = write_volume_temperature
         self.write_thermal_expansion = write_thermal_expansion
@@ -318,6 +330,7 @@ class QHACalc(PropCalc):
             "max_steps": self.max_steps,
             "relax_structure": True,
             "write_phonon": False,
+            "imaginary_freq_tol": self.imaginary_freq_tol,
         } | (self.phonon_calc_kwargs or {})
         # relax_cell=False is mandatory for QHA: merge user's relax_calc_kwargs but
         # always enforce fixed cell so the volume scan is not collapsed.

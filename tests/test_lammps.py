@@ -92,7 +92,7 @@ def test_invalid_ensemble(Si: Structure) -> None:
         ValueError,
         match=(
             "The specified ensemble is not supported, choose from 'nve', 'nvt',"
-            " 'nvt_nose_hoover', 'npt', 'npt_nose_hoover'."
+            r" 'nvt_nose_hoover', 'npt', 'npt_nose_hoover'."
         ),
     ):
         LAMMPSMDCalc(
