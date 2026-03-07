@@ -141,6 +141,7 @@ def test_qha_pressure(
         calculator=matpes_calculator,
         t_step=50,
         t_max=1000,
+        fmax=0.05,
         scale_factors=[0.97, 0.98, 0.99, 1.00, 1.01, 1.02, 1.03],
         pressure=10.0,
     )

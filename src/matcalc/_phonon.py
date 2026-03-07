@@ -90,7 +90,8 @@ class PhononCalc(PropCalc):
         t_step: float = 10,
         t_max: float = 1000,
         t_min: float = 0,
-        fmax: float = 0.05,
+        fmax: float = 1e-5,
+        max_steps: int = 5000,
         optimizer: str = "FIRE",
         relax_structure: bool = True,
         relax_calc_kwargs: dict | None = None,
@@ -111,6 +112,7 @@ class PhononCalc(PropCalc):
         :param t_max: Maximum temperature for thermal property calculations.
         :param t_min: Minimum temperature for thermal property calculations.
         :param fmax: Maximum force during structure relaxation, used as a convergence criterion.
+        :param max_steps: The maximum number of optimization steps to perform during the relaxation process.
         :param optimizer: Name of the optimization algorithm for structural relaxation.
         :param relax_structure: Flag to indicate whether structure relaxation should be performed before calculations.
         :param relax_calc_kwargs: Additional keyword arguments for relaxation phase calculations.
@@ -129,6 +131,7 @@ class PhononCalc(PropCalc):
         self.t_max = t_max
         self.t_min = t_min
         self.fmax = fmax
+        self.max_steps = max_steps
         self.optimizer = optimizer
         self.relax_structure = relax_structure
         self.relax_calc_kwargs = relax_calc_kwargs
@@ -179,9 +182,10 @@ class PhononCalc(PropCalc):
         structure_in: Structure = result["final_structure"]
 
         if self.relax_structure:
-            relaxer = RelaxCalc(
-                self.calculator, fmax=self.fmax, optimizer=self.optimizer, **(self.relax_calc_kwargs or {})
+            relax_calc_kwargs = {"fmax": self.fmax, "optimizer": self.optimizer, "max_steps": self.max_steps} | (
+                self.relax_calc_kwargs or {}
             )
+            relaxer = RelaxCalc(self.calculator, **relax_calc_kwargs)
             result |= relaxer.calc(structure_in)
             structure_in = result["final_structure"]
         cell = get_phonopy_structure(to_pmg_structure(structure_in))

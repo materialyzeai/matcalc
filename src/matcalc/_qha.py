@@ -10,7 +10,6 @@ from phonopy import PhonopyQHA
 from ._base import PropCalc
 from ._phonon import PhononCalc
 from ._relaxation import RelaxCalc
-from .backend import run_pes_calc
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -83,7 +82,8 @@ class QHACalc(PropCalc):
         t_step: float = 10,
         t_max: float = 1000,
         t_min: float = 0,
-        fmax: float = 0.05,
+        fmax: float = 1e-5,
+        max_steps: int = 5000,
         pressure: None | float = None,
         optimizer: str = "FIRE",
         eos: Literal["vinet", "birch_murnaghan", "murnaghan"] = "vinet",
@@ -113,6 +113,7 @@ class QHACalc(PropCalc):
         :param t_min: Minimum temperature for the calculations, given in units of K.
         :param pressure: Pressure to calculate thermochemistry at, given in units of GPa.
         :param fmax: Maximum force convergence criterion for structure relaxation, in force units.
+        :param max_steps: The maximum number of optimization steps during the relaxation.
         :param optimizer: Name of the optimizer to use for structure optimization, default is
             "FIRE".
         :param eos: Equation of state to use for calculating energy vs. volume relationships.
@@ -149,6 +150,7 @@ class QHACalc(PropCalc):
         self.t_min = t_min
         self.pressure = pressure
         self.fmax = fmax
+        self.max_steps = max_steps
         self.optimizer = optimizer
         self.eos = eos
         self.relax_structure = relax_structure
@@ -232,12 +234,10 @@ class QHACalc(PropCalc):
         structure_in: Structure = result["final_structure"]
 
         if self.relax_structure:
-            relaxer = RelaxCalc(
-                self.calculator,
-                fmax=self.fmax,
-                optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
+            relax_calc_kwargs = {"fmax": self.fmax, "optimizer": self.optimizer, "max_steps": self.max_steps} | (
+                self.relax_calc_kwargs or {}
             )
+            relaxer = RelaxCalc(self.calculator, **relax_calc_kwargs)
             result |= relaxer.calc(structure_in)
             structure_in = result["final_structure"]
 
@@ -276,8 +276,9 @@ class QHACalc(PropCalc):
         for scale_factor in self.scale_factors:
             struct = self._scale_structure(structure, scale_factor)
             volumes.append(struct.volume)
-            electronic_energies.append(run_pes_calc(struct, self.calculator).energy)
-            thermal_properties = self._calculate_thermal_properties(struct)
+            phonon_result = self._calculate_thermal_properties(struct)
+            electronic_energies.append(phonon_result["energy"])
+            thermal_properties = phonon_result["thermal_properties"]
             free_energies.append(thermal_properties["free_energy"])
             entropies.append(thermal_properties["entropy"])
             heat_capacities.append(thermal_properties["heat_capacity"])
@@ -304,19 +305,30 @@ class QHACalc(PropCalc):
             structure: Pymatgen structure for which the thermal properties are calculated.
 
         Returns:
-            Dictionary of thermal properties containing free energies, entropies and heat capacities.
+            Full result dict from PhononCalc, containing "energy" (eV, from the
+            volume-fixed ionic relaxation) and "thermal_properties" (free energies,
+            entropies and heat capacities).
         """
+        phonon_calc_kwargs = {
+            "t_step": self.t_step,
+            "t_max": self.t_max,
+            "t_min": self.t_min,
+            "fmax": self.fmax,
+            "optimizer": self.optimizer,
+            "max_steps": self.max_steps,
+            "relax_structure": True,
+            "write_phonon": False,
+        } | (self.phonon_calc_kwargs or {})
+        # relax_cell=False is mandatory for QHA: merge user's relax_calc_kwargs but
+        # always enforce fixed cell so the volume scan is not collapsed.
+        phonon_calc_kwargs["relax_calc_kwargs"] = (phonon_calc_kwargs.get("relax_calc_kwargs") or {}) | {
+            "relax_cell": False
+        }
         phonon_calc = PhononCalc(
             self.calculator,
-            t_step=self.t_step,
-            t_max=self.t_max,
-            t_min=self.t_min,
-            relax_structure=True,
-            relax_calc_kwargs={"relax_cell": False},
-            write_phonon=False,
-            **(self.phonon_calc_kwargs or {}),
+            **phonon_calc_kwargs,
         )
-        return phonon_calc.calc(structure)["thermal_properties"]
+        return phonon_calc.calc(structure)
 
     def _create_qha(
         self,
