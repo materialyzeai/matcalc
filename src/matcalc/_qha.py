@@ -142,7 +142,8 @@ class QHACalc(PropCalc):
         self.relax_structure = relax_structure
         self.relax_calc_kwargs = relax_calc_kwargs
         self.phonon_calc_kwargs = phonon_calc_kwargs
-        self.scale_factors = scale_factors
+        # EOS fitting downstream assumes monotonic volume ordering.
+        self.scale_factors = tuple(sorted(scale_factors))
         self.imaginary_freq_tol = imaginary_freq_tol
         self.on_imaginary_modes = on_imaginary_modes
         self.fix_imaginary_attempts = fix_imaginary_attempts
@@ -352,16 +353,22 @@ class QHACalc(PropCalc):
             )
 
             # Collect properties
+            volume = phonon_result["final_structure"].volume
+            volume_drift = np.abs(volume - scaled_structure.volume) / scaled_structure.volume
+            if volume_drift > 1e-4:  # noqa: PLR2004
+                logger.warning(
+                    "Scale factor %.3f: fixed-cell relaxation drifted volume by %.4f%% "
+                    "(expected %.4f Å³, got %.4f Å³). Skipping this scale factor; the QHA "
+                    "fit will use the remaining points. Loosen fmax or tighten the cell "
+                    "filter constraints if this happens often.",
+                    scale_factor,
+                    volume_drift * 100,
+                    scaled_structure.volume,
+                    volume,
+                )
+                continue
             ha.append(phonon_result)
             scaled_structures.append(phonon_result["final_structure"])
-            volume = phonon_result["final_structure"].volume
-            if (
-                np.abs(volume - scaled_structure.volume) / scaled_structure.volume > 1e-4  # noqa: PLR2004
-            ):
-                raise ValueError(
-                    f"Somehow the volume changed during relaxation. This is a bug! Before: {scaled_structure.volume}. "
-                    f"After: {volume}"
-                )
             volumes.append(volume)
             electronic_energies.append(phonon_result.get("energy", relaxed_result.get("energy")))
             thermal_properties = phonon_result["thermal_properties"]

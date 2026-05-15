@@ -80,6 +80,7 @@ class MDCalc(PropCalc):
         fmax: float = 0.1,
         optimizer: str = "FIRE",
         frames: int | None = None,
+        equilibration_frames: int = 0,
         relax_calc_kwargs: dict | None = None,
         set_com_stationary: bool = False,
         set_zero_rotation: bool = False,
@@ -125,8 +126,11 @@ class MDCalc(PropCalc):
             relax_structure (bool): Whether to relax the input structure before MD simulation. Default to True.
             fmax (float): Maximum force tolerance for structure relaxation (in eV/Å). Default to 0.1.
             optimizer (str): Optimizer used for structure relaxation. Default to "FIRE".
-            frames (int): Number of MD frames for analysis. Default to None, which means all frames will be
-            returned, i.e., frames = steps.
+            frames (int): Number of trailing MD frames to average energies over. Default to None,
+                which means all frames (i.e. frames = steps).
+            equilibration_frames (int): Skip this many leading frames before the trailing
+                ``frames`` window. Use this to discard non-equilibrated state at the start of an MD
+                run. Default 0.
             relax_calc_kwargs (dict | None): Additional keyword arguments for the relaxation calculation.
                 Default to None.
             set_com_stationary (bool): Whether to set the center-of-mass momentum to zero after setting up the
@@ -163,6 +167,7 @@ class MDCalc(PropCalc):
         self.fmax = fmax
         self.optimizer = optimizer
         self.frames = frames if frames is not None else self.steps
+        self.equilibration_frames = equilibration_frames
         self.relax_calc_kwargs = relax_calc_kwargs
         self.set_com_stationary = set_com_stationary
         self.set_zero_rotation = set_zero_rotation
@@ -405,14 +410,20 @@ class MDCalc(PropCalc):
 
         result["final_structure"] = to_pmg_structure(all_frames[-1])  # type: ignore[arg-type]
 
-        traj = all_frames[-self.frames :]
+        # Drop equilibration_frames from the start, then take the trailing ``frames`` window.
+        eq_skipped = all_frames[self.equilibration_frames :] if self.equilibration_frames else all_frames
+        traj = eq_skipped[-self.frames :]
+        n_avg = len(traj)
+        if n_avg == 0:
+            raise ValueError(
+                f"No frames left to average after dropping {self.equilibration_frames=} "
+                f"and taking the last {self.frames=}; got {len(all_frames)} total frames."
+            )
 
-        # Calculate the average potential energy over the selected frames.
-        energy_pot = sum(a.get_potential_energy() for a in traj) / self.frames
-        # Calculate the average kinetic energy over the selected frames.
-        energy_kin = sum(a.get_kinetic_energy() for a in traj) / self.frames
-        # Calculate the average total energy (potential + kinetic) over the selected frames.
-        energy_tot = sum(a.get_total_energy() for a in traj) / self.frames
+        # Calculate the average potential, kinetic and total energies over the selected window.
+        energy_pot = sum(a.get_potential_energy() for a in traj) / n_avg
+        energy_kin = sum(a.get_kinetic_energy() for a in traj) / n_avg
+        energy_tot = sum(a.get_total_energy() for a in traj) / n_avg
 
         # Update the result dictionary with the simulation trajectory and computed energy.
         result |= {

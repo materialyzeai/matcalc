@@ -29,6 +29,16 @@ class PropCalc(abc.ABC):
     on multiple structures using joblib.
     """
 
+    def __repr__(self) -> str:
+        """Concise repr — class name and the underlying calculator's class.
+
+        Useful for logging / reproducibility; subclasses can override to expose
+        their key knobs (e.g. fmax, supercell, scale_factors).
+        """
+        calc = getattr(self, "_pes_calculator", None)
+        calc_name = type(calc).__name__ if calc is not None else "<no calculator>"
+        return f"{type(self).__name__}(calculator={calc_name})"
+
     @property
     def calculator(self) -> Calculator:
         """

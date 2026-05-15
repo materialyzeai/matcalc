@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import pathlib
 import shutil
+
+logger = logging.getLogger(__name__)
 
 BENCHMARK_HF_REPO_ID: str = "materialyze/matcalc-bench"
 BENCHMARK_DATA_DIR: pathlib.Path = pathlib.Path.home() / ".cache" / "matcalc"
@@ -27,4 +30,4 @@ def clear_cache(*, confirm: bool = True) -> None:
         try:
             shutil.rmtree(BENCHMARK_DATA_DIR)
         except FileNotFoundError:
-            print(f"matcalc cache dir {BENCHMARK_DATA_DIR} not found")  # noqa: T201
+            logger.info("matcalc cache dir %s not found", BENCHMARK_DATA_DIR)

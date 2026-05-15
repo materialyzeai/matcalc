@@ -634,17 +634,19 @@ _PROVIDER_LOADERS: dict[str, Callable[[dict[str, Any]], Calculator]] = {
 
 def to_ase_atoms(structure: Atoms | Structure | Molecule) -> Atoms:
     """
-    Converts a given structure into an ASE Atoms object. This function checks
-    if the input structure is already an ASE Atoms object. If not, it converts
-    a pymatgen Structure object to an ASE Atoms object     using the AseAtomsAdaptor.
+    Converts a given structure into an ASE Atoms object. If the input is already
+    an ``Atoms``, a shallow copy is returned so that downstream code (which
+    routinely attaches a calculator and runs optimizers in-place) cannot mutate
+    a caller-owned object — important for parallel ``calc_many`` execution
+    where joblib workers must not share state.
 
     Args:
         structure: ASE ``Atoms``, pymatgen ``Structure``, or ``Molecule``.
 
     Returns:
-        ASE ``Atoms`` for the same system.
+        Fresh ASE ``Atoms`` for the same system.
     """
-    return structure if isinstance(structure, Atoms) else AseAtomsAdaptor.get_atoms(structure)
+    return structure.copy() if isinstance(structure, Atoms) else AseAtomsAdaptor.get_atoms(structure)
 
 
 def to_pmg_structure(structure: Atoms | Structure) -> Structure:

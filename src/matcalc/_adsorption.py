@@ -43,6 +43,7 @@ class AdsorptionCalc(PropCalc):
         fmax: float = 0.1,
         optimizer: str | Optimizer = "BFGS",
         max_steps: int = 500,
+        adsorbate_vacuum_size: float = 15.0,
         relax_calc_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """
@@ -54,6 +55,10 @@ class AdsorptionCalc(PropCalc):
             fmax: Force tolerance (eV/Å).
             optimizer: ASE optimizer name or class.
             max_steps: Max relaxation steps.
+            adsorbate_vacuum_size: Padding (Å) added on each side of the adsorbate's
+                bounding box when building the isolated-adsorbate relaxation cell.
+                Increase for large or charged adsorbates to avoid spurious
+                image-image interactions. Default 15.
             relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
         """
         self.calculator = calculator  # type: ignore[assignment]
@@ -63,6 +68,7 @@ class AdsorptionCalc(PropCalc):
         self.fmax = fmax
         self.optimizer = optimizer
         self.max_steps = max_steps
+        self.adsorbate_vacuum_size = adsorbate_vacuum_size
         self.relax_calc_kwargs = relax_calc_kwargs
 
         self.final_bulk: Structure | None = None
@@ -131,8 +137,11 @@ class AdsorptionCalc(PropCalc):
             )
 
             adsorbate = to_ase_atoms(adsorbate)
-            # Add 15 Å of vacuum in all directions for relaxation
-            adsorbate.set_cell(np.max(adsorbate.positions, axis=0) - np.min(adsorbate.positions, axis=0) + 15)
+            # Pad the adsorbate's bounding box by ``adsorbate_vacuum_size`` Å on each
+            # axis to suppress image-image interactions during the isolated relaxation.
+            adsorbate.set_cell(
+                np.max(adsorbate.positions, axis=0) - np.min(adsorbate.positions, axis=0) + self.adsorbate_vacuum_size
+            )
             adsorbate_opt = relaxer.calc(adsorbate)
         else:
             adsorbate_opt = {
