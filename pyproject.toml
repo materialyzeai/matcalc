@@ -49,30 +49,36 @@ version = "0.4.8"
 [project.optional-dependencies]
 phonon = ["seekpath"]
 benchmark = ["matminer>=0.10.1"]
-# ace = [
-#     "pyace>=0.1.1",
-# ]
-# mace = [
-#     "mace-torch>=0.3.12",
-# ]
-# deepmd = [
-#     "deepmd-kit>=3.0.2",
-# ]
-# grace = [
-#     "tensorpotential>=0.5.1",
-# ]
 maml = [
     "maml>=2025.4.3",
 ]
-# orb = [
-#     "orb-models>=0.4.2",
-#     "pynanoflann>=0.10.0",
-# ]
-# sevennet = [
-#     "sevenn>=0.10.4",
-# ]
 matgl = [
-    "matgl>=3.0.0",
+    "matgl>=3.0.3",
+]
+mace = [
+    "mace-torch>=0.3.12",
+]
+sevennet = [
+    "sevenn>=0.10.4",
+]
+grace = [
+    "tensorpotential>=0.5.1",
+]
+orb = [
+    "orb-models>=0.4.2",
+    "pynanoflann>=0.10.0",
+]
+mattersim = [
+    "mattersim",
+]
+fairchem = [
+    "fairchem-core",
+]
+petmad = [
+    "pet-mad",
+]
+deepmd = [
+    "deepmd-kit>=3.0.2",
 ]
 ci = [
     "setuptools<82",  # Required by maml which uses pkg_resources
@@ -82,7 +88,7 @@ ci = [
     "ipython>=8.34.0",
     "jupyter>=1.1.1",
     "maml>=2025.4.3",
-    "matgl>=3.0.0",
+    "matgl>=3.0.3",
     "matminer>=0.10.1",
     "mp-api>=0.45.3",
     "nbmake>=1.5.5",
@@ -100,7 +106,11 @@ where = ["src"]
 include = ["matcalc", "matcalc.*"]
 
 [tool.setuptools.package-data]
-"matcalc" = ["elemental_refs/*.json.gz"]
+"matcalc" = [
+    "elemental_refs/*.json.gz",
+    "lammps_templates/*.template",
+    "py.typed",
+]
 
 [build-system]
 requires = ["oldest-supported-numpy", "setuptools>=58.0.3,<82"]
@@ -151,6 +161,11 @@ conflicts = [
       { extra = "mace" },
       { extra = "fairchem" },
       { extra = "mattersim" },
+      { extra = "sevennet" },
+      { extra = "grace" },
+      { extra = "orb" },
+      { extra = "petmad" },
+      { extra = "deepmd" },
     ],
 ]
 required-environments = [

@@ -228,6 +228,14 @@ class LAMMPSMDCalc(PropCalc):
             "potential_energy": energy_pot,
             "kinetic_energy": energy_kin,
             "total_energy": energy_tot,
+            "_units": self._merge_units(
+                result,
+                {
+                    "potential_energy": "eV",
+                    "kinetic_energy": "eV",
+                    "total_energy": "eV",
+                },
+            ),
         }
 
         # Return the complete result dictionary.

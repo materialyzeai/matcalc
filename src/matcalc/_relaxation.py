@@ -158,18 +158,21 @@ class RelaxCalc(PropCalc):
                 "beta": lattice.beta,
                 "gamma": lattice.gamma,
                 "volume": lattice.volume,
-                "_units": {
-                    "energy": "eV",
-                    "forces": "eV/A",
-                    "stress": "eV/A^3",
-                    "a": "A",
-                    "b": "A",
-                    "c": "A",
-                    "alpha": "degree",
-                    "beta": "degree",
-                    "gamma": "degree",
-                    "volume": "A^3",
-                },
+                "_units": self._merge_units(
+                    result,
+                    {
+                        "energy": "eV",
+                        "forces": "eV/A",
+                        "stress": "eV/A^3",
+                        "a": "A",
+                        "b": "A",
+                        "c": "A",
+                        "alpha": "degree",
+                        "beta": "degree",
+                        "gamma": "degree",
+                        "volume": "A^3",
+                    },
+                ),
             }
         )
 

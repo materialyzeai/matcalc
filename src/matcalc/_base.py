@@ -56,6 +56,28 @@ class PropCalc(abc.ABC):
         """
         self._pes_calculator = PESCalculator.load_universal(val) if isinstance(val, str) else val
 
+    @staticmethod
+    def _merge_units(
+        prev: dict[str, Any] | None,
+        new: dict[str, str],
+    ) -> dict[str, str]:
+        """Merge unit annotations, preserving upstream entries.
+
+        Use this when building the ``_units`` field on a result dict that may
+        already contain ``_units`` from an earlier step in a chain. Keys present
+        in ``new`` overwrite the upstream value (the calc emitting them owns the
+        unit string for those fields).
+
+        Args:
+            prev: The upstream result dict (or its ``_units`` value), or ``None``.
+            new: The units this calc is contributing.
+
+        Returns:
+            A merged dict suitable for use as the ``_units`` field.
+        """
+        base: dict = prev.get("_units", prev) if isinstance(prev, dict) else {}
+        return {**base, **new}
+
     @abc.abstractmethod
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict[str, Any]:
         """
@@ -82,7 +104,9 @@ class PropCalc(abc.ABC):
         """
         if isinstance(structure, dict):
             if "final_structure" in structure:
-                return structure
+                # Return a shallow copy so downstream ``result |= {...}`` updates
+                # do not mutate the caller's input dict.
+                return dict(structure)
             if "structure" in structure:
                 return structure | {"final_structure": structure["structure"]}
 
@@ -124,10 +148,10 @@ class PropCalc(abc.ABC):
         def _func(s: Structure | Atoms) -> dict | None:
             try:
                 return self.calc(s)
-            except Exception as ex:
+            except Exception:
                 if allow_errors:
                     return None
-                raise ex  # noqa:TRY201
+                raise
 
         return parallel(delayed(_func)(s) for s in structures)
 

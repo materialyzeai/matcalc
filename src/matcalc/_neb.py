@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -271,9 +272,17 @@ class NEBCalc(PropCalc):
                 )
 
         optimizer.run(fmax=self.fmax, steps=self.max_steps)
+        converged = bool(optimizer.converged())
+        if not converged:
+            warnings.warn(
+                f"NEB optimization did not converge to fmax={self.fmax} within "
+                f"{self.max_steps} steps. The reported barrier may be unreliable.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         neb_tool = NEBTools(self.neb.images)
         data = neb_tool.get_barrier()  # add structures
-        result = {"barrier": data[0], "force": data[1]}
+        result = {"barrier": data[0], "force": data[1], "converged": converged}
 
         energies = fit_images(self.neb.images).energies
         # Convert images to pymatgen structures
@@ -282,4 +291,5 @@ class NEBCalc(PropCalc):
         # Create MEP instance from structures and energies
         mep = MEP(structures, list(energies))
         result["mep"] = mep
+        result["_units"] = self._merge_units(None, {"barrier": "eV", "force": "eV/Å"})
         return result

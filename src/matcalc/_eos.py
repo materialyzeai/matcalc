@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -11,6 +13,8 @@ from sklearn.metrics import r2_score
 from ._base import PropCalc
 from ._relaxation import RelaxCalc
 from .utils import to_pmg_structure
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from typing import Any
@@ -55,6 +59,7 @@ class EOSCalc(PropCalc):
         allow_shape_change: bool = True,
         relax_structure: bool = True,
         relax_calc_kwargs: dict | None = None,
+        r2_min: float = 0.95,
     ) -> None:
         """
         Args:
@@ -67,6 +72,10 @@ class EOSCalc(PropCalc):
             allow_shape_change: Relax cell shape at fixed volume for EOS points when True.
             relax_structure: Relax input structure before the strain scan.
             relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
+            r2_min: Minimum acceptable R² for the Birch-Murnaghan fit. A
+                ``RuntimeWarning`` is emitted (and the value is still returned)
+                if the fit's R² falls below this threshold. Set to a negative
+                number to disable the check.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.optimizer = optimizer
@@ -77,6 +86,7 @@ class EOSCalc(PropCalc):
         self.allow_shape_change = allow_shape_change
         self.relax_structure = relax_structure
         self.relax_calc_kwargs = relax_calc_kwargs
+        self.r2_min = r2_min
 
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict:
         """
@@ -137,10 +147,21 @@ class EOSCalc(PropCalc):
             list, zip(*sorted(zip(volumes, energies, strict=True), key=lambda i: i[0]), strict=False)
         )
 
+        r2_bm = r2_score(energies, bm.func(volumes))
+        if r2_bm < self.r2_min:
+            warnings.warn(
+                f"Birch-Murnaghan EOS fit R²={r2_bm:.4f} is below r2_min={self.r2_min}. "
+                f"The bulk modulus may be unreliable; check that the energy-volume scan is "
+                f"monotonic over [-{self.max_abs_strain}, {self.max_abs_strain}] and that "
+                f"the calculator is converged.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
         eos_units = {**result.get("_units", {}), "eos.volumes": "A^3", "eos.energies": "eV", "bulk_modulus_bm": "GPa"}
         return result | {
             "eos": {"volumes": volumes, "energies": energies},
             "bulk_modulus_bm": bm.b0_GPa,
-            "r2_score_bm": r2_score(energies, bm.func(volumes)),
+            "r2_score_bm": r2_bm,
             "_units": eos_units,
         }

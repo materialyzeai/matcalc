@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -12,6 +14,8 @@ from ._base import PropCalc
 from ._relaxation import RelaxCalc
 from .backend import run_pes_calc
 from .utils import to_pmg_structure
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -190,18 +194,31 @@ class Phonon3Calc(PropCalc):
         )
 
         kappa = np.asarray(phonon3.thermal_conductivity.kappa_TOT_RTA)
-        kappa_ave = np.nan if kappa.size == 0 or np.any(np.isnan(kappa)) else kappa[..., :3].mean(axis=-1)
+        if kappa.size == 0 or np.any(np.isnan(kappa)):
+            warnings.warn(
+                f"Phono3py thermal conductivity returned NaN or empty values for "
+                f"{self.mesh_numbers=}, {self.fc3_supercell=}, T-range "
+                f"[{self.t_min}, {self.t_max}]. Check the mesh density and supercell "
+                f"size; very coarse meshes or very small supercells often produce NaN.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            kappa_ave = np.nan
+        else:
+            kappa_ave = kappa[..., :3].mean(axis=-1)
 
         if self.write_phonon3:
             phonon3.save(filename=self.write_phonon3)
 
-        return {
+        return result | {
             "phonon3": phonon3,
             "temperatures": temperatures,
             "thermal_conductivity": np.squeeze(kappa_ave),
-            "_units": {
-                **result.get("_units", {}),
-                "temperatures": "K",
-                "thermal_conductivity": "W/(m*K)",
-            },
+            "_units": self._merge_units(
+                result,
+                {
+                    "temperatures": "K",
+                    "thermal_conductivity": "W/(m*K)",
+                },
+            ),
         }

@@ -750,7 +750,13 @@ class SofteningBenchmark:
                     force_ground_truth.append(frame["vasp_f"])
 
                 softening_scale = self.get_linear_fitted_slope(force_ground_truth, force_prediction)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "SofteningBenchmark: failed for material_id=%s (%s): %s",
+                    material_id,
+                    type(exc).__name__,
+                    exc,
+                )
                 softening_scale = None
                 force_prediction = None
 

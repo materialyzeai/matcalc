@@ -112,11 +112,18 @@ class EnergeticsCalc(PropCalc):
             relaxer.perturb_distance = None
             structure = self.elemental_refs[el.symbol]["structure"]
             structure_list = [structure] if not isinstance(structure, list) else structure
-            return min(
+            energies_per_atom = [
                 r["energy"] / r["final_structure"].num_sites
                 for r in list(relaxer.calc_many(structure_list))
                 if r is not None
-            )
+            ]
+            if not energies_per_atom:
+                raise RuntimeError(
+                    f"All elemental reference relaxations failed for {el.symbol!r}. "
+                    f"Cannot compute a formation energy. Either pass "
+                    f"use_gs_reference=True or supply pre-relaxed elemental_refs."
+                )
+            return min(energies_per_atom)
 
         comp = to_pmg_structure(structure_in).composition
         e_form = energy - sum([get_gs_energy(el) * amt for el, amt in comp.items()])

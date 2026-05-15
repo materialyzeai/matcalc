@@ -24,6 +24,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     container:
       # MAVRL's docker container build on uv with LAMMPS with ML-GNNP and ML-SNAP.
       # Required for testing the LAMMPS related methods.
@@ -45,7 +46,7 @@ jobs:
           pip install "setuptools<82"  # Required by maml (pkg_resources)
 
       - name: pytest
-        run: pytest --cov=matcalc --cov-report=xml tests --color=yes
+        run: pytest --cov=matcalc --cov-report=xml --cov-report=term-missing tests --color=yes
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
@@ -59,6 +60,7 @@ jobs:
   # We will rely on the community to maintain the other models in the registry.
   test-fp-loaders:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -70,7 +72,7 @@ jobs:
             extras: mace
             models: '["MACE-MP-0-small", "MACE-MPA-0-medium", "MACE-MatPES-PBE-0"]'
           - name: grace
-            extras: tensorpotential
+            extras: grace
             models: '["GRACE-2L-OAM"]'
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
@@ -83,18 +85,21 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ matrix.name }}
+          restore-keys: hf-models-
+
       - name: Install matcalc + ${{ matrix.name }} provider
         run: |
           python -m pip install --upgrade pip
           if [ "${{ matrix.name }}" = "matgl" ]; then
             pip install dgl==2.4.0 -f https://data.dgl.ai/wheels/torch-2.4/repo.html
             pip install -e '.[matgl]'
-          elif [ "${{ matrix.name }}" = "mace" ]; then
-            pip install -e '.' mace-torch
-          elif [ "${{ matrix.name }}" = "grace" ]; then
-            pip install -e '.' tensorpotential
-          elif [ "${{ matrix.name }}" = "uma" ]; then
-            pip install -e '.' fairchem-core
+          else
+            pip install -e '.[${{ matrix.extras }}]'
           fi
 
       - name: Load each canonical model

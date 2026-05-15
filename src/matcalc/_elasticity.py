@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -12,6 +14,8 @@ from ._base import PropCalc
 from ._relaxation import RelaxCalc
 from .backend import run_pes_calc
 from .utils import to_pmg_structure
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -53,6 +57,7 @@ class ElasticityCalc(PropCalc):
         use_equilibrium: bool = True,
         units_GPa: bool = False,  # noqa: N803
         relax_calc_kwargs: dict | None = None,
+        r2_min: float = 0.95,
     ) -> None:
         """
         Args:
@@ -68,6 +73,10 @@ class ElasticityCalc(PropCalc):
                 Defaults to False, in which case values are returned in pymatgen's native
                 units of eV/A^3.
             relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
+            r2_min: Minimum acceptable mean R² across the per-component linear
+                strain-stress fits. A ``RuntimeWarning`` is emitted (and values
+                are still returned) when the mean R² drops below this. Set
+                negative to disable. Default 0.95.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.norm_strains = tuple(np.array([1]) * np.asarray(norm_strains))
@@ -88,6 +97,7 @@ class ElasticityCalc(PropCalc):
             self.use_equilibrium = True
         self.units_GPa = units_GPa
         self.relax_calc_kwargs = relax_calc_kwargs
+        self.r2_min = r2_min
 
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict[str, Any]:
         """
@@ -130,11 +140,19 @@ class ElasticityCalc(PropCalc):
 
         strains = [Strain.from_deformation(deformation) for deformation in deformed_structure_set.deformations]
         sim = run_pes_calc(structure_in, self.calculator)
-        elastic_tensor, residuals_sum = self._elastic_tensor_from_strains(
+        elastic_tensor, residuals_sum, mean_r2 = self._elastic_tensor_from_strains(
             strains,
             stresses,
             eq_stress=sim.stress if self.use_equilibrium else None,
         )
+        if mean_r2 < self.r2_min:
+            warnings.warn(
+                f"Elastic strain-stress fits have mean R²={mean_r2:.4f} below r2_min={self.r2_min}. "
+                f"The elastic tensor may be unreliable; consider smaller |strains|, more strain "
+                f"points, or enabling relax_deformed_structures.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         factor = 1 if not self.units_GPa else 1 / elastic_tensor.GPa_to_eV_A3
         # Compute Young's modulus from the same VRH averages used for K, G so it
         # is dimensionally consistent. pymatgen's ``ElasticTensor.y_mod`` hardcodes
@@ -158,6 +176,7 @@ class ElasticityCalc(PropCalc):
             "bulk_modulus_vrh": k * factor,
             "youngs_modulus": y * factor,
             "residuals_sum": residuals_sum * factor,
+            "r2_score_mean": mean_r2,
             "structure": structure_in,
             "_units": units_map,
         }
@@ -168,7 +187,7 @@ class ElasticityCalc(PropCalc):
         stresses: ArrayLike,
         eq_stress: ArrayLike = None,
         tol: float = 1e-7,
-    ) -> tuple[ElasticTensor, float]:
+    ) -> tuple[ElasticTensor, float, float]:
         """
         Fit elastic constants from strain-stress pairs (Voigt), optionally subtracting
         equilibrium stress.
@@ -180,18 +199,28 @@ class ElasticityCalc(PropCalc):
             tol: Small components below this are zeroed on the fitted tensor.
 
         Returns:
-            Tuple of ``(ElasticTensor, residuals_sum)``.
+            ``(ElasticTensor, residuals_sum, mean_r2)``. ``mean_r2`` is the average
+            coefficient of determination across the 36 per-component linear fits;
+            stress components with zero variance (zeroed by symmetry) are skipped.
         """
         strain_states = [tuple(ss) for ss in np.eye(6)]
         ss_dict = get_strain_state_dict(strains, stresses, eq_stress=eq_stress, add_eq=self.use_equilibrium)
         c_ij = np.zeros((6, 6))
         residuals_sum = 0.0
+        r2_values: list[float] = []
         for ii in range(6):
             strain = ss_dict[strain_states[ii]]["strains"]
             stress = ss_dict[strain_states[ii]]["stresses"]
             for jj in range(6):
-                fit = np.polyfit(strain[:, ii], stress[:, jj], 1, full=True)
+                x = strain[:, ii]
+                y = stress[:, jj]
+                fit = np.polyfit(x, y, 1, full=True)
                 c_ij[ii, jj] = fit[0][0]
                 residuals_sum += fit[1][0] if len(fit[1]) > 0 else 0.0
+                ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+                if ss_tot > 0:  # skip flat (zero by symmetry) components
+                    ss_res = float(fit[1][0]) if len(fit[1]) > 0 else 0.0
+                    r2_values.append(1.0 - ss_res / ss_tot)
         elastic_tensor = ElasticTensor.from_voigt(c_ij)
-        return elastic_tensor.zeroed(tol), residuals_sum
+        mean_r2 = float(np.mean(r2_values)) if r2_values else 1.0
+        return elastic_tensor.zeroed(tol), residuals_sum, mean_r2

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import difflib
 import warnings
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from ase import Atoms
@@ -14,7 +16,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from .units import eVA3ToGPa
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import Callable
 
     from maml.apps.pes import LMPStaticCalculator
     from pyace.basis import ACEBBasisSet, ACECTildeBasisSet, BBasisConfiguration
@@ -116,7 +118,7 @@ MODEL_ALIASES: dict[str, str] = {
     "m3gnet-pes-matpes-pbe-2025.1": "M3GNet-MatPES-PBE-2025.1",
     "chgnet-pes-matpes-pbe-2025.2.10": "CHGNet-MatPES-PBE-2025.2.10",
     "chgnet-pes-matpes-r2scan-2025.2.10": "CHGNet-MatPES-r2SCAN-2025.2.10",
-    "chgnet-matpes-pbe-2025.2.10-2.7m-pes": "CHGNet-PES-MatPES-PBE-2025.2.10",
+    "chgnet-matpes-pbe-2025.2.10-2.7m-pes": "CHGNet-MatPES-PBE-2025.2.10",
     "chgnet-mptrj-2023.12.1-2.7m-pes": "CHGNet-MPtrj-2023.12.1-2.7M",
     "chgnet-mptrj-2024.2.13-11m-pes": "CHGNet-MPtrj-2024.2.13-11M",
 }
@@ -129,8 +131,13 @@ try:
     _MATGL_AVAILABLE: set[str] = {
         m for m in matgl.get_available_pretrained_models() if "PES" in m and "ANI-1x-Subset-PES" not in m
     }
-except Exception:  # noqa: BLE001
-    warnings.warn("Unable to query pre-trained MatGL universal calculators.", stacklevel=1)
+except ImportError:
+    _MATGL_AVAILABLE = set()
+except Exception as _matgl_err:  # noqa: BLE001
+    warnings.warn(
+        f"Unable to query pre-trained MatGL universal calculators: {_matgl_err!r}",
+        stacklevel=1,
+    )
     _MATGL_AVAILABLE = set()
 
 UNIVERSAL_CALCULATORS = Enum(  # type: ignore[misc]
@@ -139,6 +146,58 @@ UNIVERSAL_CALCULATORS = Enum(  # type: ignore[misc]
 
 # Same strings as enum values; exposed for typing-friendly iteration (e.g. CLI choices).
 UNIVERSAL_CALCULATOR_NAMES: tuple[str, ...] = tuple(sorted(MODEL_REGISTRY))
+
+# Case-folded view of MODEL_REGISTRY so users typing the wrong case still resolve
+# to the right canonical name (e.g. ``tensornet-matpes-pbe-2025.2`` → canonical).
+_REGISTRY_LOWER: dict[str, str] = {k.lower(): k for k in MODEL_REGISTRY}
+
+# Pip-install hint surfaced when a provider's dependency is not installed.
+_PROVIDER_INSTALL_EXTRA: dict[str, str] = {
+    "matgl": "matgl",
+    "mace_mp": "mace",
+    "sevennet": "sevennet",
+    "grace": "grace",
+    "orb": "orb",
+    "mattersim": "mattersim",
+    "fairchem": "fairchem",
+    "petmad": "petmad",
+    "deepmd": "deepmd",
+}
+
+
+def _install_hint(provider: str) -> str:
+    """Return a human-friendly install hint for a missing provider dependency."""
+    extra = _PROVIDER_INSTALL_EXTRA.get(provider, provider)
+    return (
+        f"Provider {provider!r} requires an optional dependency that is not installed. "
+        f"Install it with: pip install 'matcalc[{extra}]'"
+    )
+
+
+def _resolve_canonical(name: str) -> str | None:
+    """Resolve ``name`` (alias, canonical, or case-variant) to a canonical model name.
+
+    Returns ``None`` if the name cannot be resolved.
+    """
+    # 1. Direct hit on canonical registry (preserves case).
+    if name in MODEL_REGISTRY:
+        return name
+    # 2. Case-insensitive alias resolution.
+    alias_target = MODEL_ALIASES.get(name.lower())
+    if alias_target is not None:
+        return alias_target
+    # 3. Case-insensitive canonical lookup (recovers from common typos like
+    #    ``tensornet-matpes-pbe-2025.2``).
+    case_folded = _REGISTRY_LOWER.get(name.lower())
+    if case_folded is not None:
+        return case_folded
+    return None
+
+
+def _suggest_models(name: str, n: int = 3) -> list[str]:
+    """Return the closest candidate model names for an unrecognised input."""
+    candidates = list(MODEL_REGISTRY) + list(MODEL_ALIASES)
+    return difflib.get_close_matches(name, candidates, n=n, cutoff=0.5)
 
 
 class PESCalculator(Calculator):
@@ -416,14 +475,15 @@ class PESCalculator(Calculator):
         return DP(model=model_path, **kwargs)
 
     @staticmethod
-    def load_universal(name: str | Calculator, **kwargs: Any) -> Calculator:  # noqa: C901, PLR0911
+    def load_universal(name: str | Calculator, **kwargs: Any) -> Calculator:
         """
         Load a foundation potential calculator by its canonical name.
 
         Names follow the unified convention ``<Architecture>-<Dataset>-<Optional Version>``
         (e.g. ``TensorNet-MatPES-PBE-2025.2``, ``MACE-MPA-0-medium``). The full list of
         canonical names is the keys of :data:`MODEL_REGISTRY`; short / legacy spellings
-        in :data:`MODEL_ALIASES` resolve to a canonical name.
+        in :data:`MODEL_ALIASES` resolve to a canonical name. Lookups are
+        case-insensitive.
 
         If ``name`` is already a :class:`Calculator`, it is returned unchanged.
 
@@ -437,86 +497,139 @@ class PESCalculator(Calculator):
 
         Raises:
             ValueError: If ``name`` is not a recognized model.
+            ImportError: If the model is recognized but the provider's optional
+                dependency is not installed.
         """
         if not isinstance(name, str):  # already an ASE Calculator
             return name
 
-        canonical = MODEL_ALIASES.get(name.lower(), name)
-        spec = MODEL_REGISTRY.get(canonical)
-
-        if spec is None:
+        canonical = _resolve_canonical(name)
+        if canonical is None:
             # Backward-compat fallback: a raw MatGL pretrained model name passed
             # straight through (covers any newly released models not yet in the
             # registry) so users on the bleeding edge are not blocked.
-            if canonical in _MATGL_AVAILABLE:
-                return PESCalculator.load_matgl(canonical, **kwargs)
+            if name in _MATGL_AVAILABLE:
+                return PESCalculator.load_matgl(name, **kwargs)
+            suggestions = _suggest_models(name)
+            hint = f" Did you mean: {suggestions}?" if suggestions else ""
             raise ValueError(
-                f"Unrecognized {name=}, must be one of {sorted(MODEL_REGISTRY)} "
-                f"(or a short alias in {sorted(MODEL_ALIASES)})."
+                f"Unrecognized {name=}.{hint} See matcalc.utils.MODEL_REGISTRY for the "
+                f"full list of canonical names and matcalc.utils.MODEL_ALIASES for short "
+                f"spellings."
             )
 
+        spec = MODEL_REGISTRY[canonical]
         provider_kwargs = {k: v for k, v in spec.items() if k != "provider"}
         provider_kwargs.update(kwargs)  # user kwargs win over registry defaults
         provider = spec["provider"]
 
-        if provider == "matgl":
-            path = provider_kwargs.pop("path")
-            return PESCalculator.load_matgl(path, **provider_kwargs)
+        loader = _PROVIDER_LOADERS.get(provider)
+        if loader is None:
+            raise ValueError(f"Unknown provider {provider!r} for model {canonical!r}.")
+        try:
+            return loader(provider_kwargs)
+        except ImportError as e:
+            raise ImportError(_install_hint(provider)) from e
 
-        if provider == "mace_mp":
-            from mace.calculators import mace_mp
 
-            return mace_mp(**provider_kwargs)
+# --- Per-provider loaders for ``PESCalculator.load_universal`` ---------------
+#
+# Each loader takes a ``kwargs`` dict (already merged from the registry entry
+# and the user's overrides) and returns an ASE ``Calculator``. ImportErrors
+# raised inside a loader are translated by ``load_universal`` into a friendly
+# "pip install matcalc[<extra>]" message via ``_install_hint``.
 
-        if provider == "sevennet":
-            from sevenn.calculator import SevenNetCalculator
 
-            return SevenNetCalculator(**provider_kwargs)
+def _load_matgl(kwargs: dict[str, Any]) -> Calculator:
+    path = kwargs.pop("path")
+    return PESCalculator.load_matgl(path, **kwargs)
 
-        if provider == "grace":
-            from tensorpotential.calculator.foundation_models import grace_fm
 
-            return grace_fm(**provider_kwargs)
+def _load_mace_mp(kwargs: dict[str, Any]) -> Calculator:
+    from mace.calculators import mace_mp
 
-        if provider == "orb":
-            from orb_models.forcefield.calculator import ORBCalculator
-            from orb_models.forcefield.pretrained import ORB_PRETRAINED_MODELS
+    return mace_mp(**kwargs)
 
-            model = provider_kwargs.pop("model")
-            device = provider_kwargs.get("device", "cpu")
-            orbff = ORB_PRETRAINED_MODELS[model](device=device)
-            return ORBCalculator(orbff, **provider_kwargs)
 
-        if provider == "mattersim":  # pragma: no cover
-            from mattersim.forcefield import MatterSimCalculator
+def _load_sevennet(kwargs: dict[str, Any]) -> Calculator:
+    from sevenn.calculator import SevenNetCalculator
 
-            return MatterSimCalculator(**provider_kwargs)
+    return SevenNetCalculator(**kwargs)
 
-        if provider == "fairchem":  # pragma: no cover
-            from fairchem.core import FAIRChemCalculator, pretrained_mlip
 
-            device = provider_kwargs.pop("device", "cpu")
-            model = provider_kwargs.pop("model")
-            task_name = provider_kwargs.pop("task_name")
-            predictor = pretrained_mlip.get_predict_unit(model, device=device)
-            return FAIRChemCalculator(predictor, task_name=task_name, **provider_kwargs)
+def _load_grace(kwargs: dict[str, Any]) -> Calculator:
+    from tensorpotential.calculator.foundation_models import grace_fm
 
-        if provider == "petmad":  # pragma: no cover
-            from pet_mad.calculator import PETMADCalculator
+    return grace_fm(**kwargs)
 
-            return PETMADCalculator(**provider_kwargs)
 
-        if provider == "deepmd":  # pragma: no cover
-            from pathlib import Path
+def _load_orb(kwargs: dict[str, Any]) -> Calculator:
+    from orb_models.forcefield.calculator import ORBCalculator
+    from orb_models.forcefield.pretrained import ORB_PRETRAINED_MODELS
 
-            from deepmd.calculator import DP
+    model = kwargs.pop("model")
+    device = kwargs.get("device", "cpu")
+    orbff = ORB_PRETRAINED_MODELS[model](device=device)
+    return ORBCalculator(orbff, **kwargs)
 
-            cwd = Path(__file__).parent.absolute()
-            model_path = (cwd / "../../tests/pes/DPA3-LAM-2025.3.14-PES" / "2025-03-14-dpa3-openlam.pth").resolve()
-            provider_kwargs.setdefault("model", model_path)
-            return DP(**provider_kwargs)
 
-        raise ValueError(f"Unknown provider {provider!r} for model {canonical!r}.")
+def _load_mattersim(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
+    from mattersim.forcefield import MatterSimCalculator
+
+    return MatterSimCalculator(**kwargs)
+
+
+def _load_fairchem(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
+    from fairchem.core import FAIRChemCalculator, pretrained_mlip
+
+    device = kwargs.pop("device", "cpu")
+    model = kwargs.pop("model")
+    task_name = kwargs.pop("task_name")
+    predictor = pretrained_mlip.get_predict_unit(model, device=device)
+    return FAIRChemCalculator(predictor, task_name=task_name, **kwargs)
+
+
+def _load_petmad(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
+    from pet_mad.calculator import PETMADCalculator
+
+    return PETMADCalculator(**kwargs)
+
+
+# Bundled DPA3 checkpoint under tests/ (only present in editable installs).
+# When matcalc is installed from a wheel the user must pass ``model=<path>``
+# explicitly.
+_DPA3_BUNDLED_PATH = (
+    Path(__file__).parent.absolute() / "../../tests/pes/DPA3-LAM-2025.3.14-PES" / "2025-03-14-dpa3-openlam.pth"
+).resolve()
+
+
+def _load_deepmd(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
+    if "model" not in kwargs:
+        if _DPA3_BUNDLED_PATH.exists():
+            kwargs["model"] = _DPA3_BUNDLED_PATH
+        else:
+            raise FileNotFoundError(
+                "DeePMD model path not found. Pass model=<path-to-.pth> explicitly to "
+                "load_universal(..., model=...), or download the DPA3-LAM checkpoint and "
+                "supply its path. (Bundled fallback is only available from an editable "
+                "checkout.)"
+            )
+    from deepmd.calculator import DP
+
+    return DP(**kwargs)
+
+
+_PROVIDER_LOADERS: dict[str, Callable[[dict[str, Any]], Calculator]] = {
+    "matgl": _load_matgl,
+    "mace_mp": _load_mace_mp,
+    "sevennet": _load_sevennet,
+    "grace": _load_grace,
+    "orb": _load_orb,
+    "mattersim": _load_mattersim,
+    "fairchem": _load_fairchem,
+    "petmad": _load_petmad,
+    "deepmd": _load_deepmd,
+}
 
 
 def to_ase_atoms(structure: Atoms | Structure | Molecule) -> Atoms:

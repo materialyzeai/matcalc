@@ -23,17 +23,29 @@ def test_clear_cache() -> None:
 
 
 def test_calculate_property(LiFePO4: Structure) -> None:
-    args = namedtuple("args", ["model", "property", "structure", "outfile"])  # noqa: PYI024
+    args = namedtuple("args", ["model", "property", "structure", "outfile", "verbose"])  # noqa: PYI024
 
     with ScratchDir(".") as _:
         cif_file = "cli_test.cif"
         LiFePO4.to(filename=cif_file)
-        a = args("TensorNet", "ElasticityCalc", [cif_file], "CLI.json")
+        a = args(
+            model="TensorNet",
+            property="ElasticityCalc",
+            structure=[cif_file],
+            outfile="CLI.json",
+            verbose=False,
+        )
         calculate_property(a)
 
         assert os.path.exists(a.outfile)
 
-        a = args("TensorNet", "BadCalc", ["cli_test.cif"], "CLI.json")
+        a = args(
+            model="TensorNet",
+            property="BadCalc",
+            structure=["cli_test.cif"],
+            outfile="CLI.json",
+            verbose=False,
+        )
         with pytest.raises(KeyError):
             calculate_property(a)
 
