@@ -78,6 +78,50 @@ class PropCalc(abc.ABC):
         base: dict = prev.get("_units", prev) if isinstance(prev, dict) else {}
         return {**base, **new}
 
+    def _prerelax(
+        self,
+        structure: Structure | Atoms,
+        result: dict[str, Any],
+        relaxer: PropCalc | None = None,
+        **relax_kwargs: Any,
+    ) -> tuple[dict[str, Any], Structure | Atoms]:
+        """Optionally relax ``structure`` and merge the relaxation result.
+
+        Centralises the ``if self.relax_structure: ... else ...`` pattern shared
+        by most property calculators. Honors ``self.relax_structure``; when False
+        (or absent), the input is returned unchanged.
+
+        Pass ``relaxer`` to reuse a single ``RelaxCalc`` instance across multiple
+        calls (e.g. relaxing the parent structure and then deformed structures
+        with different settings); otherwise pass relaxation kwargs and a fresh
+        ``RelaxCalc`` is constructed using ``self.calculator``.
+
+        Args:
+            structure: Input structure (already extracted from the result dict).
+            result: The current result dict; relaxation outputs are merged in.
+            relaxer: Pre-configured ``RelaxCalc``-like instance. Mutually
+                exclusive with ``relax_kwargs``.
+            **relax_kwargs: Forwarded to ``RelaxCalc`` when ``relaxer`` is None.
+                ``relax_calc_kwargs`` on the subclass (if any) takes precedence
+                over these, mirroring the existing per-calc convention.
+
+        Returns:
+            ``(result, structure)`` — both updated when a relaxation ran, both
+            unchanged otherwise.
+        """
+        if not getattr(self, "relax_structure", False):
+            return result, structure
+        if relaxer is None:
+            # Lazy import: RelaxCalc imports from _base, so we can't import it
+            # at module scope without a circular import.
+            from ._relaxation import RelaxCalc
+
+            extra = getattr(self, "relax_calc_kwargs", None) or {}
+            relaxer = RelaxCalc(self.calculator, **{**relax_kwargs, **extra})
+        relax_result = relaxer.calc(structure)
+        merged = {**result, **relax_result}
+        return merged, relax_result["final_structure"]
+
     @abc.abstractmethod
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict[str, Any]:
         """

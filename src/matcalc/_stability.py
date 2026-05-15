@@ -81,7 +81,6 @@ class EnergeticsCalc(PropCalc):
             and other keys from relaxation / PES when applicable.
         """
         result = super().calc(structure)
-        structure_in: Structure | Atoms = result["final_structure"]
         relaxer = RelaxCalc(
             self.calculator,
             fmax=self.fmax,
@@ -89,12 +88,8 @@ class EnergeticsCalc(PropCalc):
             perturb_distance=self.perturb_distance,
             **(self.relax_calc_kwargs or {}),
         )
-        if self.relax_structure:
-            result |= relaxer.calc(structure_in)
-            structure_in = result["final_structure"]
-            energy = result["energy"]
-        else:
-            energy = run_pes_calc(structure_in, self.calculator).energy
+        result, structure_in = self._prerelax(result["final_structure"], result, relaxer=relaxer)
+        energy = result["energy"] if self.relax_structure else run_pes_calc(structure_in, self.calculator).energy
         nsites = len(structure_in)
 
         def get_gs_energy(el: Element | Species) -> float:

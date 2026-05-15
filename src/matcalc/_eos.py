@@ -100,18 +100,18 @@ class EOSCalc(PropCalc):
             ``BirchMurnaghan`` / ``EOSBase`` for fit details.
         """
         result = super().calc(structure)
-        structure_in: Structure = to_pmg_structure(result["final_structure"])
         relax_calc_kwargs = {
             "optimizer": self.optimizer,
             "fmax": self.fmax,
             "max_steps": self.max_steps,
             **(self.relax_calc_kwargs or {}),
         }
-
-        if self.relax_structure:
-            relaxer = RelaxCalc(self.calculator, **relax_calc_kwargs)
-            result |= relaxer.calc(structure_in)
-            structure_in = result["final_structure"]
+        result, raw_structure = self._prerelax(
+            result["final_structure"],
+            result,
+            relaxer=RelaxCalc(self.calculator, **relax_calc_kwargs),
+        )
+        structure_in: Structure = to_pmg_structure(raw_structure)
 
         volumes, energies = [], []
 

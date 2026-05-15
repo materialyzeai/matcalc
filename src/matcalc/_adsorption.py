@@ -348,6 +348,13 @@ class AdsorptionCalc(PropCalc):
         Returns:
             Dict including ``adsorption_energy`` and merged slab/adsorbate fields.
         """
+        if not isinstance(structure, dict):
+            msg = (
+                "For adsorption calculations, structure must be a dict with keys "
+                "'adslab', 'slab', and 'adsorbate' (and optionally 'slab_energy_per_atom' "
+                "and/or 'adsorbate_energy'). Use calc_adslabs(...) to generate input dicts."
+            )
+            raise TypeError(msg)
         result_dict = structure.copy()
 
         result_dict |= self.calc_adsorbate(

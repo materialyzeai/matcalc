@@ -11,7 +11,6 @@ from phono3py import Phono3py
 from pymatgen.io.phonopy import get_phonopy_structure, get_pmg_structure
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 from .backend import run_pes_calc
 from .utils import to_pmg_structure
 
@@ -138,17 +137,12 @@ class Phonon3Calc(PropCalc):
             See phono3py RTA documentation for details.
         """
         result = super().calc(structure)
-        structure_in: Structure = result["final_structure"]
-
-        if self.relax_structure:
-            relaxer = RelaxCalc(
-                self.calculator,
-                fmax=self.fmax,
-                optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
-            )
-            result |= relaxer.calc(structure_in)
-            structure_in = result["final_structure"]
+        result, structure_in = self._prerelax(
+            result["final_structure"],
+            result,
+            fmax=self.fmax,
+            optimizer=self.optimizer,
+        )
 
         cell = get_phonopy_structure(to_pmg_structure(structure_in))
         phonon3 = Phono3py(

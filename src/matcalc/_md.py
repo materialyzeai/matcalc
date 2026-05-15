@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from ase import Atoms, units
@@ -21,7 +21,6 @@ from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
 from ase.md.verlet import VelocityVerlet
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 from .utils import to_ase_atoms, to_pmg_structure
 
 if TYPE_CHECKING:
@@ -356,24 +355,16 @@ class MDCalc(PropCalc):
         # Preprocess the input structure using the superclass's calc method.
         # This initial processing returns a dictionary containing a "final_structure".
         result = super().calc(structure)
-        structure_in: Structure = result["final_structure"]
-
-        # If structure relaxation is enabled, relax the structure (atoms only) before the MD simulation.
-        if self.relax_structure:
-            # Create a RelaxCalc instance with the specified calculator, convergence criteria (fmax),
-            # optimizer, and any additional keyword arguments for the relaxation calculation.
-            merged_relax_calc_kwargs = {
-                "fmax": self.fmax,
-                "optimizer": self.optimizer,
-                "relax_atoms": True,
-                "relax_cell": False,
-            } | (self.relax_calc_kwargs or {})
-
-            relaxer = RelaxCalc(self.calculator, **cast("Any", merged_relax_calc_kwargs))
-            # Run the relaxation calculation and update the result dictionary.
-            result |= relaxer.calc(structure_in)
-            # Update the input structure with the relaxed final structure.
-            structure_in = result["final_structure"]
+        # If structure relaxation is enabled, relax the structure (atoms only,
+        # fixed cell) before the MD simulation.
+        result, structure_in = self._prerelax(
+            result["final_structure"],
+            result,
+            fmax=self.fmax,
+            optimizer=self.optimizer,
+            relax_atoms=True,
+            relax_cell=False,
+        )
 
         # Convert the structure to an ASE atoms object,
         # which is required for subsequent molecular dynamics (MD) simulation.

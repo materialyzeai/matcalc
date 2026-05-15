@@ -221,18 +221,16 @@ class QHACalc(PropCalc):
             to its unit string. Merged with any relaxation fields from earlier steps.
         """
         result = super().calc(structure)
-        structure_in: Structure = to_pmg_structure(result["final_structure"])
-
         if self.relax_structure:
             logger.info("Relaxing input structure before QHA")
-            result |= RelaxCalc(
-                self.calculator,
-                fmax=self.fmax,
-                optimizer=self.optimizer,
-                max_steps=self.max_steps,
-                **self.relax_calc_kwargs or {},
-            ).calc(structure_in)
-            structure_in = result["final_structure"]
+        result, raw_structure = self._prerelax(
+            result["final_structure"],
+            result,
+            fmax=self.fmax,
+            optimizer=self.optimizer,
+            max_steps=self.max_steps,
+        )
+        structure_in: Structure = to_pmg_structure(raw_structure)
 
         logger.info(
             "Starting QHA calculation over %d scale factors: %s",

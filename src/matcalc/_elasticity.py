@@ -113,15 +113,14 @@ class ElasticityCalc(PropCalc):
             ``_units`` is a dict mapping each numeric output to its unit string.
         """
         result = super().calc(structure)
-        structure_in: Structure | Atoms = result["final_structure"]
+        structure_in = result["final_structure"]
 
+        relax_calc: RelaxCalc | None = None
         if self.relax_structure or self.relax_deformed_structures:
             relax_calc = RelaxCalc(self.calculator, fmax=self.fmax, **(self.relax_calc_kwargs or {}))
-            if self.relax_structure:
-                result |= relax_calc.calc(structure_in)
-                structure_in = result["final_structure"]
-            if self.relax_deformed_structures:
-                relax_calc.relax_cell = False
+        result, structure_in = self._prerelax(structure_in, result, relaxer=relax_calc)
+        if self.relax_deformed_structures and relax_calc is not None:
+            relax_calc.relax_cell = False
 
         deformed_structure_set = DeformedStructureSet(
             to_pmg_structure(structure_in),
@@ -131,8 +130,8 @@ class ElasticityCalc(PropCalc):
         )
         stresses = []
         for deformed_structure in deformed_structure_set:
-            if self.relax_deformed_structures:
-                deformed_relaxed = relax_calc.calc(deformed_structure)["final_structure"]  # pyright:ignore (reportPossiblyUnboundVariable)
+            if self.relax_deformed_structures and relax_calc is not None:
+                deformed_relaxed = relax_calc.calc(deformed_structure)["final_structure"]
                 sim = run_pes_calc(deformed_relaxed, self.calculator)
             else:
                 sim = run_pes_calc(deformed_structure, self.calculator)
