@@ -443,14 +443,12 @@ class AlamodeCalc(PropCalc):
             # &CELL
             f.write("&cell\n")
             f.write(f"  {scaling_factor:.16f} # factor \n")
-            for vec in lattice_vectors:
-                f.write(f"  {vec[0]:.10f}   {vec[1]:.10f}   {vec[2]:.10f}\n")
+            f.writelines(f"  {vec[0]:.10f}   {vec[1]:.10f}   {vec[2]:.10f}\n" for vec in lattice_vectors)
             f.write("# cell matrix\n/\n\n")
 
             # &POSITION
             f.write("&position\n")
-            for pos in positions:
-                f.write("  {:d}   {:.16f}   {:.16f}   {:.16f}\n".format(*pos))
+            f.writelines("  {:d}   {:.16f}   {:.16f}   {:.16f}\n".format(*pos) for pos in positions)
             f.write("/\n")
 
         # subprocess.run(["mpirun", "-n", "1", "/home/jzheng4/alamode/_build/alm/alm alamode.in"], check=True)
@@ -559,14 +557,12 @@ class AlamodeCalc(PropCalc):
                 # &CELL
                 f.write("&cell\n")
                 f.write(f"  {scaling_factor:.16f} # factor \n")
-                for vec in lattice_vectors:
-                    f.write(f"  {vec[0]:.10f}   {vec[1]:.10f}   {vec[2]:.10f}\n")
+                f.writelines(f"  {vec[0]:.10f}   {vec[1]:.10f}   {vec[2]:.10f}\n" for vec in lattice_vectors)
                 f.write("# cell matrix\n/\n\n")
 
                 # &POSITION
                 f.write("&position\n")
-                for pos in positions:
-                    f.write("  {:d}   {:.16f}   {:.16f}   {:.16f}\n".format(*pos))
+                f.writelines("  {:d}   {:.16f}   {:.16f}   {:.16f}\n".format(*pos) for pos in positions)
                 f.write("/\n")
 
         # subprocess.run(["mpirun", "-n", "1", "/home/jzheng4/alamode/_build/alm/alm alamode_anhar.in"], check=True)
@@ -645,6 +641,5 @@ def _write_fc2_phonopy(map_p2s, fc2_compact, filename="FORCE_CONSTANTS"):
             for j in range(natom_super):
                 f.write(f"{map_p2s[0, i] + 1:5d} {j + 1:5d}\n")
                 for k in range(3):
-                    for l in range(3):
-                        f.write(f"{fc2_compact[i, j, k, l]:20.15f}")
+                    f.writelines(f"{fc2_compact[i, j, k, l]:20.15f}" for l in range(3))
                     f.write("\n")
