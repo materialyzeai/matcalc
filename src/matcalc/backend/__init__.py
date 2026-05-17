@@ -19,13 +19,12 @@ def run_pes_calc(*arg, **kwargs) -> SimulationResult:  # noqa:ANN002,ANN003
     selected. The function then forwards the arguments and keyword arguments to the respective
     backend function for execution.
 
-    :param arg: Variable-length positional arguments passed to the backend calculation function.
-    :type arg: tuple
-    :param kwargs: Arbitrary keyword arguments passed to the backend calculation function.
-    :type kwargs: dict
-    :return: The result of the potential energy surface calculation performed by the selected
-        backend.
-    :rtype: SimulationResult
+    Args:
+        *arg: Positional arguments forwarded to the selected backend.
+        **kwargs: Keyword arguments forwarded to the selected backend.
+
+    Returns:
+        SimulationResult from the ASE or LAMMPS backend.
     """
     if SIMULATION_BACKEND == "ASE":
         return run_ase(*arg, **kwargs)

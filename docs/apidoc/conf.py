@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import sys
 
-from matcalc import __file__, __version__
+from matcalc import __version__
 
 project = "matcalc"
-copyright = "2023, Materials Virtual Lab"
+copyright = "2023, Materialyze AI"
 
 
 # -- General configuration ---------------------------------------------------
@@ -61,7 +61,7 @@ master_doc = "index"
 
 # General information about the project.
 project = "matcalc"
-copyright = "2023, " + "Materials Virtual Lab"
+copyright = "2023, " + "Materialyze AI"
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -207,7 +207,7 @@ html_theme_options = {
 
 html_context = {
     "display_github": True,
-    "github_user": "materialsvirtuallab",
+    "github_user": "materialyzeai",
     "github_repo": "matcalc",
     "github_version": "master",
     "conf_py_path": "/docs_rst/",
@@ -227,7 +227,7 @@ latex_elements: dict[str, str] = {
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
-    ("index", "matcalc.tex", "matcalc Documentation", "Materials Virtual Lab", "manual"),
+    ("index", "matcalc.tex", "matcalc Documentation", "Materialyze AI", "manual"),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -255,7 +255,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [("index", "matcalc", "matcalc Documentation", ["Materials Virtual Lab"], 1)]
+man_pages = [("index", "matcalc", "matcalc Documentation", ["Materialyze AI"], 1)]
 
 # If true, show URL addresses after external links.
 # man_show_urls = False
@@ -271,7 +271,7 @@ texinfo_documents = [
         "index",
         "matcalc",
         "matcalc Documentation",
-        "Materials Virtual Lab",
+        "Materialyze AI",
         "matcalc",
         "One line description of project.",
         "Miscellaneous",
@@ -292,8 +292,8 @@ texinfo_documents = [
 
 # Bibliographic Dublin Core info.
 epub_title = "matcalc"
-epub_author = "Materials Virtual Lab"
-epub_publisher = "Materials Virtual Lab"
+epub_author = "Materialyze AI"
+epub_publisher = "Materialyze AI"
 epub_copyright = copyright
 
 # The language of the text. It defaults to the language option
@@ -345,10 +345,12 @@ def linkcode_resolve(domain, info):
         import inspect
         import os
 
+        import matcalc
+
         fn = inspect.getsourcefile(obj)
         if not fn:
             raise FileNotFoundError(f"Can't find file for {obj}")
-        fn = os.path.relpath(fn, start=os.path.dirname(__file__))
+        fn = os.path.relpath(fn, start=os.path.dirname(matcalc.__file__))
         source, lineno = inspect.getsourcelines(obj)
         return fn, lineno, lineno + len(source) - 1
 
@@ -363,4 +365,4 @@ def linkcode_resolve(domain, info):
         # no need to be relative to core here as module includes full path.
         filename = info["module"].replace(".", "/") + ".py"
 
-    return f"https://github.com/materialsvirtuallab/matcalc/blob/v{__version__}/{filename}"
+    return f"https://github.com/materialyzeai/matcalc/blob/v{__version__}/{filename}"

@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import contextlib
 import io
-import pickle
-from dataclasses import dataclass, field
+import logging
 from inspect import isclass
 from typing import TYPE_CHECKING
 
 import ase
+import numpy as np
 from ase.filters import FrechetCellFilter
+from ase.io import Trajectory
 from ase.optimize.optimize import Optimizer
 
 from matcalc.utils import to_ase_atoms, to_pmg_structure
@@ -21,12 +22,12 @@ from matcalc.utils import to_ase_atoms, to_pmg_structure
 from ._base import SimulationResult
 
 if TYPE_CHECKING:
-    import numpy as np
     from ase import Atoms
     from ase.calculators.calculator import Calculator
     from ase.filters import Filter
-    from numpy.typing import NDArray
     from pymatgen.core.structure import Structure
+
+logger = logging.getLogger(__name__)
 
 
 def is_ase_optimizer(key: str | Optimizer) -> bool:
@@ -39,12 +40,11 @@ def is_ase_optimizer(key: str | Optimizer) -> bool:
     If the key is a string, the function checks whether it corresponds
     to a class in `ase.optimize` that is a subclass of `Optimizer`.
 
-    :param key: The key to check, either a string name of an ASE
-        optimizer class or a class object that potentially subclasses
-        `Optimizer`.
-    :return: True if the key is either a string corresponding to an
-        ASE optimizer subclass name in `ase.optimize` or a class that
-        is a subclass of `Optimizer`. Otherwise, returns False.
+    Args:
+        key: String name of an ASE optimizer in ``ase.optimize``, or an ``Optimizer`` subclass.
+
+    Returns:
+        True if ``key`` names a valid ASE optimizer class or is an ``Optimizer`` subclass.
     """
     if isclass(key) and issubclass(key, Optimizer):
         return True
@@ -65,15 +65,14 @@ def get_ase_optimizer(optimizer: str | Optimizer) -> Optimizer:
 
     If an Optimizer subclass or instance is provided as input, it is returned directly.
 
-    :param optimizer: The optimizer to be retrieved. Can be a string representing a valid ASE
-        optimizer name or an instance/subclass of the Optimizer class.
-    :type optimizer: str | Optimizer
+    Args:
+        optimizer: ASE optimizer name (str) or ``Optimizer`` subclass.
 
-    :return: The corresponding ASE optimizer instance or the input Optimizer instance/subclass.
-    :rtype: Optimizer
+    Returns:
+        The ASE optimizer class or the given ``Optimizer`` subclass.
 
-    :raises ValueError: If the optimizer name provided as a string is not among the valid ASE
-        optimizer names defined by `VALID_OPTIMIZERS`.
+    Raises:
+        ValueError: If ``optimizer`` is a string not in ``VALID_OPTIMIZERS``.
     """
     if isclass(optimizer) and issubclass(optimizer, Optimizer):
         return optimizer
@@ -82,102 +81,6 @@ def get_ase_optimizer(optimizer: str | Optimizer) -> Optimizer:
         raise ValueError(f"Unknown {optimizer=}, must be one of {VALID_OPTIMIZERS}")
 
     return getattr(ase.optimize, optimizer) if isinstance(optimizer, str) else optimizer
-
-
-@dataclass
-class TrajectoryObserver:
-    """
-    Handles the observation and tracking of the trajectory-related properties of an Atoms object.
-
-    The class captures and stores various physical properties of an Atoms object during relaxation steps
-    or a simulation. It allows for the extraction of property snapshots, slicing trajectory data,
-    and saving the stored data to a file for further analysis or reuse.
-
-    Attributes:
-        atoms: Atoms
-            The instance of Atoms to observe and track properties for.
-        potential_energies: list[float]
-            List to store the potential energies recorded during the trajectory.
-        kinetic_energies: list[float]
-            List to store the kinetic energies recorded during the trajectory.
-        total_energies: list[float]
-            List to store the total energies recorded during the trajectory.
-        forces: list[np.ndarray]
-            List to store the atomic forces measured during the trajectory.
-        stresses: list[np.ndarray]
-            List to store the stress tensors recorded during the trajectory.
-        atom_positions: list[np.ndarray]
-            List to store the atomic positions recorded during the trajectory.
-        cells: list[np.ndarray]
-            List to store the simulation cell geometries recorded during the trajectory.
-    """
-
-    atoms: Atoms
-    potential_energies: list[float] = field(default_factory=list)
-    kinetic_energies: list[float] = field(default_factory=list)
-    total_energies: list[float] = field(default_factory=list)
-    forces: list[NDArray[np.float64]] = field(default_factory=list)
-    stresses: list[NDArray[np.float64]] = field(default_factory=list)
-    atom_positions: list[NDArray[np.float64]] = field(default_factory=list)
-    cells: list[NDArray[np.float64]] = field(default_factory=list)
-
-    def __call__(self) -> None:
-        """The logic for saving the properties of an Atoms during the relaxation."""
-        self.potential_energies.append(float(self.atoms.get_potential_energy()))
-        self.kinetic_energies.append(float(self.atoms.get_kinetic_energy()))
-        self.total_energies.append(float(self.atoms.get_total_energy()))
-        self.forces.append(self.atoms.get_forces())
-        self.stresses.append(self.atoms.get_stress())
-        self.atom_positions.append(self.atoms.get_positions())
-        self.cells.append(self.atoms.get_cell()[:])
-
-    def __len__(self) -> int:
-        return len(self.total_energies)
-
-    def get_slice(self, sl: slice) -> TrajectoryObserver:
-        """
-        Gets a sliced view of the trajectory data encapsulated within a new TrajectoryObserver
-        object, based on the provided slice. This method extracts the corresponding segment of
-        the trajectory data for all relevant attributes and returns a new TrajectoryObserver
-        object containing the sliced values.
-
-        Args:
-            sl (slice): The slice object specifying the indices to extract from the trajectory
-                data.
-
-        Returns:
-            TrajectoryObserver: A new TrajectoryObserver instance containing the sliced
-                trajectory data.
-        """
-        return TrajectoryObserver(
-            self.atoms,
-            self.potential_energies[sl],
-            self.kinetic_energies[sl],
-            self.total_energies[sl],
-            self.forces[sl],
-            self.stresses[sl],
-            self.atom_positions[sl],
-            self.cells[sl],
-        )
-
-    def save(self, filename: str) -> None:
-        """Save the trajectory to file.
-
-        Args:
-            filename (str): filename to save the trajectory.
-        """
-        out = {
-            "potential_energies": self.potential_energies,
-            "kinetic_energies": self.kinetic_energies,
-            "total_energies": self.total_energies,
-            "forces": self.forces,
-            "stresses": self.stresses,
-            "atom_positions": self.atom_positions,
-            "cell": self.cells,
-            "atomic_number": self.atoms.get_atomic_numbers(),
-        }
-        with open(filename, "wb") as file:
-            pickle.dump(out, file)
 
 
 def run_ase(
@@ -192,40 +95,62 @@ def run_ase(
     interval: int = 1,
     fmax: float = 0.1,
     cell_filter: Filter = FrechetCellFilter,  # type:ignore[assignment]
+    cell_filter_kwargs: dict | None = None,
 ) -> SimulationResult:
     """
     Run ASE static calculation using the given structure and calculator.
 
-    Parameters:
-    structure (Structure|Atoms): The input structure to calculate potential energy, forces, and stress.
-    calculator (Calculator): The calculator object to use for the calculation.
+    Args:
+        structure: Input structure for energy, forces, and stress.
+        calculator: ASE calculator attached to the structure.
+        relax_atoms: Whether to relax atomic positions.
+        relax_cell: Whether to relax the cell (with ``cell_filter``).
+        optimizer: Optimizer name or class.
+        max_steps: Maximum optimization steps.
+        traj_file: Optional trajectory path during relaxation.
+        interval: Trajectory write interval.
+        fmax: Force convergence criterion (eV/Å).
+        cell_filter: Cell filter class when ``relax_cell`` is True.
+        cell_filter_kwargs: Extra arguments for the cell filter.
 
     Returns:
-    PESResult: Object containing potential energy, forces, and stress of the input structure.
+        SimulationResult with structure, energies, forces, and stress.
     """
     atoms = to_ase_atoms(structure)
     atoms.calc = calculator
+    cell_filter_kwargs = cell_filter_kwargs or {}
     if relax_atoms:
         stream = io.StringIO()
         with contextlib.redirect_stdout(stream):
-            obs = TrajectoryObserver(atoms)
+            original_atoms = atoms
             if relax_cell:
-                atoms = cell_filter(atoms)  # type:ignore[operator]
+                atoms = cell_filter(atoms, **cell_filter_kwargs)  # type:ignore[operator]
             opt = get_ase_optimizer(optimizer)(atoms)  # type:ignore[operator]
-            opt.attach(obs, interval=interval)
+            traj = Trajectory(traj_file, "w", original_atoms) if traj_file is not None else None
+            if traj is not None:
+                opt.attach(traj, interval=interval)
             opt.run(fmax=fmax, steps=max_steps)
-            if traj_file is not None:
-                obs()
-                obs.save(traj_file)
+            if traj is not None:
+                traj.close()
+            if opt.nsteps >= max_steps:
+                logger.warning("Maximum steps reached in structure relaxation.")
+
         if relax_cell:
             atoms = atoms.atoms  # type:ignore[attr-defined]
+        if opt.nsteps >= max_steps:
+            max_force = np.linalg.norm(atoms.get_forces(), axis=1).max()
+            logger.warning(
+                "Maximum steps reached in structure relaxation. Max|F| = %s eV/Å",
+                max_force,
+            )
+
         return SimulationResult(
             to_pmg_structure(atoms),
-            obs.potential_energies[-1],
-            obs.kinetic_energies[-1],
-            obs.total_energies[-1],
-            obs.forces[-1],
-            obs.stresses[-1],
+            atoms.get_potential_energy(),
+            atoms.get_kinetic_energy(),
+            atoms.get_total_energy(),
+            atoms.get_forces(),
+            atoms.get_stress(voigt=False),
         )
 
     return SimulationResult(

@@ -18,12 +18,12 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize("relax_deformed_structures", [False, True])
 def test_elastic_calc(
     Li2O: Structure,
-    m3gnet_calculator: PESCalculator,
-    relax_deformed_structures: bool,  # noqa: FBT001
+    matpes_calculator: PESCalculator,
+    relax_deformed_structures: bool,
 ) -> None:
     """Tests for ElasticCalc class"""
     elast_calc = ElasticityCalc(
-        m3gnet_calculator,
+        matpes_calculator,
         fmax=0.1,
         norm_strains=list(np.linspace(-0.004, 0.004, num=4)),
         shear_strains=list(np.linspace(-0.004, 0.004, num=4)),
@@ -36,15 +36,20 @@ def test_elastic_calc(
     assert results["elastic_tensor"].shape == (3, 3, 3, 3)
     assert results["structure"].lattice.a == pytest.approx(3.291071792359756, rel=1e-1)
 
-    assert results["elastic_tensor"][0][1][1][0] == pytest.approx(0.3121514513622968, rel=1e-1)
-    assert results["bulk_modulus_vrh"] == pytest.approx(0.41534028838780773, rel=1e-1)
-    assert results["shear_modulus_vrh"] == pytest.approx(0.25912319676768314, rel=1e-1)
-    assert results["youngs_modulus"] == pytest.approx(643538946.776407, rel=1e-1)
-    assert results["residuals_sum"] == pytest.approx(1.4675954664743306e-08, rel=1e-1)
+    assert results["elastic_tensor"][0][1][1][0] == pytest.approx(0.4616500809788702, rel=1e-1)
+    assert results["bulk_modulus_vrh"] == pytest.approx(0.5064644749775054, rel=1e-1)
+    assert results["shear_modulus_vrh"] == pytest.approx(0.40219758881584616, rel=1e-1)
+    # Youngs modulus is now self-consistent with bulk/shear (eV/A^3 by default).
+    # Previous value used pymatgen's ElasticTensor.y_mod which hardcodes a 9e9
+    # GPa->Pa factor that produced incorrect units; see Issue #85.
+    assert results["youngs_modulus"] == pytest.approx(0.9338539283876991, rel=1e-1)
+    assert results["residuals_sum"] == pytest.approx(3.581519020751326e-08, abs=1e-8)
+    assert results["_units"]["bulk_modulus_vrh"] == "eV/A^3"
+    assert results["_units"]["youngs_modulus"] == "eV/A^3"
 
     # Test Li2O without the equilibrium structure
     elast_calc = ElasticityCalc(
-        m3gnet_calculator,
+        matpes_calculator,
         fmax=0.1,
         norm_strains=list(np.linspace(-0.004, 0.004, num=4)),
         shear_strains=list(np.linspace(-0.004, 0.004, num=4)),
@@ -53,11 +58,11 @@ def test_elastic_calc(
     )
 
     results = elast_calc.calc(Li2O)
-    assert results["residuals_sum"] == pytest.approx(1.1166845725443057e-08, rel=1e-1)
+    assert results["residuals_sum"] == pytest.approx(2.285e-08, abs=1e-8)
 
     # Test Li2O with float
     elast_calc = ElasticityCalc(
-        m3gnet_calculator,
+        matpes_calculator,
         fmax=0.1,
         norm_strains=0.004,
         shear_strains=0.004,
@@ -67,16 +72,16 @@ def test_elastic_calc(
 
     results = elast_calc.calc(Li2O)
     assert results["residuals_sum"] == 0.0
-    assert results["bulk_modulus_vrh"] == pytest.approx(0.40877813076228825, rel=1e-1)
+    assert results["bulk_modulus_vrh"] == pytest.approx(0.4982440620197328, rel=1e-1)
 
 
 def test_elastic_calc_atoms(
     Si_atoms: Structure,
-    m3gnet_calculator: PESCalculator,
+    matpes_calculator: PESCalculator,
 ) -> None:
     # Test atoms input. This is not meant to be accurate.
     elast_calc = ElasticityCalc(
-        m3gnet_calculator,
+        matpes_calculator,
         fmax=0.1,
         norm_strains=list(np.linspace(-0.004, 0.004, num=4)),
         shear_strains=list(np.linspace(-0.004, 0.004, num=4)),
@@ -89,13 +94,13 @@ def test_elastic_calc_atoms(
     assert results["bulk_modulus_vrh"] == pytest.approx(0.5798804241502018, rel=1e-1)
 
 
-def test_elastic_calc_invalid_states(m3gnet_calculator: PESCalculator) -> None:
+def test_elastic_calc_invalid_states(matpes_calculator: PESCalculator) -> None:
     with pytest.raises(ValueError, match="shear_strains is empty"):
-        ElasticityCalc(m3gnet_calculator, shear_strains=[])
+        ElasticityCalc(matpes_calculator, shear_strains=[])
     with pytest.raises(ValueError, match="norm_strains is empty"):
-        ElasticityCalc(m3gnet_calculator, norm_strains=[])
+        ElasticityCalc(matpes_calculator, norm_strains=[])
 
     with pytest.raises(ValueError, match="strains must be non-zero"):
-        ElasticityCalc(m3gnet_calculator, norm_strains=[0.0, 0.1])
+        ElasticityCalc(matpes_calculator, norm_strains=[0.0, 0.1])
     with pytest.raises(ValueError, match="strains must be non-zero"):
-        ElasticityCalc(m3gnet_calculator, shear_strains=[0.0, 0.1])
+        ElasticityCalc(matpes_calculator, shear_strains=[0.0, 0.1])

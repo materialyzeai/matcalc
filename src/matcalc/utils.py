@@ -2,66 +2,202 @@
 
 from __future__ import annotations
 
+import difflib
 import warnings
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from ase import Atoms
 from ase.calculators.calculator import Calculator
-from pymatgen.core import Structure
+from pymatgen.core import Molecule, Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from .units import eVA3ToGPa
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import Callable
 
     from maml.apps.pes import LMPStaticCalculator
     from pyace.basis import ACEBBasisSet, ACECTildeBasisSet, BBasisConfiguration
-    from pymatgen.core import IStructure
+    from pymatgen.core import IMolecule, IStructure
 
 
-# Listing of supported universal calculators.
-# If you update UNIVERSAL_CALCULATORS, you must also update the mapping in
-# map_calculators_to_packages in test_utils.py, unless already covered.
+# Unified naming convention for foundation potentials:
+#
+#     <Architecture>-<Dataset>-<Optional Version>
+#
+# e.g. ``TensorNet-MatPES-PBE-2025.2`` or ``MACE-MPA-0-medium``. Each entry in
+# ``MODEL_REGISTRY`` maps a canonical name to a provider and the provider-specific
+# kwargs used to materialise the calculator. Users select a model by its canonical
+# name; ``MODEL_ALIASES`` provides short / legacy spellings that resolve to a
+# canonical name.
+#
+# To add a new model, append an entry here. The ``provider`` key picks the loader
+# branch in ``PESCalculator.load_universal``; remaining keys are forwarded to that
+# loader (user kwargs to ``load_universal`` override these defaults).
+MODEL_REGISTRY: dict[str, dict[str, Any]] = {
+    # MatGL — TensorNet on MatPES
+    "TensorNet-MatPES-PBE-2025.2": {"provider": "matgl", "path": "TensorNet-PES-MatPES-PBE-2025.2"},
+    "TensorNet-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "TensorNet-PES-MatPES-r2SCAN-2025.2"},
+    # MatGL — M3GNet
+    "M3GNet-MatPES-PBE-2025.1": {"provider": "matgl", "path": "M3GNet-PES-MatPES-PBE-2025.1"},
+    # MatGL — CHGNet
+    "CHGNet-MatPES-PBE-2025.2.10": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-2025.2.10"},
+    "CHGNet-MatPES-r2SCAN-2025.2.10": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-2025.2.10"},
+    "CHGNet-MPtrj-2023.12.1-2.7M": {"provider": "matgl", "path": "CHGNet-MPtrj-2023.12.1-2.7M-PES"},
+    "CHGNet-MPtrj-2024.2.13-11M": {"provider": "matgl", "path": "CHGNet-MPtrj-2024.2.13-11M-PES"},
+    # MACE foundation models (mace-foundations release names)
+    "MACE-MP-0-small": {"provider": "mace_mp", "model": "small"},
+    "MACE-MP-0-medium": {"provider": "mace_mp", "model": "medium"},
+    "MACE-MP-0-large": {"provider": "mace_mp", "model": "large"},
+    "MACE-MP-0b-small": {"provider": "mace_mp", "model": "small-0b"},
+    "MACE-MP-0b-medium": {"provider": "mace_mp", "model": "medium-0b"},
+    "MACE-MP-0b2-small": {"provider": "mace_mp", "model": "small-0b2"},
+    "MACE-MP-0b2-medium": {"provider": "mace_mp", "model": "medium-0b2"},
+    "MACE-MP-0b2-large": {"provider": "mace_mp", "model": "large-0b2"},
+    "MACE-MP-0b3-medium": {"provider": "mace_mp", "model": "medium-0b3"},
+    "MACE-MPA-0-medium": {"provider": "mace_mp", "model": "medium-mpa-0"},
+    "MACE-OMAT-0-small": {"provider": "mace_mp", "model": "small-omat-0"},
+    "MACE-OMAT-0-medium": {"provider": "mace_mp", "model": "medium-omat-0"},
+    "MACE-MatPES-PBE-0": {"provider": "mace_mp", "model": "mace-matpes-pbe-0"},
+    "MACE-MatPES-r2SCAN-0": {"provider": "mace_mp", "model": "mace-matpes-r2scan-0"},
+    # NOTE: MACE multi-head checkpoints (mh-0, mh-1) require a mandatory ``head=...``
+    # kwarg per use; they are not registered as default-loadable canonical names.
+    # SevenNet (model names match the upstream HF / SevenNetCalculator strings)
+    "SevenNet-0": {"provider": "sevennet", "model": "7net-0"},
+    "SevenNet-l3i5": {"provider": "sevennet", "model": "7net-l3i5"},
+    "SevenNet-MF-OMPA": {"provider": "sevennet", "model": "7net-mf-ompa"},
+    "SevenNet-OMAT": {"provider": "sevennet", "model": "7net-omat"},
+    # GRACE / TensorPotential
+    "GRACE-1L-OAM": {"provider": "grace", "model": "GRACE-1L-OAM"},
+    "GRACE-2L-OAM": {"provider": "grace", "model": "GRACE-2L-OAM"},
+    "GRACE-2L-OMAT": {"provider": "grace", "model": "GRACE-2L-OMAT"},
+    "GRACE-2L-MPtrj": {"provider": "grace", "model": "GRACE-2L-MPtrj"},
+    # Orb
+    "ORB-v2": {"provider": "orb", "model": "orb-v2"},
+    "ORB-d3-v2": {"provider": "orb", "model": "orb-d3-v2"},
+    "ORB-d3-sm-v2": {"provider": "orb", "model": "orb-d3-sm-v2"},
+    "ORB-d3-xs-v2": {"provider": "orb", "model": "orb-d3-xs-v2"},
+    # MatterSim
+    "MatterSim-v1.0.0-1M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-1M.pth"},
+    "MatterSim-v1.0.0-5M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-5M.pth"},
+    # FAIRChem (UMA family) — upstream uses ``uma-s-1p2`` style; we expose them
+    # under the unified ``<Arch>-<Size>-<Version>`` form.
+    "UMA-S-1.2": {"provider": "fairchem", "model": "uma-s-1p2", "task_name": "omat"},
+    "UMA-S-1.1": {"provider": "fairchem", "model": "uma-s-1p1", "task_name": "omat"},
+    "UMA-M-1.1": {"provider": "fairchem", "model": "uma-m-1p1", "task_name": "omat"},
+    # PET-MAD
+    "PETMAD-1.0.0": {"provider": "petmad"},
+    # DeePMD-LAM
+    "DPA3-LAM-2025.3.14": {"provider": "deepmd"},
+}
 
-_universal_calculators = [
-    "M3GNet",
-    "CHGNet",
-    "MACE",
-    "SevenNet",
-    "TensorNet",
-    "GRACE",
-    "TensorPotential",
-    "ORB",
-    "PBE",
-    "r2SCAN",
-    "MatterSim",
-    "FAIRChem",
-    "PETMAD",
-    "DeePMD",
-]
+# Short / legacy aliases. Keys are matched case-insensitively. Values must be
+# canonical names from ``MODEL_REGISTRY``.
+MODEL_ALIASES: dict[str, str] = {
+    # short architecture / functional aliases — pick a sensible default per family
+    "tensornet": "TensorNet-MatPES-PBE-2025.2",
+    "m3gnet": "M3GNet-MatPES-PBE-2025.1",
+    "chgnet": "CHGNet-MatPES-PBE-2025.2.10",
+    "pbe": "TensorNet-MatPES-PBE-2025.2",
+    "r2scan": "TensorNet-MatPES-r2SCAN-2025.2",
+    "mace": "MACE-MPA-0-medium",
+    "sevennet": "SevenNet-0",
+    "grace": "GRACE-2L-OAM",
+    "tensorpotential": "GRACE-2L-OAM",
+    "orb": "ORB-v2",
+    "mattersim": "MatterSim-v1.0.0-1M",
+    "fairchem": "UMA-S-1.2",
+    "uma": "UMA-S-1.2",
+    "petmad": "PETMAD-1.0.0",
+    "deepmd": "DPA3-LAM-2025.3.14",
+    # legacy MatGL spellings — keep working so existing code/notebooks don't break
+    "tensornet-pes-matpes-pbe-2025.2": "TensorNet-MatPES-PBE-2025.2",
+    "tensornet-pes-matpes-r2scan-2025.2": "TensorNet-MatPES-r2SCAN-2025.2",
+    "m3gnet-pes-matpes-pbe-2025.1": "M3GNet-MatPES-PBE-2025.1",
+    "chgnet-pes-matpes-pbe-2025.2.10": "CHGNet-MatPES-PBE-2025.2.10",
+    "chgnet-pes-matpes-r2scan-2025.2.10": "CHGNet-MatPES-r2SCAN-2025.2.10",
+    "chgnet-matpes-pbe-2025.2.10-2.7m-pes": "CHGNet-MatPES-PBE-2025.2.10",
+    "chgnet-mptrj-2023.12.1-2.7m-pes": "CHGNet-MPtrj-2023.12.1-2.7M",
+    "chgnet-mptrj-2024.2.13-11m-pes": "CHGNet-MPtrj-2024.2.13-11M",
+}
 
 try:
-    # Auto-load all available PES models from matgl if installed.
+    # Set of raw MatGL pretrained PES names. Used as a backward-compat escape hatch
+    # in ``load_universal`` for matgl models not yet registered as canonical names.
     import matgl
 
-    _universal_calculators += [m for m in matgl.get_available_pretrained_models() if "PES" in m]
-    _universal_calculators = sorted(set(_universal_calculators))
-except Exception:  # noqa: BLE001
-    warnings.warn("Unable to get pre-trained MatGL universal calculators.", stacklevel=1)
+    _MATGL_AVAILABLE: set[str] = {
+        m for m in matgl.get_available_pretrained_models() if "PES" in m and "ANI-1x-Subset-PES" not in m
+    }
+except ImportError:
+    _MATGL_AVAILABLE = set()
+except Exception as _matgl_err:  # noqa: BLE001
+    warnings.warn(
+        f"Unable to query pre-trained MatGL universal calculators: {_matgl_err!r}",
+        stacklevel=1,
+    )
+    _MATGL_AVAILABLE = set()
 
-# Provide simple aliases for some common models. The key in MODEL_ALIASES must be lower case.
-MODEL_ALIASES = {
-    "tensornet": "TensorNet-MatPES-PBE-v2025.1-PES",
-    "m3gnet": "M3GNet-MatPES-PBE-v2025.1-PES",
-    "chgnet": "CHGNet-MatPES-PBE-2025.2.10-2.7M-PES",
-    "pbe": "TensorNet-MatPES-PBE-v2025.1-PES",
-    "r2scan": "TensorNet-MatPES-r2SCAN-v2025.1-PES",
+UNIVERSAL_CALCULATORS = Enum(  # type: ignore[misc]
+    "UNIVERSAL_CALCULATORS", {k: k for k in sorted(MODEL_REGISTRY)}
+)
+
+# Same strings as enum values; exposed for typing-friendly iteration (e.g. CLI choices).
+UNIVERSAL_CALCULATOR_NAMES: tuple[str, ...] = tuple(sorted(MODEL_REGISTRY))
+
+# Case-folded view of MODEL_REGISTRY so users typing the wrong case still resolve
+# to the right canonical name (e.g. ``tensornet-matpes-pbe-2025.2`` → canonical).
+_REGISTRY_LOWER: dict[str, str] = {k.lower(): k for k in MODEL_REGISTRY}
+
+# Pip-install hint surfaced when a provider's dependency is not installed.
+_PROVIDER_INSTALL_EXTRA: dict[str, str] = {
+    "matgl": "matgl",
+    "mace_mp": "mace",
+    "sevennet": "sevennet",
+    "grace": "grace",
+    "orb": "orb",
+    "mattersim": "mattersim",
+    "fairchem": "fairchem",
+    "petmad": "petmad",
+    "deepmd": "deepmd",
 }
 
 
-UNIVERSAL_CALCULATORS = Enum("UNIVERSAL_CALCULATORS", {k: k for k in _universal_calculators})  # type: ignore[misc]
+def _install_hint(provider: str) -> str:
+    """Return a human-friendly install hint for a missing provider dependency."""
+    extra = _PROVIDER_INSTALL_EXTRA.get(provider, provider)
+    return (
+        f"Provider {provider!r} requires an optional dependency that is not installed. "
+        f"Install it with: pip install 'matcalc[{extra}]'"
+    )
+
+
+def _resolve_canonical(name: str) -> str | None:
+    """Resolve ``name`` (alias, canonical, or case-variant) to a canonical model name.
+
+    Returns ``None`` if the name cannot be resolved.
+    """
+    # 1. Direct hit on canonical registry (preserves case).
+    if name in MODEL_REGISTRY:
+        return name
+    # 2. Case-insensitive alias resolution.
+    alias_target = MODEL_ALIASES.get(name.lower())
+    if alias_target is not None:
+        return alias_target
+    # 3. Case-insensitive canonical lookup (recovers from common typos like
+    #    ``tensornet-matpes-pbe-2025.2``).
+    case_folded = _REGISTRY_LOWER.get(name.lower())
+    if case_folded is not None:
+        return case_folded
+    return None
+
+
+def _suggest_models(name: str, n: int = 3) -> list[str]:
+    """Return the closest candidate model names for an unrecognised input."""
+    candidates = list(MODEL_REGISTRY) + list(MODEL_ALIASES)
+    return difflib.get_close_matches(name, candidates, n=n, cutoff=0.5)
 
 
 class PESCalculator(Calculator):
@@ -76,10 +212,9 @@ class PESCalculator(Calculator):
     includes utilities to load compatible models for each potential type, making it
     a versatile tool for materials modeling and molecular simulations.
 
-    :ivar potential: The potential model used for PES calculations.
-    :type potential: LMPStaticCalculator
-    :ivar stress_weight: The stress weight factor to convert between units.
-    :type stress_weight: float
+    Attributes:
+        potential: MAML LAMMPS static potential backend.
+        stress_weight: Factor applied to stress (includes unit conversion).
     """
 
     implemented_properties = ["energy", "forces", "stress"]  # noqa:RUF012
@@ -95,11 +230,10 @@ class PESCalculator(Calculator):
         Initialize PESCalculator with a potential from maml.
 
         Args:
-            potential (LMPStaticCalculator): maml.apps.pes._lammps.LMPStaticCalculator
-            stress_unit (str): The unit of stress. Default to "GPa"
-            stress_weight (float): The conversion factor from GPa to eV/A^3, if it is set to 1.0, the unit is in GPa.
-                Default to 1.0.
-            **kwargs: Additional keyword arguments passed to super().__init__().
+            potential: MAML ``LMPStaticCalculator`` instance.
+            stress_unit: ``"GPa"`` or ``"eV/A3"`` for returned stress units.
+            stress_weight: Multiplier on stress after unit conversion (default 1.0).
+            **kwargs: Forwarded to ``ase.calculators.calculator.Calculator``.
         """
         super().__init__(**kwargs)
         self.potential = potential
@@ -124,11 +258,9 @@ class PESCalculator(Calculator):
         Perform calculation for an input Atoms.
 
         Args:
-            atoms (ase.Atoms): ase Atoms object
-            properties (list): The list of properties to calculate
-            system_changes (list): monitor which properties of atoms were
-                changed for new calculation. If not, the previous calculation
-                results will be loaded.
+            atoms: Structure to evaluate.
+            properties: ASE property list to compute (defaults to all).
+            system_changes: ASE change list; if unchanged, cached results may be reused.
         """
         from ase.calculators.calculator import all_changes, all_properties
         from maml.apps.pes import EnergyForceStress
@@ -158,18 +290,20 @@ class PESCalculator(Calculator):
         or directory. It then configures a calculator using the loaded model and
         the provided keyword arguments.
 
-        :param path: The path to the MATGL model file or directory.
-        :type path: str | Path
-        :param kwargs: Additional keyword arguments used to configure the calculator.
-        :return: An instance of the PESCalculator initialized with the loaded MATGL
-            model and configured with the given parameters.
-        :rtype: Calculator
+        Args:
+            path: Path to the MatGL model file or pretrained model name.
+            **kwargs: Forwarded to the MatGL ASE calculator.
+
+        Returns:
+            Configured ASE calculator for the MatGL model.
         """
         import matgl
-        from matgl.ext.ase import PESCalculator as PESCalculator_
 
         model = matgl.load_model(path=path)  # type:ignore[arg-type]
         kwargs.setdefault("stress_unit", "eV/A3")
+
+        from matgl.ext.ase import PESCalculator as PESCalculator_
+
         return PESCalculator_(potential=model, **kwargs)
 
     @staticmethod
@@ -182,15 +316,13 @@ class PESCalculator(Calculator):
         configuration file and elements. It returns a PESCalculator instance,
         which wraps the initialized potential model.
 
-        :param filename: Path to the configuration file for the MTPotential.
-        :type filename: str | Path
-        :param elements: List of element symbols used in the model. Each element
-            should be a string representing a chemical element (e.g., "H", "O").
-        :type elements: list
-        :param kwargs: Additional keyword arguments to configure the PESCalculator.
-        :type kwargs: Any
-        :return: A calculator object wrapping the MTPotential.
-        :rtype: Calculator
+        Args:
+            filename: MTP configuration file path.
+            elements: Element symbols for the potential (e.g. ``["Cu"]``).
+            **kwargs: Forwarded to ``PESCalculator``.
+
+        Returns:
+            ``PESCalculator`` wrapping the MTP model.
         """
         from maml.apps.pes import MTPotential
 
@@ -206,12 +338,12 @@ class PESCalculator(Calculator):
         input. Any additional arguments for the calculator can be passed via kwargs,
         allowing customization.
 
-        :param filename: Path to the configuration file for the GAP model.
-        :type filename: str | Path
-        :param kwargs: Additional keyword arguments for configuring the calculator.
-        :type kwargs: Any
-        :return: An instance of PESCalculator initialized with the GAPotential model.
-        :rtype: Calculator
+        Args:
+            filename: GAP configuration file path.
+            **kwargs: Forwarded to ``PESCalculator``.
+
+        Returns:
+            ``PESCalculator`` wrapping the GAP model.
         """
         from maml.apps.pes import GAPotential
 
@@ -220,7 +352,10 @@ class PESCalculator(Calculator):
 
     @staticmethod
     def load_nnp(
-        input_filename: str | Path, scaling_filename: str | Path, weights_filenames: list, **kwargs: Any
+        input_filename: str | Path,
+        scaling_filename: str | Path,
+        weights_filenames: list,
+        **kwargs: Any,
     ) -> Calculator:
         """
         Loads a neural network potential (NNP) from specified configuration files and
@@ -228,16 +363,14 @@ class PESCalculator(Calculator):
         for customizable keyword arguments to modify the behavior of the resulting
         Calculator.
 
-        :param input_filename: Path to the primary input file containing NNP configuration.
-        :type input_filename: str | Path
-        :param scaling_filename: Path to the scaling parameters file required for the NNP.
-        :type scaling_filename: str | Path
-        :param weights_filenames: List of paths to weight files for the NNP.
-        :type weights_filenames: list
-        :param kwargs: Additional keyword arguments passed to the Calculator constructor.
-        :type kwargs: Any
-        :return: A Calculator object initialized with the loaded NNP settings.
-        :rtype: Calculator
+        Args:
+            input_filename: NNP input configuration path.
+            scaling_filename: NNP scaling parameters path.
+            weights_filenames: Paths to NNP weight files.
+            **kwargs: Forwarded to ``PESCalculator``.
+
+        Returns:
+            ``PESCalculator`` wrapping the NNP model.
         """
         from maml.apps.pes import NNPotential
 
@@ -258,11 +391,13 @@ class PESCalculator(Calculator):
         configuration files and subsequently generates a PESCalculator based on the
         created potential model and additional keyword arguments.
 
-        :param param_file: Path to the parameter file required for SNAPotential configuration.
-        :param coeff_file: Path to the coefficient file required for SNAPotential configuration.
-        :param kwargs: Additional keyword arguments passed to the PESCalculator.
-        :return: A PESCalculator instance configured with the SNAPotential model.
-        :rtype: Calculator
+        Args:
+            param_file: SNAP parameter file path.
+            coeff_file: SNAP coefficient file path.
+            **kwargs: Forwarded to ``PESCalculator``.
+
+        Returns:
+            ``PESCalculator`` wrapping the SNAP model.
         """
         from maml.apps.pes import SNAPotential
 
@@ -271,7 +406,8 @@ class PESCalculator(Calculator):
 
     @staticmethod
     def load_ace(  # pragma: no cover
-        basis_set: str | Path | ACEBBasisSet | ACECTildeBasisSet | BBasisConfiguration, **kwargs: Any
+        basis_set: str | Path | ACEBBasisSet | ACECTildeBasisSet | BBasisConfiguration,
+        **kwargs: Any,
     ) -> Calculator:
         """
         Load an ACE (Atomic Cluster Expansion) calculator using the specified basis set.
@@ -281,14 +417,12 @@ class PESCalculator(Calculator):
         file paths, basis set objects, or configurations. Additional customization options
         can be passed through keyword arguments.
 
-        :param basis_set: The basis set used for initializing the ACE calculator. This can
-            be provided as a string, Path object, ACEBBasisSet, ACECTildeBasisSet, or
-            BBasisConfiguration.
-        :param kwargs: Additional configuration parameters to customize the ACE
-            calculator. These keyword arguments are passed directly to the PyACECalculator
-            instance during initialization.
-        :return: An instance of the Calculator class representing the initialized ACE
-            calculator.
+        Args:
+            basis_set: ACE basis (path, or PyACE basis / configuration object).
+            **kwargs: Forwarded to ``PyACECalculator``.
+
+        Returns:
+            Initialized PyACE ASE calculator.
         """
         from pyace import PyACECalculator
 
@@ -303,14 +437,12 @@ class PESCalculator(Calculator):
         This method facilitates the integration of machine learning models into ASE
         by loading a model for atomic-scale simulations.
 
-        :param model_path: The file path to the serialized NequIP model.
-        :type model_path: str | Path
-        :param kwargs: Additional keyword arguments to be passed to the
-            `NequIPCalculator.from_deployed_model` method.
-        :type kwargs: Any
-        :return: A `Calculator` instance initialized with the given model and parameters,
-            suitable for ASE simulations.
-        :rtype: Calculator
+        Args:
+            model_path: Path to the deployed NequIP model.
+            **kwargs: Forwarded to ``NequIPCalculator.from_deployed_model``.
+
+        Returns:
+            NequIP ASE calculator instance.
         """
         from nequip.ase import NequIPCalculator
 
@@ -331,121 +463,190 @@ class PESCalculator(Calculator):
         The function requires the DeePMD-kit library to be installed to properly import
         and utilize the `DP` class.
 
-        :param model_path: Path to the trained DeePMD model file, provided as a string
-                           or a Path object.
-        :param kwargs: Additional options and configurations to pass into the DeePMD
-                       `Calculator` during initialization.
-        :return: An instance of the Calculator object initialized with the specified
-                 DeePMD model and optional configurations.
-        :rtype: Calculator
+        Args:
+            model_path: Trained DeePMD model path.
+            **kwargs: Forwarded to DeePMD ``DP``.
+
+        Returns:
+            DeePMD ASE calculator instance.
         """
         from deepmd.calculator import DP
 
         return DP(model=model_path, **kwargs)
 
     @staticmethod
-    def load_universal(name: str | Calculator, **kwargs: Any) -> Calculator:  # noqa: C901
+    def load_universal(name: str | Calculator, **kwargs: Any) -> Calculator:
         """
-        Loads a calculator instance based on the provided name or an existing calculator object. The
-        method supports multiple pre-built universal models and aliases for ease of use. If an existing calculator
-        object is passed instead of a name, it will directly return that calculator instance. Supported FPs
-        include SOTA potentials such as M3GNet, CHGNet, TensorNet, MACE, GRACE, SevenNet, ORB, etc.
+        Load a foundation potential calculator by its canonical name.
 
-        This method is designed to provide a universal interface to load various calculator types, which
-        may belong to different domains and packages. It auto-resolves aliases, provides default options
-        for certain calculators, and raises errors for unsupported inputs.
+        Names follow the unified convention ``<Architecture>-<Dataset>-<Optional Version>``
+        (e.g. ``TensorNet-MatPES-PBE-2025.2``, ``MACE-MPA-0-medium``). The full list of
+        canonical names is the keys of :data:`MODEL_REGISTRY`; short / legacy spellings
+        in :data:`MODEL_ALIASES` resolve to a canonical name. Lookups are
+        case-insensitive.
 
-        :param name: The name of the calculator to load or an instance of a Calculator.
-        :param kwargs: Keyword arguments that are passed to the internal calculator initialization routines
-                    for models matching the specified name. These options are calculator dependent.
-        :return: An instance of the loaded calculator.
+        If ``name`` is already a :class:`Calculator`, it is returned unchanged.
 
-        :raises ValueError: If the name provided does not match any recognized calculator type.
+        Args:
+            name: Canonical model name, alias, or an existing ASE calculator instance.
+            **kwargs: Provider-specific options. These override the defaults stored
+                in the registry entry (e.g. ``device="cuda"`` for ORB / FAIRChem).
+
+        Returns:
+            An ASE :class:`Calculator` instance.
+
+        Raises:
+            ValueError: If ``name`` is not a recognized model.
+            ImportError: If the model is recognized but the provider's optional
+                dependency is not installed.
         """
-        result: Calculator
+        if not isinstance(name, str):  # already an ASE Calculator
+            return name
 
-        if not isinstance(name, str):  # e.g. already an ase Calculator instance
-            result = name
+        canonical = _resolve_canonical(name)
+        if canonical is None:
+            # Backward-compat fallback: a raw MatGL pretrained model name passed
+            # straight through (covers any newly released models not yet in the
+            # registry) so users on the bleeding edge are not blocked.
+            if name in _MATGL_AVAILABLE:
+                return PESCalculator.load_matgl(name, **kwargs)
+            suggestions = _suggest_models(name)
+            hint = f" Did you mean: {suggestions}?" if suggestions else ""
+            raise ValueError(
+                f"Unrecognized {name=}.{hint} See matcalc.utils.MODEL_REGISTRY for the "
+                f"full list of canonical names and matcalc.utils.MODEL_ALIASES for short "
+                f"spellings."
+            )
 
-        elif any(name.lower().startswith(m) for m in ("m3gnet", "chgnet", "tensornet", "pbe", "r2scan")):
-            name = MODEL_ALIASES.get(name.lower(), name)
-            result = PESCalculator.load_matgl(name, **kwargs)
+        spec = MODEL_REGISTRY[canonical]
+        provider_kwargs = {k: v for k, v in spec.items() if k != "provider"}
+        provider_kwargs.update(kwargs)  # user kwargs win over registry defaults
+        provider = spec["provider"]
 
-        elif name.lower() == "mace":
-            from mace.calculators import mace_mp
+        loader = _PROVIDER_LOADERS.get(provider)
+        if loader is None:
+            raise ValueError(f"Unknown provider {provider!r} for model {canonical!r}.")
+        try:
+            return loader(provider_kwargs)
+        except ImportError as e:
+            raise ImportError(_install_hint(provider)) from e
 
-            result = mace_mp(**kwargs)
 
-        elif name.lower() == "sevennet":
-            from sevenn.calculator import SevenNetCalculator
+# --- Per-provider loaders for ``PESCalculator.load_universal`` ---------------
+#
+# Each loader takes a ``kwargs`` dict (already merged from the registry entry
+# and the user's overrides) and returns an ASE ``Calculator``. ImportErrors
+# raised inside a loader are translated by ``load_universal`` into a friendly
+# "pip install matcalc[<extra>]" message via ``_install_hint``.
 
-            result = SevenNetCalculator(**kwargs)
 
-        elif name.lower() == "grace" or name.lower() == "tensorpotential":
-            from tensorpotential.calculator.foundation_models import grace_fm
+def _load_matgl(kwargs: dict[str, Any]) -> Calculator:
+    path = kwargs.pop("path")
+    return PESCalculator.load_matgl(path, **kwargs)
 
-            kwargs.setdefault("model", "GRACE-2L-OAM")
-            result = grace_fm(**kwargs)
 
-        elif name.lower() == "orb":
-            from orb_models.forcefield.calculator import ORBCalculator
-            from orb_models.forcefield.pretrained import ORB_PRETRAINED_MODELS
+def _load_mace_mp(kwargs: dict[str, Any]) -> Calculator:
+    from mace.calculators import mace_mp
 
-            model = kwargs.pop("model", "orb-v2")
-            device = kwargs.get("device", "cpu")
+    return mace_mp(**kwargs)
 
-            orbff = ORB_PRETRAINED_MODELS[model](device=device)
-            result = ORBCalculator(orbff, **kwargs)
 
-        elif name.lower() == "mattersim":  # pragma: no cover
-            from mattersim.forcefield import MatterSimCalculator
+def _load_sevennet(kwargs: dict[str, Any]) -> Calculator:
+    from sevenn.calculator import SevenNetCalculator
 
-            result = MatterSimCalculator(**kwargs)
+    return SevenNetCalculator(**kwargs)
 
-        elif name.lower() == "fairchem":  # pragma: no cover
-            from fairchem.core import OCPCalculator
 
-            # Technically, this supports all models that are in fairchem,
-            # not just equiformer.
-            kwargs.setdefault("model_name", "EquiformerV2-31M-S2EF-OC20-All+MD")
-            kwargs.setdefault("local_cache", "./pretrained_models")
-            result = OCPCalculator(**kwargs)
+def _load_grace(kwargs: dict[str, Any]) -> Calculator:
+    from tensorpotential.calculator.foundation_models import grace_fm
 
-        elif name.lower() == "petmad":  # pragma: no cover
-            from pet_mad.calculator import PETMADCalculator
+    return grace_fm(**kwargs)
 
-            result = PETMADCalculator(**kwargs)
 
-        elif name.lower().startswith("deepmd"):  # pragma: no cover
-            from pathlib import Path
+def _load_orb(kwargs: dict[str, Any]) -> Calculator:
+    from orb_models.forcefield.calculator import ORBCalculator
+    from orb_models.forcefield.pretrained import ORB_PRETRAINED_MODELS
 
-            from deepmd.calculator import DP
+    model = kwargs.pop("model")
+    device = kwargs.get("device", "cpu")
+    orbff = ORB_PRETRAINED_MODELS[model](device=device)
+    return ORBCalculator(orbff, **kwargs)
 
-            cwd = Path(__file__).parent.absolute()
-            model_path = cwd / "../../tests/pes/DPA3-LAM-2025.3.14-PES" / "2025-03-14-dpa3-openlam.pth"
-            model_path = model_path.resolve()
-            kwargs.setdefault("model", model_path)
-            result = DP(**kwargs)
 
+def _load_mattersim(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
+    from mattersim.forcefield import MatterSimCalculator
+
+    return MatterSimCalculator(**kwargs)
+
+
+def _load_fairchem(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
+    from fairchem.core import FAIRChemCalculator, pretrained_mlip
+
+    device = kwargs.pop("device", "cpu")
+    model = kwargs.pop("model")
+    task_name = kwargs.pop("task_name")
+    predictor = pretrained_mlip.get_predict_unit(model, device=device)
+    return FAIRChemCalculator(predictor, task_name=task_name, **kwargs)
+
+
+def _load_petmad(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
+    from pet_mad.calculator import PETMADCalculator
+
+    return PETMADCalculator(**kwargs)
+
+
+# Bundled DPA3 checkpoint under tests/ (only present in editable installs).
+# When matcalc is installed from a wheel the user must pass ``model=<path>``
+# explicitly.
+_DPA3_BUNDLED_PATH = (
+    Path(__file__).parent.absolute() / "../../tests/pes/DPA3-LAM-2025.3.14-PES" / "2025-03-14-dpa3-openlam.pth"
+).resolve()
+
+
+def _load_deepmd(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
+    if "model" not in kwargs:
+        if _DPA3_BUNDLED_PATH.exists():
+            kwargs["model"] = _DPA3_BUNDLED_PATH
         else:
-            raise ValueError(f"Unrecognized {name=}, must be one of {UNIVERSAL_CALCULATORS}")
+            raise FileNotFoundError(
+                "DeePMD model path not found. Pass model=<path-to-.pth> explicitly to "
+                "load_universal(..., model=...), or download the DPA3-LAM checkpoint and "
+                "supply its path. (Bundled fallback is only available from an editable "
+                "checkout.)"
+            )
+    from deepmd.calculator import DP
 
-        return result
+    return DP(**kwargs)
 
 
-def to_ase_atoms(structure: Atoms | Structure) -> Atoms:
+_PROVIDER_LOADERS: dict[str, Callable[[dict[str, Any]], Calculator]] = {
+    "matgl": _load_matgl,
+    "mace_mp": _load_mace_mp,
+    "sevennet": _load_sevennet,
+    "grace": _load_grace,
+    "orb": _load_orb,
+    "mattersim": _load_mattersim,
+    "fairchem": _load_fairchem,
+    "petmad": _load_petmad,
+    "deepmd": _load_deepmd,
+}
+
+
+def to_ase_atoms(structure: Atoms | Structure | Molecule) -> Atoms:
     """
-    Converts a given structure into an ASE Atoms object. This function checks
-    if the input structure is already an ASE Atoms object. If not, it converts
-    a pymatgen Structure object to an ASE Atoms object using the AseAtomsAdaptor.
+    Converts a given structure into an ASE Atoms object. If the input is already
+    an ``Atoms``, a shallow copy is returned so that downstream code (which
+    routinely attaches a calculator and runs optimizers in-place) cannot mutate
+    a caller-owned object — important for parallel ``calc_many`` execution
+    where joblib workers must not share state.
 
-    :param structure: The input structure, which can be either an ASE Atoms object
-        or a pymatgen Structure object.
-    :type structure: Atoms | Structure
-    :return: An ASE Atoms object representing the given structure.
-    :rtype: Atoms
+    Args:
+        structure: ASE ``Atoms``, pymatgen ``Structure``, or ``Molecule``.
+
+    Returns:
+        Fresh ASE ``Atoms`` for the same system.
     """
-    return structure if isinstance(structure, Atoms) else AseAtomsAdaptor.get_atoms(structure)
+    return structure.copy() if isinstance(structure, Atoms) else AseAtomsAdaptor.get_atoms(structure)
 
 
 def to_pmg_structure(structure: Atoms | Structure) -> Structure:
@@ -455,12 +656,29 @@ def to_pmg_structure(structure: Atoms | Structure) -> Structure:
     returned unchanged. If the input structure is of type Atoms, it is
     converted to a Structure using the AseAtomsAdaptor.
 
-    :param structure: The input structure to be converted. This can be of
-        type Atoms or Structure.
-    :type structure: Atoms | Structure
-    :return: A Structure object corresponding to the input structure. If the
-        input is already a Structure, it is returned as-is. Otherwise, it is
-        converted.
-    :rtype: Structure
+    Args:
+        structure: ASE ``Atoms`` or pymatgen ``Structure``.
+
+    Returns:
+        Pymatgen ``Structure`` (unchanged if already a structure).
     """
     return structure if isinstance(structure, Structure) else AseAtomsAdaptor.get_structure(structure)  # type: ignore[return-value]
+
+
+def to_pmg_molecule(structure: Atoms | Structure | Molecule | IMolecule) -> IMolecule:
+    """
+    Converts a given structure of type Atoms or Structure into a Molecule
+    object. If the input structure is already of type Molecule, it is
+    returned unchanged. If the input structure is of type Atoms, it is
+    converted to a Molecule using the AseAtomsAdaptor.
+
+    Args:
+        structure: ASE ``Atoms``, pymatgen ``Structure`` / ``Molecule``, or interface molecule type.
+
+    Returns:
+        Pymatgen ``Molecule`` representation.
+    """
+    if isinstance(structure, Atoms):
+        structure = AseAtomsAdaptor.get_molecule(structure)
+
+    return Molecule.from_sites(structure)  # type: ignore[return-value]

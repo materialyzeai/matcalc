@@ -3,23 +3,23 @@
 from __future__ import annotations
 
 import abc
+import gzip
 import json
 import logging
 import os
 import random
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 
-import fsspec
 import numpy as np
 import pandas as pd
-import requests
+from huggingface_hub import HfApi, hf_hub_download
 from matminer.featurizers.site import CrystalNNFingerprint
 from matminer.featurizers.structure import SiteStatsFingerprint
 from monty.json import MontyDecoder
 from monty.serialization import dumpfn, loadfn
 from scipy.optimize import curve_fit
+from tqdm import tqdm
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -33,47 +33,45 @@ from ._phonon import PhononCalc
 from ._relaxation import RelaxCalc
 from ._stability import EnergeticsCalc
 from .backend import run_pes_calc
-from .config import BENCHMARK_DATA_DIR, BENCHMARK_DATA_DOWNLOAD_URL, BENCHMARK_DATA_URL
-from .units import eVA3ToGPa
+from .config import BENCHMARK_DATA_DIR, BENCHMARK_HF_REPO_ID
 
 logger = logging.getLogger(__name__)
 
 
 def get_available_benchmarks() -> list[str]:
     """
-    Fetches and returns a list of available benchmarks.
+    Fetches and returns a list of available benchmarks from the
+    ``materialyze/matcalc-bench`` Hugging Face dataset.
 
-    This function makes a request to a predefined URL to retrieve benchmark
-    data. It then filters and extracts the names of benchmarks that end with
-    the '.json.gz' extension.
-
-    :return: A list of benchmark names available in the retrieved data.
-    :rtype: list[str]
+    Returns:
+        Benchmark archive filenames ending in ``.json.gz``.
     """
-    r = requests.get(BENCHMARK_DATA_URL)  # noqa: S113
-    return [d["name"] for d in json.loads(r.content.decode("utf-8")) if d["name"].endswith(".json.gz")]
+    files = HfApi().list_repo_files(BENCHMARK_HF_REPO_ID, repo_type="dataset")
+    return [f for f in files if f.endswith(".json.gz")]
 
 
-def get_benchmark_data(name: str) -> pd.DataFrame:
+def get_benchmark_data(name: str) -> list[Any]:
     """
-    Retrieve benchmark data as a Pandas DataFrame. Uses fsspec to cache files locally if possible.
+    Retrieve a benchmark dataset from the ``materialyze/matcalc-bench`` Hugging
+    Face dataset. Files are cached locally by ``huggingface_hub``.
 
-    :param name: Name of the benchmark elemental_refs file to be retrieved
-    :type name: str
-    :return: Benchmark elemental_refs loaded as a Pandas DataFrame
-    :rtype: pd.DataFrame
-    :raises requests.RequestException: If the benchmark elemental_refs file cannot be
-        downloaded from the specified URL
+    Args:
+        name: Benchmark JSON archive filename (e.g. ``*.json.gz``).
+
+    Returns:
+        List of entries decoded with ``MontyDecoder`` (typically dicts).
+
+    Raises:
+        huggingface_hub.errors.EntryNotFoundError: If the file does not exist
+            in the dataset.
     """
-    uri = f"{BENCHMARK_DATA_DOWNLOAD_URL}/{name}"
-    parsed = urlparse(str(uri))
-    fs = fsspec.filesystem(
-        "filecache",
-        target_protocol=parsed.scheme,
-        cache_storage=str(BENCHMARK_DATA_DIR),
-        same_names=True,
+    local_path = hf_hub_download(
+        repo_id=BENCHMARK_HF_REPO_ID,
+        filename=name,
+        repo_type="dataset",
+        cache_dir=str(BENCHMARK_DATA_DIR),
     )
-    with fs.open(uri, compression="infer") as f:
+    with gzip.open(local_path, "rt", encoding="utf-8") as f:
         return json.load(f, cls=MontyDecoder)
 
 
@@ -86,8 +84,8 @@ class CheckpointFile:
     path handling through the use of `Path` objects, enables loading checkpoint
     data from a file, and facilitates the saving of resulting data.
 
-    :ivar path: Standardized file system path, managed as a `Path` object.
-    :type path: Path
+    Attributes:
+        path: Checkpoint file path as ``pathlib.Path``.
     """
 
     def __init__(
@@ -99,28 +97,27 @@ class CheckpointFile:
         provided path is converted into a `Path` object for standardized path
         management in the application.
 
-        :param path: The filesystem path to be managed. Can be provided as a
-            string or as a `Path` object.
+        Args:
+            path: Filesystem path as str or ``Path``.
         """
         self.path = Path(path)
 
     def load(self, *args: list) -> tuple:
         """
-        Loads elemental_refs from a specified path if it exists, returning the loaded elemental_refs along with
+        Loads checkpoint data from a specified path if it exists, returning the loaded entries along with
         remaining portions of the given input arguments.
 
-        The method checks if the file path exists, and if so, it loads elemental_refs from the specified
+        The method checks if the file path exists, and if so, it loads data from the specified
         file using a predefined `loadfn` function. It logs the number of loaded entries and
-        returns the successfully loaded elemental_refs alongside sliced input arguments based on the
+        returns the successfully loaded entries alongside sliced input arguments based on the
         number of loaded entries. If the file path does not exist, it returns empty results
         and the original input arguments unchanged.
 
-        :param args: List of lists where each list corresponds to additional elemental_refs to
-            process in conjunction with the loaded file content.
-        :return: A tuple where the first element is the loaded elemental_refs (list) from the specified
-            file path (or an empty list if the path does not exist), and subsequent elements
-            are the remaining unsliced portions of each input list from `args` or the entire
-            original lists if nothing was loaded.
+        Args:
+            *args: Additional list arguments aligned with checkpoint rows (sliced after load).
+
+        Returns:
+            Tuple ``(loaded_rows, *tail_slices)``; ``loaded_rows`` is empty if missing file.
         """
         if self.path.exists():
             results = loadfn(self.path)
@@ -132,8 +129,8 @@ class CheckpointFile:
         """
         Saves a list of results at the specified checkpoint location.
 
-        :param results: A list of dictionaries or objects to be saved.
-        :return: None
+        Args:
+            results: Rows to serialize to the checkpoint path.
         """
         logger.info("Saving %d entries to %s...", len(results), self.path)
         dumpfn(results, self.path)
@@ -141,30 +138,19 @@ class CheckpointFile:
 
 class Benchmark(metaclass=abc.ABCMeta):
     """
-    Represents an abstract base class for benchmarking elasticity properties of materials.
+    Abstract base for property benchmarks against published datasets.
 
-    This class provides functionality to process benchmark elemental_refs, create a DataFrame for analysis,
-    and run calculations using a specified potential energy surface (PES) calculator. It is designed
-    to facilitate benchmarking of bulk and shear moduli against pre-defined ground truth elemental_refs.
+    Loads benchmark JSON, builds per-row ground-truth records and structure list, and runs a
+    ``PropCalc`` over structures (with optional checkpointing).
 
-    :ivar properties: List of properties to extract and benchmark. These properties
-        are key inputs for analysis tasks.
-    :type properties: list[str]
-    :ivar other_fields: Tuple of additional fields in the benchmark entries to
-        include in the processed elemental_refs. Useful for metadata or optional attributes.
-    :type other_fields: tuple[str]
-    :ivar index_name: Name of the index field in the benchmark dataset. This is used
-        as the primary key for identifying entries.
-    :type index_name: str
-    :ivar structures: List of structures extracted from the benchmark entries. Structures
-        are objects describing material geometries stored in the dataset.
-    :type structures: list[Structure]
-    :ivar kwargs: Additional keywords passed through to the ElasticityCalculator or associated
-        processes for extended configuration.
-    :type kwargs: dict
-    :ivar ground_truth: DataFrame containing the processed benchmark elemental_refs, including ground truth
-        reference values for materials properties.
-    :type ground_truth: pandas.DataFrame
+    Attributes:
+        properties: Target property keys to compare.
+        other_fields: Extra benchmark fields copied into each row.
+        index_name: Primary key column (e.g. material id).
+        structures: Pymatgen structures in benchmark order.
+        kwargs: Kwargs forwarded to ``get_prop_calc``.
+        property_rename_map: Optional column renames on the results frame.
+        ground_truth: List of dict rows (converted to DataFrame in ``run``).
     """
 
     def __init__(
@@ -180,45 +166,20 @@ class Benchmark(metaclass=abc.ABCMeta):
         **kwargs,  # noqa:ANN003
     ) -> None:
         """
-        Initializes an instance for processing benchmark elemental_refs and constructing a DataFrame
-        representing the ground truth properties of input structures. Additionally, stores
-        information about input structures and other auxiliary elemental_refs for further usage.
+        Args:
+            benchmark_name: Remote benchmark filename or local path to JSON.
+            properties: Keys to pull from each benchmark entry as targets.
+            index_name: Row id field name.
+            other_fields: Extra fields to copy into each ground-truth row.
+            property_rename_map: Renames applied to result columns.
+            suffix_ground_truth: Suffix for reference columns (e.g. ``_DFT``).
+            n_samples: Random subsample size, or None for all.
+            seed: RNG seed when subsampling.
+            **kwargs: Forwarded to ``get_prop_calc``.
 
-        :param benchmark_name: The name of the benchmark dataset or a path to a file containing
-            the benchmark entries.
-        :type benchmark_name: str | Path
-
-        :param properties: A list of property names to extract.
-        :type properties: list[str]
-
-        :param index_name: The name of the field used as the index for the resulting DataFrame (typically a unique id
-            like mp_id).
-        :type index_name: str
-
-        :param other_fields: Additional fields to include in the DataFrame, default is an empty tuple. Useful ones
-            are for example formula or metadata.
-        :type other_fields: tuple[str]
-
-        :param property_rename_map: A dict used to rename the properties for easier reading.
-        :type property_rename_map: dict | None
-
-        :param suffix_ground_truth: The suffix added to the property names in the DataFrame for
-            distinguishing ground truth values, default is "DFT".
-        :type suffix_ground_truth: str
-
-        :param n_samples: Number of samples to randomly select from the benchmark dataset, or
-            ``None`` to include all samples, default is ``None``.
-        :type n_samples: int | None
-
-        :param seed: Seed value for random sampling of entries (if `n_samples` is specified), default is ``42``.
-        :type seed: int
-
-        :param kwargs: Additional keyword arguments for configuring the PropCalc..
-        :type kwargs: dict
-
-        :raises FileNotFoundError: If the provided `benchmark_name` is a path that does not exist.
-
-        :raises ValueError: If invalid or incomplete elemental_refs is encountered in the benchmark entries.
+        Raises:
+            FileNotFoundError: If ``benchmark_name`` is a missing local path.
+            ValueError: If entries lack required fields.
         """
         rows = []
         structures = []
@@ -227,7 +188,7 @@ class Benchmark(metaclass=abc.ABCMeta):
             random.seed(seed)
             entries = random.sample(entries, n_samples)
 
-        # We will first create a DataFrame from the required components from the raw elemental_refs.
+        # We will first create a DataFrame from the required components from the raw benchmark entries.
         # We also create the list of structures in the order of the entries.
         for entry in entries:
             row = {k: entry[k] for k in [index_name, *other_fields]}
@@ -253,12 +214,12 @@ class Benchmark(metaclass=abc.ABCMeta):
         This method must be implemented by subclasses and will utilize the provided calculator to create a
         `PropCalc` instance, possibly influenced by additional keyword arguments.
 
-        :param calculator: The calculator instance to be used for generating the property calculation.
-        :type calculator: Calculator
-        :param kwargs: Additional keyword arguments that can influence the property calculation process.
-        :type kwargs: dict
-        :return: An instance of `PropCalc` representing the property calculation result.
-        :rtype: PropCalc
+        Args:
+            calculator: ASE calculator or model name string.
+            **kwargs: Merged with ``self.kwargs`` in ``run`` (subclass dependent).
+
+        Returns:
+            Configured ``PropCalc`` instance.
         """
 
     @abc.abstractmethod
@@ -268,12 +229,12 @@ class Benchmark(metaclass=abc.ABCMeta):
         as a suffix to the key of the input dictionary for all properties. Subclasses can override this method to
         provide more sophisticated processing.
 
-        :param result: Input dictionary containing key-value pairs to be processed.
-        :type result: dict
-        :param model_name: The name of the model to append to each key as a suffix.
-        :type model_name: str
-        :return: A new dictionary with modified keys based on the model name suffix.
-        :rtype: dict
+        Args:
+            result: Output dict from ``PropCalc.calc``, or None on failure.
+            model_name: Suffix tag for predicted columns.
+
+        Returns:
+            Flat dict mapping ``{prop}_{model_name}`` to values (or None).
         """
         return (
             {f"{k}_{model_name}": result[k] for k in self.properties}
@@ -303,34 +264,18 @@ class Benchmark(metaclass=abc.ABCMeta):
         periodically based on the specified frequency, ensuring that progress is not
         lost in case of interruptions.
 
-        :param calculator: ASE-compatible calculator instance used to provide PES information for PropCalc.
-        :type calculator: Calculator
-        :param model_name: Name of the model used for properties' calculation.
-            This name is updated in the results DataFrame.
-        :type model_name: str
-        :param n_jobs: Number of parallel jobs to be used in the computation. Use -1
-            to allocate all cores available on the system. Defaults to -1.
-        :type n_jobs: int | None
-        :param checkpoint_file: File path where checkpoint elemental_refs is saved periodically.
-            If None, no checkpoints are saved.
-        :type checkpoint_file: str | Path | None
-        :param checkpoint_freq: Frequency after which checkpoint elemental_refs is saved.
-            Corresponds to the number of structures processed.
-        :type checkpoint_freq: int
-        :param delete_checkpoint_on_finish: Whether to delete checkpoint files when the benchmark finishes. Defaults to
-            True.
-        :type delete_checkpoint_on_finish: bool
-        :param include_full_results: Whether to save full results from PropCalc.calc for analysis afterwards. For
-            instance, the ElasticityProp does not just compute the bulk and shear moduli, but also the full elastic
-            tensors, which can be used for other kinds of analysis. Defaults to False.
-        :type include_full_results: bool
-        :param kwargs: Additional keyword arguments passed to the property calculator,
-            for instance, to customize its behavior or computation options.
-        :type kwargs: dict
-        :return: A pandas DataFrame containing the processed results for the given
-            input structures. The DataFrame includes updated results and relevant
-            metrics.
-        :rtype: pd.DataFrame
+        Args:
+            calculator: ASE calculator or universal model name.
+            model_name: Label appended to predicted property columns.
+            n_jobs: ``joblib`` parallelism for ``calc_many`` (-1 = all cores).
+            checkpoint_file: Optional path to resume/save partial results.
+            checkpoint_freq: Save checkpoint every this many completed structures.
+            delete_checkpoint_on_finish: Remove checkpoint file after success.
+            include_full_results: Keep all ``calc`` keys, not only ``properties``.
+            **kwargs: Forwarded to ``calc_many`` / calculator.
+
+        Returns:
+            DataFrame of ground-truth rows plus model predictions.
         """
         checkpoint = None
         if checkpoint_file:
@@ -342,10 +287,11 @@ class Benchmark(metaclass=abc.ABCMeta):
             structures = list(self.structures)
 
         prop_calc = self.get_prop_calc(calculator, **self.kwargs)
-        # We make sure of the generator from prop_calc.calc_many to do this in a memory efficient manner.
+        # We make use of the generator from prop_calc.calc_many to do this in a memory efficient manner.
         # allow_errors typically should be true since some of the calculations may fail.
-        for row, d in zip(
-            ground_truth, prop_calc.calc_many(structures, n_jobs=n_jobs, allow_errors=True, **kwargs), strict=True
+        for row, d in tqdm(
+            zip(ground_truth, prop_calc.calc_many(structures, n_jobs=n_jobs, allow_errors=True, **kwargs), strict=True),
+            total=len(structures),
         ):
             r = dict(row)
             r.update(self.process_result(d, model_name))
@@ -398,14 +344,11 @@ class EquilibriumBenchmark(Benchmark):
         configuration parameters. It sets up the benchmark with the necessary properties
         required for equilibrium benchmark analysis.
 
-        :param index_name: The name of the index used to uniquely identify records in the dataset.
-        :type index_name: str
-        :param benchmark_name: The path or name of the benchmark file that contains the dataset.
-        :type benchmark_name: str | Path
-        :param folder_name: The folder name used for file operations related to structure files.
-        :type folder_name: str
-        :param kwargs: Additional keyword arguments for customization.
-        :type kwargs: dict
+        Args:
+            index_name: Primary key field in benchmark rows.
+            benchmark_name: Remote filename or local path to benchmark JSON.
+            folder_name: Label for file/artifact grouping.
+            **kwargs: Forwarded to ``Benchmark`` (properties, sampling, etc.).
         """
         self.folder_name = folder_name
         kwargs.setdefault("properties", ("structure", "formation_energy_per_atom"))
@@ -419,14 +362,12 @@ class EquilibriumBenchmark(Benchmark):
         calculations. This method initializes the stability calculator using the provided
         Calculator object and any additional configuration parameters.
 
-        :param calculator: A Calculator object responsible for performing the relaxation and
-            formation energy calculation.
-        :type calculator: Calculator
-        :param kwargs: Additional keyword arguments used for configuration.
-        :type kwargs: dict
-        :return: An initialized PropCalc object configured for relaxation and formation energy
-            calculations.
-        :rtype: PropCalc
+        Args:
+            calculator: ASE calculator or model name.
+            **kwargs: Merged into ``EnergeticsCalc`` (after elemental ref prep).
+
+        Returns:
+            ``EnergeticsCalc`` with MP-PBE elemental references relaxed per element.
         """
         self._prepare_elemental_refs(calculator)
         return EnergeticsCalc(
@@ -444,22 +385,12 @@ class EquilibriumBenchmark(Benchmark):
         formats the keys according to the provided model name. If the result is None, default values
         of NaN are returned for final structures or formation energy per atom.
 
-        :param result:
-            A dictionary containing the final structures and formation energy per atom under the keys
-            'final_structure' and 'formation energy per atom'. It can also be None to indicate missing
-            elemental_refs.
-        :type result: dict or None
+        Args:
+            result: ``EnergeticsCalc`` output dict, or None if calculation failed.
+            model_name: Suffix for column keys.
 
-        :param model_name:
-            A string representing the identifier or name of the model. It will be used
-            to format the returned dictionary's keys.
-        :type model_name: str
-
-        :return:
-            A dictionary containing the specific final structure and formation energy per atomprefixed
-            by the model name. The values will be NaN if the input result is None.
-
-        :rtype: dict
+        Returns:
+            Dict with ``structure_{model_name}`` and ``formation_energy_per_atom_{model_name}``.
         """
         return {
             f"structure_{model_name}": (result["final_structure"] if result is not None else float("nan")),
@@ -493,34 +424,18 @@ class EquilibriumBenchmark(Benchmark):
         set of structures. Checkpoints are saved periodically based on the specified frequency,
         ensuring that progress is not lost in case of interruptions.
 
-        :param calculator: ASE-compatible calculator instance used to provide PES information for PropCalc.
-        :type calculator: Calculator
-        :param model_name: Name of the model used for properties' calculation.
-            This name is updated in the results DataFrame.
-        :type model_name: str
-        :param n_jobs: Number of parallel jobs to be used in the computation. Use -1
-            to allocate all cores available on the system. Defaults to -1.
-        :type n_jobs: int | None
-        :param checkpoint_file: File path where checkpoint elemental_refs is saved periodically.
-            If None, no checkpoints are saved.
-        :type checkpoint_file: str | Path | None
-        :param checkpoint_freq: Frequency after which checkpoint elemental_refs is saved.
-            Corresponds to the number of structures processed.
-        :type checkpoint_freq: int
-        :param delete_checkpoint_on_finish: Whether to delete checkpoint files when the benchmark finishes. Defaults to
-            True.
-        :type delete_checkpoint_on_finish: bool
-        :param include_full_results: Whether to save full results from PropCalc.calc for analysis afterwards. For
-            instance, the ElasticityProp does not just compute the bulk and shear moduli, but also the full elastic
-            tensors, which can be used for other kinds of analysis. Defaults to False.
-        :type include_full_results: bool
-        :param kwargs: Additional keyword arguments passed to the property calculator,
-            for instance, to customize its behavior or computation options.
-        :type kwargs: dict
-        :return: A pandas DataFrame containing the processed results for the given
-            input structures. The DataFrame includes updated results and relevant
-            metrics.
-        :rtype: pd.DataFrame
+        Args:
+            calculator: ASE calculator or model name.
+            model_name: Label for predicted columns.
+            n_jobs: Parallelism for ``calc_many``.
+            checkpoint_file: Optional resume path.
+            checkpoint_freq: Checkpoint interval (structures).
+            delete_checkpoint_on_finish: Remove checkpoint after success.
+            include_full_results: Keep full ``calc`` dict keys.
+            **kwargs: Forwarded to ``Benchmark.run``.
+
+        Returns:
+            Results frame plus ``d_{model_name}`` structure fingerprint distance to DFT.
         """
         results_df = super().run(
             calculator,
@@ -563,8 +478,8 @@ class EquilibriumBenchmark(Benchmark):
         After this run, subsequent calls into EnergeticsCalc with use_gs_reference=True
         will simply look up values in `self.elemental_refs`, avoiding repeated relaxations.
 
-        :param calculator: ASE calculator (or its string name) used by RelaxCalc to compute energies.
-        :type calculator: Calculator | str
+        Args:
+            calculator: ASE calculator or universal model name for elemental relaxations.
         """
         full_refs = loadfn(Path(__file__).parent / "elemental_refs" / "MP-PBE-Element-Refs.json.gz")
         needed_els = {el.symbol for struct in self.structures for el in struct.composition.elements}
@@ -605,15 +520,10 @@ class ElasticityBenchmark(Benchmark):
         additional configuration parameters. Sets up the benchmark framework with
         specified mechanical properties and metadata.
 
-        :param index_name: The name of the index used to uniquely identify records
-                           in the benchmark dataset.
-        :type index_name: str
-        :param benchmark_name: The path or name of the benchmark file that contains
-                               the dataset. Can either be a string or a Path object.
-        :type benchmark_name: str | Path
-        :param kwargs: Additional keyword arguments that may be passed to parent
-                       class methods or used for customization.
-        :type kwargs: dict
+        Args:
+            index_name: Primary key field name.
+            benchmark_name: Remote filename or local benchmark path.
+            **kwargs: Forwarded to ``Benchmark``.
         """
         kwargs.setdefault("properties", ("bulk_modulus_vrh", "shear_modulus_vrh"))
         kwargs.setdefault("property_rename_map", {"bulk_modulus": "K", "shear_modulus": "G"})
@@ -630,15 +540,15 @@ class ElasticityBenchmark(Benchmark):
         calculator and optional parameters. This is useful for initializing and
         configuring a property calculation.
 
-        :param calculator: A Calculator object responsible for performing numerical
-           operations required for property calculations.
-        :param kwargs: Additional keyword arguments used for configuring the property
-           calculation.
-        :return: An initialized `PropCalc` object configured based on the specified
-           calculator and keyword arguments.
-        :rtype: PropCalc
+        Args:
+            calculator: ASE calculator or model name.
+            **kwargs: Merged into ``ElasticityCalc`` (default ``fmax`` 0.05).
+
+        Returns:
+            Configured ``ElasticityCalc``.
         """
         kwargs.setdefault("fmax", 0.05)
+        kwargs.setdefault("units_GPa", True)
         return ElasticityCalc(calculator, **kwargs)
 
     def process_result(self, result: dict | None, model_name: str) -> dict:
@@ -648,44 +558,24 @@ class ElasticityBenchmark(Benchmark):
         according to the provided model name. If the result is None, default values of
         NaN are returned for both bulk and shear modulus.
 
-        :param result:
-            A dictionary containing the bulk and shear modulus values under the keys
-            'bulk_modulus_vrh' and 'shear_modulus_vrh' respectively. It can also be
-            None to indicate missing elemental_refs.
-        :type result: dict or None
+        Args:
+            result: ``ElasticityCalc`` output or None.
+            model_name: Column suffix for predictions.
 
-        :param model_name:
-            A string representing the identifier or name of the model. It will be used
-            to format the returned dictionary's keys.
-        :type model_name: str
-
-        :return:
-            A dictionary containing two entries. The keys will be dynamically created
-            by appending the model name to the terms 'bulk_modulus_vrh_' and
-            'shear_modulus_vrh_'. The values will either be scaled modulus values or
-            NaN if the input result is None.
-        :rtype: dict
+        Returns:
+            K and G in GPa as ``bulk_modulus_vrh_{model}``, ``shear_modulus_vrh_{model}``.
         """
         return {
-            f"bulk_modulus_vrh_{model_name}": (
-                result["bulk_modulus_vrh"] * eVA3ToGPa if result is not None else float("nan")
-            ),
-            f"shear_modulus_vrh_{model_name}": (
-                result["shear_modulus_vrh"] * eVA3ToGPa if result is not None else float("nan")
-            ),
+            f"bulk_modulus_vrh_{model_name}": (result["bulk_modulus_vrh"] if result is not None else float("nan")),
+            f"shear_modulus_vrh_{model_name}": (result["shear_modulus_vrh"] if result is not None else float("nan")),
         }
 
 
 class PhononBenchmark(Benchmark):
     """
-    Manages phonon benchmarking tasks, such as initializing benchmark elemental_refs,
-    performing calculations, and processing results.
+    Phonon benchmark: compares heat capacity at 300 K (configurable index) to reference data.
 
-    This class facilitates constructing and managing phonon benchmarks based on
-    provided elemental_refs. It supports operations for processing benchmark elemental_refs,
-    extracting relevant attributes, and computing thermal properties. It is
-    compatible with various calculators and is designed to streamline the
-    benchmarking process for materials' phonon-related properties.
+    Wraps ``PhononCalc`` with benchmark-specific defaults and result extraction.
     """
 
     def __init__(
@@ -701,11 +591,10 @@ class PhononBenchmark(Benchmark):
         capacity and additional fields such as the formula. It supports customizations
         via keyword arguments for further configurations.
 
-        :param index_name: The name of the index to be used for identification in
-            the dataset.
-        :param benchmark_name: The benchmark file name or path containing
-            the dataset information in JSON or compressed format.
-        :param kwargs: Additional optional parameters for configuration.
+        Args:
+            index_name: Primary key field name.
+            benchmark_name: Remote filename or local path.
+            **kwargs: Forwarded to ``Benchmark``.
         """
         kwargs.setdefault("properties", ("heat_capacity",))
         kwargs.setdefault("property_rename_map", {"heat_capacity": "CV"})
@@ -725,13 +614,12 @@ class PhononBenchmark(Benchmark):
         calculator instance and any optional keyword arguments to configure the
         calculation further.
 
-        :param calculator: The calculator instance used to perform the phonon
-            calculation. Must be an instance of the `Calculator` class.
-        :param kwargs: Additional keyword arguments for configuring the resulting
-            `PhononCalc` instance.
-        :return: A new `PhononCalc` object, initialized with the input calculator and
-            optional parameters.
-        :rtype: PropCalc
+        Args:
+            calculator: ASE calculator or model name.
+            **kwargs: Merged into ``PhononCalc`` (defaults ``fmax=0.05``, no phonon YAML).
+
+        Returns:
+            ``PhononCalc`` instance.
         """
         return PhononCalc(calculator, fmax=0.05, write_phonon=False, **kwargs)
 
@@ -739,14 +627,12 @@ class PhononBenchmark(Benchmark):
         """
         Processes the result dictionary to extract specific thermal property information for the provided model name.
 
-        :param result: Dictionary containing thermal properties, with keys structured to access relevant elemental_refs
-            like "thermal_properties" and "heat_capacity".
-        :type result: dict
-        :param model_name: The model name used as a prefix in returned result keys.
-        :type model_name: str
-        :return: A dictionary containing the specific heat capacity at a particular index (e.g., 30),
-            prefixed by the model name.
-        :rtype: dict
+        Args:
+            result: ``PhononCalc`` output dict or None.
+            model_name: Column suffix.
+
+        Returns:
+            ``heat_capacity_{model_name}`` at fixed thermal-properties index (default grid).
         """
         return {
             f"heat_capacity_{model_name}": (
@@ -776,16 +662,21 @@ class SofteningBenchmark:
         **kwargs,  # noqa:ANN003
     ) -> None:
         """
-        Initializes an instance with specified index and benchmark details.
-
-        :param index_name: The name of the index to be used for identification in
-            the dataset.
-        :param benchmark_name: The benchmark file name or path containing
-            the dataset information in JSON or compressed format.
-        :param kwargs: Additional optional parameters for configuration.
+        Args:
+            benchmark_name: Remote filename or local path to high-energy-state dataset.
+            index_name: Id field name for each material block.
+            n_samples: Optional random subset of material keys.
+            seed: RNG seed for subsampling.
+            **kwargs: Stored on ``self.kwargs`` for extensions.
         """
         self.index_name = index_name
-        self.data = get_benchmark_data(benchmark_name) if isinstance(benchmark_name, str) else loadfn(benchmark_name)
+        raw: Any = get_benchmark_data(benchmark_name) if isinstance(benchmark_name, str) else loadfn(benchmark_name)
+        if not isinstance(raw, dict):
+            raise TypeError(
+                "SofteningBenchmark expects a dict dataset (material_id -> frames); "
+                f"got {type(raw).__name__} from {benchmark_name!r}."
+            )
+        self.data: dict[str, Any] = raw
         if n_samples:
             random.seed(seed)
             self.material_ids = random.sample(list(self.data.keys()), n_samples)
@@ -796,10 +687,14 @@ class SofteningBenchmark:
     @staticmethod
     def get_linear_fitted_slope(x: list | np.ndarray, y: list | np.ndarray) -> float:
         """
-        Return the linearly fitted slope of x and y using a simple linear model (y = ax).
-        :param x: A list of the x values.
-        :param y: A list of the y values.
-        :return: A float of the fitted slope.
+        Linear least-squares slope for ``y ≈ a x`` (proportional fit).
+
+        Args:
+            x: Reference force components (flattened).
+            y: Predicted force components (flattened).
+
+        Returns:
+            Fitted proportionality constant ``a``.
         """
         x = np.array(x).flatten()
         y = np.array(y).flatten()
@@ -825,23 +720,15 @@ class SofteningBenchmark:
         2. perform a linear fit on the predicted forces w.r.t. provided DFT forces.
         3. returning the fitted slopes as the softening scales.
 
-        :param calculator: The ASE-compatible calculator instance
-        :type calculator: Calculator
-        :param model_name: Name of the model used for properties' calculation.
-            This name is updated in the results DataFrame.
-        :type model_name: str
-        :param checkpoint_file: File path where checkpoint is saved periodically.
-            If None, no checkpoints are saved.
-        :type checkpoint_file: str | Path | None
-        :param checkpoint_freq: Frequency after which checkpoint is saved.
-            Corresponds to the number of structures processed.
-        :type checkpoint_freq: int
-        :param include_full_results: Whether to include the raw force prediction in the
-            returned dataframe
-        :type include_full_results: bool
+        Args:
+            calculator: ASE calculator for force evaluation.
+            model_name: Column suffix for softening scale.
+            checkpoint_file: Optional resume path.
+            checkpoint_freq: Checkpoint every N materials completed.
+            include_full_results: Keep ``raw_force_predictions`` column when True.
 
-        :return: A dataframe containing the softening scales.
-        :rtype: pd.DataFrame
+        Returns:
+            DataFrame with per-material softening scale and metadata.
         """
         checkpoint = None
         results = []
@@ -863,7 +750,13 @@ class SofteningBenchmark:
                     force_ground_truth.append(frame["vasp_f"])
 
                 softening_scale = self.get_linear_fitted_slope(force_ground_truth, force_prediction)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "SofteningBenchmark: failed for material_id=%s (%s): %s",
+                    material_id,
+                    type(exc).__name__,
+                    exc,
+                )
                 softening_scale = None
                 force_prediction = None
 
@@ -897,21 +790,14 @@ class BenchmarkSuite:
     various computational models (calculators) while enabling efficient resource utilization
     and result aggregation. It supports checkpointing to handle long computations reliably.
 
-    :ivar benchmarks: A list of benchmarks to be configured or evaluated.
-    :type benchmarks: list
+    Attributes:
+        benchmarks: Sequence of ``Benchmark`` (or compatible) instances.
     """
 
     def __init__(self, benchmarks: list) -> None:
         """
-        Represents a collection of benchmarks.
-
-        This class is designed to store and manage a list of benchmarks. It provides
-        an initialization method to set up the benchmark list during object creation.
-        It does not include any specialized methods or functionality beyond holding
-        a list of benchmarks.
-
-        Attributes:
-            benchmarks (list): A list of benchmarks provided during initialization.
+        Args:
+            benchmarks: Benchmark objects to run in sequence.
         """
         self.benchmarks = benchmarks
 
@@ -926,19 +812,16 @@ class BenchmarkSuite:
         """
         Executes benchmarks using the provided calculators and combines the results into a
         list of dataframes. Each benchmark runs for all models provided by calculators, collecting
-        individual results and performing validations during elemental_refs combination.
+        individual results and joining columns without duplicate reference fields.
 
-        :param calculators: A dictionary where the keys are the model names (str)
-            and the values are the corresponding calculator instances (Calculator).
-        :param n_jobs: The maximum number of concurrent jobs to run. If set to -1,
-            utilizes all available processors. Defaults to -1.
-        :param checkpoint_freq: The frequency at which progress is saved as checkpoints,
-            in terms of calculation steps. Defaults to 1000.
-        :param delete_checkpoint_on_finish: Whether to delete checkpoint files when the benchmark finishes. Defaults to
-            True.
-        :type delete_checkpoint_on_finish: bool
-        :return: A list of pandas DataFrames, each containing combined results
-            for all calculators across the benchmarks.
+        Args:
+            calculators: Map of model label to ASE calculator.
+            n_jobs: Parallelism forwarded to each ``benchmark.run``.
+            checkpoint_freq: Checkpoint interval per benchmark run.
+            delete_checkpoint_on_finish: Remove per-model checkpoint files when done.
+
+        Returns:
+            One combined DataFrame per benchmark (joined across models).
         """
         all_results = []
         for benchmark in self.benchmarks:

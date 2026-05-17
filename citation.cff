@@ -38,9 +38,9 @@ authors:
     orcid: https://orcid.org/0000-0002-0802-9559
     github: https://github.com/kenko911
 license: BSD-3-Clause
-license-url: https://github.com/materialsvirtuallab/matcalc/blob/-/LICENSE"
-repository-code: https://github.com/materialsvirtuallab/matcalc
+license-url: https://github.com/materialyzeai/matcalc/blob/-/LICENSE"
+repository-code: https://github.com/materialyzeai/matcalc
 type: software
-url: https://github.com/materialsvirtuallab/matcalc
+url: https://github.com/materialyzeai/matcalc
 version: 0.0.4 # replace with whatever version you use
 date-released: "2024-01-01"

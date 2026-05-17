@@ -22,6 +22,7 @@ def run_lammps(
     interval: int = 1,
     fmax: float = 0.1,
     cell_filter: str | None = None,  # type:ignore[assignment]
+    cell_filter_kwargs: dict | None = None,
 ) -> SimulationResult:
     """
     Run LAMMPS calculation using the given structure and calculator.

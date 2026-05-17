@@ -24,27 +24,15 @@ ELEMENTAL_REFS_DIR = Path(__file__).parent / "elemental_refs"
 
 class EnergeticsCalc(PropCalc):
     """
-    Handles the computation of energetic properties such as formation energy per atom,
-    cohesive energy per atom, and relaxed structures for input compositions. This class
-    enables a streamlined setup for performing computational property calculations based
-    on different reference data and relaxation configurations.
+    Handles formation energy per atom, cohesive energy per atom, and relaxed structures
+    using reference elemental data and optional relaxation.
 
-    :ivar calculator: The computational calculator used for numerical simulations and property
-        evaluations.
-    :type calculator: Calculator
-    :ivar elemental_refs: Reference data dictionary or identifier for elemental properties.
-        If a string ("MP-PBE", "MatPES-PBE" or "MatPES-r2SCAN"), loads default references;
-        if a dictionary, uses custom provided data.
-    :type elemental_refs: Literal["MP-PBE", "MatPES-PBE", "MatPES-r2SCAN"] | dict
-    :ivar use_gs_reference: Whether to use DFT ground state data for energy computations
-        when referencing elemental properties.
-    :type use_gs_reference: bool
-    :ivar relax_structure: Specifies whether to relax the input structures before property
-        calculations. If True, relaxation is applied.
-    :type relax_structure: bool
-    :ivar relax_calc_kwargs: Optional keyword arguments for fine-tuning relaxation calculation
-        settings or parameters.
-    :type relax_calc_kwargs: dict | None
+    Attributes:
+        calculator: ASE calculator (or universal model name) for energies and forces.
+        elemental_refs: Builtin ref key or custom dict mapping elements to reference data.
+        use_gs_reference: If True, use tabulated DFT ground-state energies from refs.
+        relax_structure: Whether to relax the input structure before energetics.
+        relax_calc_kwargs: Optional kwargs forwarded to ``RelaxCalc``.
     """
 
     def __init__(
@@ -60,37 +48,15 @@ class EnergeticsCalc(PropCalc):
         relax_calc_kwargs: dict | None = None,
     ) -> None:
         """
-        Initializes the class with the given calculator and optional configurations for
-        elemental references, density functional theory (DFT) ground state reference, and
-        options for structural relaxation.
-
-        This constructor allows initializing essential components of the object, tailored
-        for specific computational settings. The parameters include configurations for
-        elemental references, an optional DFT ground state reference, and structural
-        relaxation preferences.
-
-        :param calculator: An ASE calculator object used to perform energy and force
-            calculations. If string is provided, the corresponding universal calculator is loaded.
-        :type calculator: Calculator | str
-        :param elemental_refs: Specifies the elemental references to be used. It can either be
-            a predefined string identifier ("MP-PBE", "MatPES-PBE", "MatPES-r2SCAN") or a dictionary
-            mapping elements to their energy references.
-        :type elemental_refs: Literal["MP-PBE", "MatPES-PBE", "MatPES-r2SCAN"] | dict
-        :ivar fmax: Force tolerance for convergence (eV/Å).
-        :type fmax: float
-        :ivar optimizer: Algorithm for performing the optimization.
-        :type optimizer: Optimizer | str
-        :ivar perturb_distance: Distance (Å) for random perturbation to break symmetry.
-        :type perturb_distance: float | None
-        :param use_gs_reference: Determines whether to use ground state energy as a reference.
-            Defaults to False.
-        :type use_gs_reference: bool
-        :param relax_structure: Specifies if the structure should be relaxed before
-            proceeding with calculations. Defaults to True.
-        :type relax_structure: bool
-        :param relax_calc_kwargs: Additional keyword arguments for the relaxation
-            calculation. Can be a dictionary of settings or None. Defaults to None.
-        :type relax_calc_kwargs: dict | None
+        Args:
+            calculator: ASE calculator or universal model name string.
+            elemental_refs: ``"MP-PBE"``, ``"MatPES-PBE"``, ``"MatPES-r2SCAN"``, or a custom dict.
+            fmax: Force convergence tolerance (eV/Å) for relaxation.
+            optimizer: ASE optimizer name for relaxation.
+            perturb_distance: Random displacement (Å) before relaxation, or None.
+            use_gs_reference: Use tabulated ground-state energies from references when True.
+            relax_structure: Relax input structure before computing energetics.
+            relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.fmax = fmax
@@ -106,20 +72,15 @@ class EnergeticsCalc(PropCalc):
 
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict[str, Any]:
         """
-        Calculates the formation energy per atom, cohesive energy per atom, and final
-        relaxed structure for a given input structure using a relaxation calculation
-        and reference elemental data. This function also optionally utilizes DFT
-        ground-state references for formation energy calculations. The cohesive energy is always referenced to the
-        DFT atomic energies.
+        Args:
+            structure: Pymatgen structure, ASE atoms, or chained-result dict.
 
-        :param structure: The input structure to be relaxed and analyzed.
-        :type structure: Structure
-        :return: A dictionary containing the formation energy per atom, cohesive
-                 energy per atom, and the final relaxed structure.
-        :rtype: dict[str, Any]
+        Returns:
+            Dict with ``formation_energy_per_atom`` (eV/atom), ``cohesive_energy_per_atom``
+            (eV/atom, or None if reference data missing), ``final_structure``, ``_units``,
+            and other keys from relaxation / PES when applicable.
         """
         result = super().calc(structure)
-        structure_in: Structure | Atoms = result["final_structure"]
         relaxer = RelaxCalc(
             self.calculator,
             fmax=self.fmax,
@@ -127,21 +88,17 @@ class EnergeticsCalc(PropCalc):
             perturb_distance=self.perturb_distance,
             **(self.relax_calc_kwargs or {}),
         )
-        if self.relax_structure:
-            result |= relaxer.calc(structure_in)
-            structure_in = result["final_structure"]
-            energy = result["energy"]
-        else:
-            energy = run_pes_calc(structure_in, self.calculator).energy
+        result, structure_in = self._prerelax(result["final_structure"], result, relaxer=relaxer)
+        energy = result["energy"] if self.relax_structure else run_pes_calc(structure_in, self.calculator).energy
         nsites = len(structure_in)
 
         def get_gs_energy(el: Element | Species) -> float:
             """
-            Returns the ground state energy for a given element. If use_gs_reference is True, we use the
-            pre-computed DFT energy.
+            Args:
+                el: Element or species in the composition.
 
-            :param el: Element symbol.
-            :return: Energy per atom.
+            Returns:
+                Reference energy per atom for that element.
             """
             if self.use_gs_reference:
                 gs_energy = self.elemental_refs[el.symbol]["energy_per_atom"]
@@ -150,11 +107,18 @@ class EnergeticsCalc(PropCalc):
             relaxer.perturb_distance = None
             structure = self.elemental_refs[el.symbol]["structure"]
             structure_list = [structure] if not isinstance(structure, list) else structure
-            return min(
+            energies_per_atom = [
                 r["energy"] / r["final_structure"].num_sites
                 for r in list(relaxer.calc_many(structure_list))
                 if r is not None
-            )
+            ]
+            if not energies_per_atom:
+                raise RuntimeError(
+                    f"All elemental reference relaxations failed for {el.symbol!r}. "
+                    f"Cannot compute a formation energy. Either pass "
+                    f"use_gs_reference=True or supply pre-relaxed elemental_refs."
+                )
+            return min(energies_per_atom)
 
         comp = to_pmg_structure(structure_in).composition
         e_form = energy - sum([get_gs_energy(el) * amt for el, amt in comp.items()])
@@ -165,6 +129,11 @@ class EnergeticsCalc(PropCalc):
         except KeyError:
             result = result | {"cohesive_energy_per_atom": None}
 
+        existing_units = result.get("_units")
+        units_map: dict[str, str] = dict(existing_units) if isinstance(existing_units, dict) else {}
+        units_map["formation_energy_per_atom"] = "eV/atom"
+        units_map["cohesive_energy_per_atom"] = "eV/atom"
         return result | {
             "formation_energy_per_atom": e_form / nsites,
+            "_units": units_map,
         }

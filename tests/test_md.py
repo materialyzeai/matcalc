@@ -7,27 +7,37 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+from ase.io import read
 
 from matcalc import MDCalc
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ase import Atoms
     from matgl.ext.ase import PESCalculator
     from pymatgen.core import Structure
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _set_seed() -> None:
+    np.random.seed(42)  # noqa: NPY002
+
+
 @pytest.mark.parametrize(
     ("ensemble", "expected_energy"),
     [
-        ("nve", -10.74606),
-        ("nvt", -10.81289),
-        ("nvt_berendsen", -10.73112),
-        ("nvt_langevin", -10.78238),
-        ("nvt_andersen", -10.82750),
-        ("nvt_bussi", -10.77756),
-        ("npt_inhomogeneous", -10.74737),
-        ("npt_berendsen", -10.74714),
-        ("npt_nose_hoover", -10.86120),
+        ("nve", -10.681398645973719),
+        ("nvt", -10.669462076229149),
+        ("nvt_berendsen", -10.682300543040231),
+        ("nvt_langevin", -10.636199534575727),
+        ("nvt_andersen", -10.689862392797687),
+        ("nvt_bussi", -10.634646418536288),
+        ("npt_inhomogeneous", -10.684206021309203),
+        ("npt_berendsen", -10.663122054639796),
+        ("npt_nose_hoover", -10.639228676099112),
+        ("npt_isotropic_mtk", -10.664155796043316),
+        ("npt_mtk", -10.695427268514504),
     ],
 )
 def test_md_calc(
@@ -46,16 +56,15 @@ def test_md_calc(
         calculator=matpes_calculator,
         ensemble=ensemble,
         temperature=300,
-        taut=0.1,
-        taup=0.1,
         steps=10,
         frames=5,
         compressibility_au=1,
         logfile=log_file,
         trajfile=traj_file,
     )
+    initial_vol = Si.lattice.volume
     results = md_calc.calc(Si)
-
+    assert results["final_structure"] != Si
     assert isinstance(results, dict)
 
     assert "trajectory" in results
@@ -63,12 +72,21 @@ def test_md_calc(
     assert "kinetic_energy" in results
     assert "total_energy" in results
 
-    assert results["total_energy"] == pytest.approx(expected_energy, rel=1e-1)
+    units = results["_units"]
+    assert units["potential_energy"] == "eV"
+    assert units["kinetic_energy"] == "eV"
+    assert units["total_energy"] == "eV"
 
-    energies = np.array(results["trajectory"].total_energies)
+    assert results["total_energy"] == pytest.approx(expected_energy, abs=1e-2)
+
+    energies = np.array([a.get_total_energy() for a in results["trajectory"]])
 
     if ensemble != "nve":
         assert not np.allclose(energies - energies[0], 0, atol=1e-9), f"Energies are too close for {ensemble}"
+
+    if ensemble.startswith("nvt"):
+        # There should be no volume change for NVT simulations.
+        assert np.linalg.det(results["trajectory"][-1].get_cell()) == pytest.approx(initial_vol, rel=1e-2)
 
     assert len(results["trajectory"]) == 5
 
@@ -97,12 +115,104 @@ def test_md_atoms(
     assert isinstance(results, dict)
 
 
+def test_md_relax_cell(
+    Si: Structure,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """Tests for MDCalc class with cell relaxation"""
+    # Note: fmax is set relatively high for testing purposes only.
+
+    # default behavior (relax_cell = False)
+    md_calc = MDCalc(
+        calculator=matpes_calculator,
+        ensemble="npt_mtk",
+        temperature=300,
+        steps=1,
+        compressibility_au=1,
+    )
+    initial_vol = Si.lattice.volume
+    results = md_calc.calc(Si)
+    volume_after_relax = np.linalg.det(results["trajectory"][0].get_cell())
+    assert volume_after_relax == pytest.approx(initial_vol, rel=1e-4)
+
+    md_calc = MDCalc(
+        calculator=matpes_calculator,
+        ensemble="npt_mtk",
+        temperature=300,
+        steps=1,
+        compressibility_au=1,
+        relax_calc_kwargs={"relax_cell": True},
+    )
+    initial_vol = Si.lattice.volume
+    results = md_calc.calc(Si)
+    volume_after_relax = np.linalg.det(results["trajectory"][0].get_cell())
+    assert abs(volume_after_relax - initial_vol) > 1e-4
+
+
+def test_stationary(Si_atoms: Atoms, matpes_calculator: PESCalculator, tmp_path: Path) -> None:
+    """Tests for MDCalc class with and without stationary COM"""
+    starting_com = Si_atoms.get_center_of_mass()
+
+    # Test with stationary COM
+    md_calc = MDCalc(
+        calculator=matpes_calculator,
+        ensemble="npt_mtk",
+        temperature=300,
+        steps=10,
+        compressibility_au=1,
+        set_com_stationary=True,
+        trajfile=tmp_path / "test.traj",
+    )
+    md_calc.calc(Si_atoms)
+    final_com = read(tmp_path / "test.traj", index=":")[-1].get_center_of_mass()
+    assert final_com == pytest.approx(starting_com, abs=1e-2)
+
+    # Test with non-stationary COM
+    # Note: MTKNPT does not zero out COM momentum
+    md_calc = MDCalc(
+        calculator=matpes_calculator,
+        ensemble="npt_mtk",
+        temperature=300,
+        steps=10,
+        compressibility_au=1,
+        set_com_stationary=False,
+        trajfile=tmp_path / "test.traj",
+    )
+    md_calc.calc(Si_atoms)
+    final_com = read(tmp_path / "test.traj", index=":")[-1].get_center_of_mass()
+    assert np.linalg.norm(final_com - starting_com) > 1e-3
+
+
+def test_rotation(Si_atoms: Atoms, matpes_calculator: PESCalculator, tmp_path: Path) -> None:
+    """Tests for MDCalc class with and without zero rotation"""
+    Si_atoms.set_momenta(Si_atoms.get_momenta() + 10.0)  # magnify the effect
+    md_calc_kwargs = {
+        "calculator": matpes_calculator,
+        "temperature": 300,
+        "steps": 1,
+        "compressibility_au": 1,
+    }
+    md_calc_zero_rotation = MDCalc(
+        trajfile=tmp_path / "test_zero_rotation.traj",
+        set_zero_rotation=True,
+        **md_calc_kwargs,
+    )
+    md_calc_rotation = MDCalc(
+        trajfile=tmp_path / "test_rotation.traj",
+        set_zero_rotation=False,
+        **md_calc_kwargs,
+    )
+    md_calc_zero_rotation.calc(Si_atoms)
+    md_calc_rotation.calc(Si_atoms)
+    momenta_with_zero_rotation = read(tmp_path / "test_zero_rotation.traj", index=":")[0].get_momenta()
+    momenta_with_rotation = read(tmp_path / "test_rotation.traj", index=":")[0].get_momenta()
+    assert momenta_with_zero_rotation != pytest.approx(momenta_with_rotation, abs=0.1)
+
+
 def test_invalid_ensemble(Si: Structure, matpes_calculator: PESCalculator) -> None:
     with pytest.raises(
         ValueError,
-        match="The specified ensemble is not supported, choose from 'nve', 'nvt',"
-        " 'nvt_nose_hoover', 'nvt_berendsen', 'nvt_langevin', 'nvt_andersen',"
-        " 'nvt_bussi', 'npt', 'npt_nose_hoover', 'npt_berendsen', 'npt_inhomogeneous'.",
+        match=r"The specified ensemble is not supported.*",
     ):
         MDCalc(
             calculator=matpes_calculator,

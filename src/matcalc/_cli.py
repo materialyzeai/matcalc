@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import pprint
 import typing
 
@@ -16,15 +17,41 @@ if typing.TYPE_CHECKING:
     from typing import Any
 
 
-def calculate_property(args: Any) -> None:
-    """
-    Implements calculate property.
+# Explicit map of PropCalc subclasses exposed via the CLI. Dict-based dispatch
+# avoids the previous ``mtc.__dict__[args.property]`` lookup, which silently
+# broke whenever a class was renamed or removed.
+# NEBCalc is intentionally excluded because it does not accept a single
+# Structure and returns a non-dict result (MEP namedtuple-like dataclass).
+# Typed as ``Any`` because each subclass adds its own ``__init__`` arguments
+# (mypy infers the base ``PropCalc.__init__`` signature otherwise).
+CLI_CALCS: dict[str, type] = {
+    name: getattr(mtc, name)
+    for name in (
+        "RelaxCalc",
+        "ElasticityCalc",
+        "EOSCalc",
+        "PhononCalc",
+        "Phonon3Calc",
+        "QHACalc",
+        "MDCalc",
+        "EnergeticsCalc",
+        "SurfaceCalc",
+        "GBCalc",
+        "InterfaceCalc",
+        "AdsorptionCalc",
+        "LAMMPSMDCalc",
+    )
+    if hasattr(mtc, name)
+}
 
-    :param args:
-    :return:
-    """
+
+def calculate_property(args: Any) -> None:
+    """Run the selected PropCalc on input structure files (from parsed CLI args)."""
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG, format="%(name)s %(levelname)s %(message)s")
     calculator = mtc.load_fp(args.model)
-    mod = mtc.__dict__[args.property](calculator)
+    calc_cls = CLI_CALCS[args.property]
+    mod = calc_cls(calculator)
     results = []
     for f in args.structure:
         s = Structure.from_file(f)
@@ -39,12 +66,7 @@ def calculate_property(args: Any) -> None:
 
 
 def clear_cache(args: Any) -> None:
-    """
-    Clear the benchmark cache.
-
-    :param args:
-    :return:
-    """
+    """Clear the MatCalc benchmark cache (from parsed CLI args)."""
     mtc.clear_cache(confirm=args.yes)
 
 
@@ -74,8 +96,8 @@ def main() -> None:
         "--model",
         dest="model",
         type=str,
-        choices=mtc.UNIVERSAL_CALCULATORS,
-        default="TensorNet",
+        choices=mtc.UNIVERSAL_CALCULATOR_NAMES,
+        default="TensorNet-MatPES-PBE-2025.2",
         help="Universal MLIP to use.",
     )
 
@@ -84,7 +106,7 @@ def main() -> None:
         "--property",
         dest="property",
         type=str,
-        choices=[m for m in dir(mtc) if m.endswith("Calc") and m != "NEBCalc"],
+        choices=sorted(CLI_CALCS),
         default="RelaxCalc",
         help="PropCalc to use. Defaults to RelaxCalc.",
     )
@@ -104,7 +126,7 @@ def main() -> None:
         dest="verbose",
         default=False,
         action="store_true",
-        help="Verbose output.",
+        help="Enable DEBUG-level logging from matcalc.",
     )
 
     p_calc.set_defaults(func=calculate_property)

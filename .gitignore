@@ -28,6 +28,19 @@ setuptools*
 .vscode/*
 _site
 
+# Generated documentation (built in CI by `invoke make-docs` and deployed to
+# GitHub Pages). Source files (CNAME, Gemfile*, _config.yml, apidoc/conf.py,
+# changes.md, dev.md, static assets) remain tracked.
+docs/index.md
+docs/matcalc*.html
+docs/modules.html
+docs/tutorials/
+docs/assets/Calculating*.png
+docs/assets/LiFePO4-NEB_*.png
+docs/assets/NEB Calculations*.png
+docs/html/
+docs/doctrees/
+
 # Environments
 .env
 .venv

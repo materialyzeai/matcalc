@@ -5,14 +5,18 @@ ci:
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.12
+    rev: v0.15.12
     hooks:
-      - id: ruff
-        args: [--fix]
+      - id: ruff-check
+        types_or: [ python, pyi ]
+        args: [ --fix ]
+        exclude: ^dev_scripts*|^docs*|^benchmark_data*
       - id: ruff-format
+        types_or: [ python, pyi ]
+        exclude: ^dev_scripts*|^docs*|^benchmark_data*
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-yaml
         exclude: pymatgen/analysis/vesta_cutoffs.yaml
@@ -20,13 +24,13 @@ repos:
       - id: trailing-whitespace
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.16.0
+    rev: v2.0.0
     hooks:
       - id: mypy
         additional_dependencies: [numpy>=1.2.5]
 
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
+    rev: v2.4.2
     hooks:
       - id: codespell
         stages: [pre-commit, commit-msg]
@@ -35,12 +39,12 @@ repos:
         additional_dependencies: [tomli] # needed to read pyproject.toml below py3.11
 
   - repo: https://github.com/kynan/nbstripout
-    rev: 0.8.1
+    rev: 0.9.1
     hooks:
       - id: nbstripout
         args: [--drop-empty-cells, --keep-output]
 
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.401
+    rev: v1.1.409
     hooks:
       - id: pyright

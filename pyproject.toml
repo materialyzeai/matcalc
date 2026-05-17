@@ -4,12 +4,12 @@ authors = [
     { name = "Runze Liu", email = "rul048@ucsd.edu" },
     { name = "Eliott Liu", email = "elliottliu17@gmail.com" },
     { name = "Ji Qi", email = "j1qi@ucsd.edu" },
-    { name = "Shyue Ping Ong", email = "ongsp@ucsd.edu" },
+    { name = "Shyue Ping Ong", email = "shyue@nus.edu.sg" },
     { name = "Tsz Wai Ko", email = "t1ko@ucsd.edu" },
 ]
 description = "Calculators for materials properties from the potential energy surface."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 keywords = [
     "AI",
     "deep learning",
@@ -27,60 +27,70 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Chemistry",
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "ase>=3.23.0",
-    "numpy<2.0.0",
+    "ase>=3.26.0",
     "scikit-learn>=1.6.1",
-    "pymatgen>=2025.4.20",
-    "fsspec>=2025.3.0",
+    "pymatgen>=2026.3.23",
+    "huggingface-hub>=0.30.0",
     "joblib>=1.4.2",
     "phonopy>=2.38.0",
     "phono3py>=3.15.0",
     "pheasy>=0.0.2",
 ]
-version = "0.4.1"
+version = "0.4.8"
 
 [project.optional-dependencies]
 phonon = ["seekpath"]
-benchmark = ["matminer>=0.9.3"]
-ace = [
-    "pyace>=0.1.1",
+benchmark = ["matminer>=0.10.1"]
+maml = [
+    "maml>=2025.4.3",
+]
+matgl = [
+    "matgl>=3.0.3",
 ]
 mace = [
     "mace-torch>=0.3.12",
 ]
-deepmd = [
-    "deepmd-kit>=3.0.2",
+sevennet = [
+    "sevenn>=0.10.4",
 ]
 grace = [
     "tensorpotential>=0.5.1",
-]
-maml = [
-    "maml>=2025.4.3",
 ]
 orb = [
     "orb-models>=0.4.2",
     "pynanoflann>=0.10.0",
 ]
-sevennet = [
-    "sevenn>=0.10.4",
+mattersim = [
+    "mattersim",
+]
+fairchem = [
+    "fairchem-core",
+]
+petmad = [
+    "pet-mad",
+]
+deepmd = [
+    "deepmd-kit>=3.0.2",
 ]
 ci = [
+    "setuptools<82",  # Required by maml which uses pkg_resources
     "codecov-cli>=10.3.0",
     "coverage>=7.7.1",
     "coveralls>=4.0.1",
     "ipython>=8.34.0",
     "jupyter>=1.1.1",
     "maml>=2025.4.3",
-    "matgl>=1.2.5",
-    "matminer>=0.9.3",
+    "matgl>=3.0.3",
+    "matminer>=0.10.1",
     "mp-api>=0.45.3",
     "nbmake>=1.5.5",
     "pre-commit>=4.2.0",
@@ -97,14 +107,19 @@ where = ["src"]
 include = ["matcalc", "matcalc.*"]
 
 [tool.setuptools.package-data]
-"matcalc" = ["elemental_refs/*.json.gz"]
+"matcalc" = [
+    "elemental_refs/*.json.gz",
+    "lammps_templates/*.template",
+    "py.typed",
+]
 
 [build-system]
-requires = ["oldest-supported-numpy", "setuptools>=58.0.3"]
+requires = ["oldest-supported-numpy", "setuptools>=58.0.3,<82"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [
+    "setuptools<82",  # Required by maml which uses pkg_resources
     "codecov-cli>=10.3.0",
     "coverage>=7.7.1",
     "coveralls>=4.0.1",
@@ -113,10 +128,11 @@ dev = [
     "ipython>=8.34.0",
     "jupyter>=1.1.1",
     "maml>=2025.4.3",
-    "matgl>=1.2.5",
-    "matminer>=0.9.3",
+    "matgl>=3.0.0",
+    "matminer>=0.10.1",
     "mp-api>=0.45.3",
     "nbmake>=1.5.5",
+    "openai>=1.101.0",
     "pre-commit>=4.2.0",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
@@ -131,14 +147,14 @@ lint = [
     "pyright>=1.1.398",
     "ruff>=0.11.2",
 ]
-test-models = [
-    "mace-torch>=0.3.12",
-    "nequip>=0.6.2",
-    "orb-models>=0.4.2",
-    "pynanoflann>=0.10.0",
-    "sevenn>=0.10.4",
-    "tensorpotential>=0.5.1",
-]
+# test-models = [
+#     "mace-torch>=0.3.12",
+#     "nequip>=0.6.2",
+#     "orb-models>=0.4.2",
+#     "pynanoflann>=0.10.0",
+#     "sevenn>=0.10.4",
+#     "tensorpotential>=0.5.1",
+# ]
 
 [tool.uv]
 conflicts = [
@@ -146,8 +162,19 @@ conflicts = [
       { extra = "mace" },
       { extra = "fairchem" },
       { extra = "mattersim" },
+      { extra = "sevennet" },
+      { extra = "grace" },
+      { extra = "orb" },
+      { extra = "petmad" },
+      { extra = "deepmd" },
     ],
 ]
+required-environments = [
+    "sys_platform == 'linux'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
+
 
 [tool.ruff]
 line-length = 120
@@ -168,6 +195,7 @@ ignore = [
     "PTH", # prefer Path to os.path
     "SIM105", # Use contextlib.suppress(OSError) instead of try-except-pass
     "TRY003",
+    "PLC0415",
 ]
 exclude = ["docs/conf.py"]
 pydocstyle.convention = "google"
@@ -178,8 +206,8 @@ docstring-code-format = true
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"tasks.py" = ["ANN", "D", "T203"]
-"tests/*" = ["D", "INP001", "N802", "N803", "PLR2004", "S101"]
+"tasks.py" = ["ANN", "D", "T203", "T201", "BLE001", "S"]
+"tests/*" = ["D", "FBT001", "INP001", "N802", "N803", "PLR2004", "S101"]
 "tests/test_cli.py" = ["S603", "S607"]
 
 [tool.pytest.ini_options]
@@ -190,14 +218,13 @@ ignore_missing_imports = true
 explicit_package_bases = true
 no_implicit_optional = false
 exclude = ['examples', 'tests']
-plugins = ["numpy.typing.mypy_plugin"]
 
 [[tool.mypy.overrides]]
 module = ["requests.*", "tabulate.*"]
 ignore_missing_imports = true
 
 [tool.codespell]
-ignore-words-list = "mater,te,nd,Commun"
+ignore-words-list = "mater,te,nd,Commun,ontop"
 check-filenames = true
 
 [tool.coverage.run]
@@ -225,6 +252,7 @@ exclude_lines = [
 
 [tool.pyright]
 reportMissingImports = false
+reportMissingModuleSource = false
 reportPossiblyUnboundVariable = true
 reportUnboundVariable = true
 exclude = ["tests"]

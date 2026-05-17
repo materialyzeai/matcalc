@@ -25,11 +25,11 @@ LAMMPS_TEMPLATES_DIR = Path(__file__).parent / "lammps_templates"
 
 # Provide simple aliases for some common models. The key in MODEL_ALIASES must be lower case.
 MODEL_ALIASES = {
-    "tensornet": "TensorNet-MatPES-PBE-v2025.1-PES",
+    "tensornet": "TensorNet-PES-MatPES-PBE-2025.2",
     "m3gnet": "M3GNet-MatPES-PBE-v2025.1-PES",
     "chgnet": "CHGNet-MatPES-PBE-2025.2.10-2.7M-PES",
-    "pbe": "TensorNet-MatPES-PBE-v2025.1-PES",
-    "r2scan": "TensorNet-MatPES-r2SCAN-v2025.1-PES",
+    "pbe": "TensorNet-PES-MatPES-PBE-2025.2",
+    "r2scan": "TensorNet-PES-MatPES-r2SCAN-2025.2",
 }
 
 
@@ -37,42 +37,21 @@ class LAMMPSMDCalc(PropCalc):
     """
     Class to manage molecular dynamics simulations using LAMMPS.
 
-    :ivar calculator: Name of the potential/calculator model.
-    :type calculator: str
-    :ivar temperature: Simulation temperature in Kelvin.
-    :type temperature: int
-    :ivar ensemble: Statistical ensemble for simulation.
-    :type ensemble: Literal["nve", "nvt", "npt", "nvt_nose_hoover", "npt_nose_hoover"]
-    :ivar timestep: Simulation timestep in picoseconds.
-    :type timestep: float
-    :ivar steps: Number of MD steps.
-    :type steps: int
-    :ivar pressure: Simulation pressure in bars.
-    :type pressure: float
-    :ivar taut: Temperature coupling constant (ps).
-    :type taut: float | None
-    :ivar taup: Pressure coupling constant (ps).
-    :type taup: float | None
-    :ivar infile: File for Input.
-    :type infile: str
-    :ivar trajfile: File for trajectory output.
-    :type trajfile: str
-    :ivar logfile: Logfile path.
-    :type logfile: str
-    :ivar loginterval: Logging interval in steps.
-    :type loginterval: int
-    :ivar relax_structure: Whether to perform initial structural relaxation.
-    :type relax_structure: bool
-    :ivar fmax: Maximum force for relaxation convergence.
-    :type fmax: float
-    :ivar optimizer: Optimizer for structural relaxation.
-    :type optimizer: str
-    :ivar frames: Number of frames saved from the trajectory.
-    :type frames: int
-    :ivar settings: Settings for the template script.
-    :type settings: dict | None
-    :ivar relax_calc_kwargs: Additional kwargs for relaxation calculation.
-    :type relax_calc_kwargs: dict | None
+    Attributes:
+        calculator: Universal model name string (resolved for MatGL potentials).
+        temperature: Target temperature (K).
+        ensemble: Thermostat/barostat choice.
+        timestep: MD timestep (ps).
+        steps: Total MD steps.
+        pressure: Target pressure for NPT (bar).
+        taut, taup: Thermo/barostat time constants (ps).
+        infile, trajfile, logfile: LAMMPS IO paths.
+        loginterval: Thermo output stride.
+        relax_structure: Pre-MD ``RelaxCalc`` when True.
+        fmax, optimizer: Relaxation settings.
+        frames: Number of trailing trajectory frames to return.
+        settings: Extra template placeholders for ``LammpsRun``.
+        relax_calc_kwargs: Kwargs for pre-MD ``RelaxCalc``.
     """
 
     def __init__(
@@ -149,12 +128,12 @@ class LAMMPSMDCalc(PropCalc):
     ) -> LammpsRun:
         """Write LAMMPS input files based on a given structure.
 
-        Parameters:
-            structure (Structure | Atoms | dict[str, Any]): Input pymatgen Structure or equivalent dictionary.
-            script_template (str | Path): Template of the input script.
+        Args:
+            structure: Structure, atoms, or dict accepted by ``PropCalc.calc``.
+            script_template: Path or string content of the LAMMPS script template.
 
         Returns:
-            LammpsRun: Instance representing written LAMMPS inputs.
+            ``LammpsRun`` with inputs written to the current working directory.
         """
         # Preprocess the input structure using the superclass's calc method.
         # This initial processing returns a dictionary containing a "final_structure".
@@ -229,7 +208,7 @@ class LAMMPSMDCalc(PropCalc):
             lattice = snapshot.box.to_lattice()
             coords = snapshot.data[["x", "y", "z"]].to_numpy()
             species = snapshot.data["element"].tolist()
-            struct = Structure(lattice, species, coords)
+            struct = Structure(lattice, species, coords, coords_are_cartesian=True)
 
             traj.append(AseAtomsAdaptor.get_atoms(struct))
         # Select the last 'self.frames' frames from the trajectory for further analysis.
@@ -249,6 +228,14 @@ class LAMMPSMDCalc(PropCalc):
             "potential_energy": energy_pot,
             "kinetic_energy": energy_kin,
             "total_energy": energy_tot,
+            "_units": self._merge_units(
+                result,
+                {
+                    "potential_energy": "eV",
+                    "kinetic_energy": "eV",
+                    "total_energy": "eV",
+                },
+            ),
         }
 
         # Return the complete result dictionary.

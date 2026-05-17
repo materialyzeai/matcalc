@@ -3,10 +3,10 @@ name: Test
 on:
   push:
     branches: [main]
-    paths-ignore: ["**/*.md", "docs/**", "dev_scripts/**"]
+    paths-ignore: ["examples/*.ipynb", "**/*.md", "docs/**", "dev_scripts/**"]
   pull_request:
     branches: [main]
-    paths-ignore: ["**/*.md", "docs/**", "dev_scripts/**"]
+    paths-ignore: ["examples/*.ipynb", "**/*.md", "docs/**", "dev_scripts/**"]
   workflow_dispatch:
     inputs:
       task:
@@ -16,28 +16,102 @@ on:
         description: Trigger test manually.
   workflow_call: # make this workflow reusable by release.yml
 
+# Lock GITHUB_TOKEN to read-only by default. Individual jobs can opt in to
+# extra scopes via their own ``permissions`` block if ever needed.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     container:
       # MAVRL's docker container build on uv with LAMMPS with ML-GNNP and ML-SNAP.
       # Required for testing the LAMMPS related methods.
-      image: docker.io/materialsvirtuallab/lammps_gnnp
+      image: docker.io/materialyzeai/lammps_gnnp
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
       PMG_MAPI_KEY: ${{ secrets.PMG_MAPI_KEY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
       - name: Install dependencies
         run: |
+          apt-get update
+          apt-get install -y curl
+
           pip install dgl==2.4.0 -f https://data.dgl.ai/wheels/torch-2.4/repo.html
           pip install -e '.[ci]'
+          pip install "setuptools<82"  # Required by maml (pkg_resources)
 
-          apt-get install curl  # Curl is not part of the minimal container image, but is required for CodeCov upload.
       - name: pytest
-        run: pytest --cov=matcalc --cov-report=xml tests --color=yes
+        run: pytest --cov=matcalc --cov-report=xml --cov-report=term-missing tests --color=yes
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Per-architecture smoke tests for the unified-name foundation potential
+  # registry in matcalc.utils. Each job installs only its own provider stack
+  # so the matrix shards stay light and a single broken provider does not
+  # block the others. Note that we are testing only the more widely used models.
+  # We will rely on the community to maintain the other models in the registry.
+  test-fp-loaders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: matgl
+            extras: matgl
+            models: '["TensorNet-MatPES-PBE-2025.2", "TensorNet-MatPES-r2SCAN-2025.2"]'
+          - name: mace
+            extras: mace
+            models: '["MACE-MP-0-small", "MACE-MPA-0-medium", "MACE-MatPES-PBE-0"]'
+          - name: grace
+            extras: grace
+            models: '["GRACE-2L-OAM"]'
+    env:
+      PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ matrix.name }}
+          restore-keys: hf-models-
+
+      - name: Install matcalc + ${{ matrix.name }} provider
+        run: |
+          python -m pip install --upgrade pip
+          if [ "${{ matrix.name }}" = "matgl" ]; then
+            pip install dgl==2.4.0 -f https://data.dgl.ai/wheels/torch-2.4/repo.html
+            pip install -e '.[matgl]'
+          else
+            pip install -e '.[${{ matrix.extras }}]'
+          fi
+
+      - name: Load each canonical model
+        run: |
+          python - <<'PY'
+          import json, os
+          from matcalc import load_fp
+          from ase.calculators.calculator import Calculator
+          for name in json.loads(os.environ["MODELS"]):
+              calc = load_fp(name)
+              assert isinstance(calc, Calculator), f"{name}: got {type(calc)}"
+              print(f"OK: {name} -> {type(calc).__name__}")
+          PY
+        env:
+          MODELS: ${{ matrix.models }}

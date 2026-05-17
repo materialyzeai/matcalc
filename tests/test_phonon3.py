@@ -44,14 +44,16 @@ def test_phonon3_calc(
         t_max=1000,
         mesh_numbers=mesh_numbers,
         disp_kwargs={"distance": 0.03},
-        thermal_conductivity_kwargs={"is_isotope": True, "conductivity_type": "wigner"},
+        thermal_conductivity_kwargs={"is_isotope": True, "transport_type": "SMM19"},
         write_phonon3=write_phonon3_path,
         write_kappa=write_kappa,
     )
 
     result = phonon3_calc.calc(Si)
     ind = result["temperatures"].tolist().index(300)
-    assert result["thermal_conductivity"][ind] == pytest.approx(175.94838119, rel=1e-1)
+    assert result["thermal_conductivity"][ind] == pytest.approx(88.87, rel=1e-1)
+    assert result["_units"]["thermal_conductivity"] == "W/(m*K)"
+    assert result["_units"]["temperatures"] == "K"
 
     if write_phonon3_path:
         assert os.path.isfile(str(write_phonon3_path))
@@ -80,9 +82,9 @@ def test_phonon3_calc_atoms(
         t_max=1000,
         mesh_numbers=mesh_numbers,
         disp_kwargs={"distance": 0.03},
-        thermal_conductivity_kwargs={"is_isotope": True, "conductivity_type": "wigner"},
+        thermal_conductivity_kwargs={"is_isotope": True, "transport_type": "SMM19"},
     )
 
     result = phonon3_calc.calc(Si_atoms)
     ind = result["temperatures"].tolist().index(300)
-    assert result["thermal_conductivity"][ind] == pytest.approx(175.94838119, rel=1e-1)
+    assert result["thermal_conductivity"][ind] == pytest.approx(88.87, rel=1e-1)

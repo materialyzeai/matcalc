@@ -4,7 +4,7 @@ description: >- # this means to ignore newlines until "baseurl:"
   MatCalc is a Python library for calculating materials properties from the potential energy surface.
 url: "http://matcalc.ai"
 # twitter_username: matcalc
-github_username: materialsvirtuallab
+github_username: materialyzeai
 
 # Build settings
 remote_theme: just-the-docs/just-the-docs
@@ -13,9 +13,9 @@ favicon_ico: /assets/favicon.png
 
 aux_links:
   API docs: http://matcalc.ai/matcalc.html
-  GitHub: https://github.com/materialsvirtuallab/matcalc
-  Issues: https://github.com/materialsvirtuallab/matcalc/issues
-  Materials Virtual Lab: https://materialsvirtuallab.org
+  GitHub: https://github.com/materialyzeai/matcalc
+  Issues: https://github.com/materialyzeai/matcalc/issues
+  Materialyze AI: https://materialyze.ai
 
 # Enable or disable the site search
 # Supports true (default) or false

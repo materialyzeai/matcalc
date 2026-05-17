@@ -53,21 +53,21 @@ def Si() -> Structure:
 
 
 @pytest.fixture(scope="session")
+def SiO2() -> Structure:
+    """SiO2 structure as session-scoped fixture."""
+    return PymatgenTest.get_structure("SiO2")
+
+
+@pytest.fixture(scope="session")
 def Si_atoms() -> Atoms:
     """Si atoms as session-scoped fixture."""
     return to_ase_atoms(PymatgenTest.get_structure("Si"))
 
 
 @pytest.fixture(scope="session")
-def m3gnet_calculator() -> PESCalculator:
-    """M3GNet calculator as session-scoped fixture."""
-    return PESCalculator.load_matgl("M3GNet-MP-2021.2.8-PES")
-
-
-@pytest.fixture(scope="session")
 def matpes_calculator() -> PESCalculator:
     """TensorNet calculator as session-scoped fixture."""
-    return matcalc.load_fp("TensorNet-MatPES-PBE-v2025.1-PES")
+    return matcalc.load_fp("TensorNet-MatPES-PBE-2025.2")
 
 
 @pytest.fixture(autouse=True)
