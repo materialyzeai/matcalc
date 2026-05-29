@@ -14,6 +14,7 @@ from ._interface import InterfaceCalc
 from ._lammps import LAMMPSMDCalc
 from ._md import MDCalc
 from ._neb import MEP, NEBCalc
+from ._order import OrderCalc
 from ._phonon import PhononCalc
 from ._phonon3 import Phonon3Calc
 from ._qha import QHACalc
@@ -52,6 +53,7 @@ __all__ = [
     "LAMMPSMDCalc",
     "MDCalc",
     "NEBCalc",
+    "OrderCalc",
     "PESCalculator",
     "Phonon3Calc",
     "PhononCalc",
