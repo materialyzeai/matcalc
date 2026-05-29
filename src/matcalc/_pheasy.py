@@ -14,8 +14,6 @@ from phonopy.file_IO import write_FORCE_CONSTANTS as write_force_constants
 from phonopy.interface.vasp import write_vasp
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.io.phonopy import get_phonopy_structure, get_pmg_structure
-
-# import pymatgen libraries to determine supercell
 from pymatgen.transformations.advanced_transformations import (
     CubicSupercellTransformation,
 )
@@ -37,93 +35,42 @@ logger = logging.getLogger(__name__)
 
 class PheasyCalc(PropCalc):
     """
-    A class for phonon, higher-order force constants and thermal property calculations using pheasy.
+    Phonon and higher-order force-constant calculations driven by pheasy.
 
-    The `PhononCalc` class extends the `PropCalc` class to provide
-    functionalities for calculating phonon properties and thermal properties
-    of a given structure using the phonopy library. It includes options for
-    structural relaxation before phonon property and higher-order force constants
-    determination, as well as methods to export calculated properties to
-    various output files for further analysis or visualization.
+    Extends ``PropCalc`` to compute harmonic (and optionally anharmonic) force
+    constants via the pheasy CLI, with optional pre-relaxation. Harmonic FCs
+    are written to ``FORCE_CONSTANTS_2ND`` for downstream use (e.g. ShengBTE,
+    FourPhonon).
 
-    :ivar calculator: A calculator object or a string specifying the
-        computational backend to be used.
-    :type calculator: Calculator | str
-    :ivar atom_disp: Magnitude of atomic displacements for phonon
-        calculations.
-    :type atom_disp: float
-    :ivar supercell_matrix: Array defining the transformation matrix to
-        construct supercells for phonon calculations.
-    :type supercell_matrix: ArrayLike
-    :ivar t_step: Temperature step for thermal property calculations in
-        Kelvin.
-    :type t_step: float
-    :ivar t_max: Maximum temperature for thermal property calculations in
-        Kelvin.
-    :type t_max: float
-    :ivar t_min: Minimum temperature for thermal property calculations in
-        Kelvin.
-    :type t_min: float
-    :ivar fmax: Maximum force convergence criterion for structural relaxation.
-    :type fmax: float
-    :ivar optimizer: String specifying the optimizer type to be used for
-        structural relaxation.
-    :type optimizer: str
-    :ivar relax_structure: Boolean flag to determine whether to relax the
-        structure before phonon calculation.
-    :type relax_structure: bool
-    :ivar relax_calc_kwargs: Optional dictionary containing additional
-        arguments for the structural relaxation calculation.
-    :type relax_calc_kwargs: dict | None
-    :ivar write_force_constants: Path, boolean, or string specifying whether
-        to write the calculated force constants to an output file, and the
-        path or name of the file if applicable.
-    :type write_force_constants: bool | str | Path
-    :ivar write_band_structure: Path, boolean, or string specifying whether
-        to write the calculated phonon band structure to an output file,
-        and the path or name of the file if applicable.
-    :type write_band_structure: bool | str | Path
-    :ivar write_total_dos: Path, boolean, or string specifying whether to
-        write the calculated total density of states (DOS) to an output
-        file, and the path or name of the file if applicable.
-    :type write_total_dos: bool | str | Path
-    :ivar write_phonon: Path, boolean, or string specifying whether to write
-        the calculated phonon properties (e.g., phonon.yaml) to an output
-        file, and the path or name of the file if applicable.
-    :type write_phonon: bool | str | Path
-    :ivar fitting_method: Method for fitting force constants. Options are
-        "FDM", "LASSO", or "MD".
-    :type fitting_method: str
-    :ivar num_harmonic_snapshots: Number of snapshots for harmonic fitting.
-        If None, it is set to double the number of displacements.
-    :type num_harmonic_snapshots: Optional[int]
-    :ivar num_anharmonic_snapshots: Number of snapshots for anharmonic
-        fitting. If None, it is set to ten times the number of displacements.
-    :type num_anharmonic_snapshots: Optional[int]
-    :ivar calc_anharmonic: Boolean flag to determine whether to perform
-        anharmonic calculations.
-    :type calc_anharmonic: bool
-    :ivar symprec: Symmetry precision for structure symmetry analysis.
-    :type symprec: float
-    :ivar min_length: Minimum length for the supercell.
-    :type min_length: float
-    :ivar force_diagonal: Boolean flag to determine whether to force the
-        diagonalization of the supercell.
-    :type force_diagonal: bool
-    :ivar cutoff_distance_cubic: Cutoff distance for cubic force constants.
-    :type cutoff_distance_cubic: float
-    :ivar cutoff_distance_quartic: Cutoff distance for quartic force
-        constants.
-    :type cutoff_distance_quartic: float
-    :ivar cutoff_distance_quintic: Cutoff distance for quintic force
-        constants.
-    :type cutoff_distance_quintic: float
-    :ivar cutoff_distance_sextic: Cutoff distance for sextic force
-        constants.
-    :type cutoff_distance_sextic: float
-    :ivar no_lasso_fitting_anhar: Boolean flag to determine whether to
-        disable LASSO fitting for anharmonic calculations.
-    :type no_lasso_fitting_anhar: bool
+    Attributes:
+        calculator: ASE calculator or universal model name.
+        atom_disp: Harmonic finite-difference displacement (Å).
+        atom_disp_anhar: Anharmonic finite-difference displacement (Å).
+        supercell_matrix: 3x3 supercell matrix; derived from ``min_length``
+            when None.
+        t_step, t_max, t_min: Thermal property temperature grid (K).
+        fmax: Relaxation force tolerance (eV/Å).
+        optimizer: ASE optimizer name for pre-relaxation.
+        relax_structure: Relax structure before phonon calculation.
+        relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
+        write_force_constants: Output path for force constants, or False.
+        write_band_structure: Output path for band structure YAML, or False.
+        write_total_dos: Output path for total DOS data, or False.
+        write_phonon: Output path for phonopy save file, or False.
+        fitting_method: One of ``"FDM"``, ``"LASSO"``, ``"MD"``.
+        num_harmonic_snapshots: Snapshots for harmonic fitting; defaults to
+            2x the number of generated displacements.
+        num_anharmonic_snapshots: Snapshots for anharmonic fitting; defaults
+            to 10x the number of generated displacements.
+        calc_anharmonic: Whether to compute anharmonic force constants.
+        symprec: Symmetry precision for spglib.
+        min_length: Minimum supercell length (Å).
+        force_diagonal: Force a diagonal supercell transformation.
+        cutoff_distance_cubic: Cutoff for cubic force constants (Å).
+        cutoff_distance_quartic: Cutoff for quartic force constants (Å).
+        cutoff_distance_quintic: Cutoff for quintic force constants (Å).
+        cutoff_distance_sextic: Cutoff for sextic force constants (Å).
+        no_lasso_fitting_anhar: Disable LASSO for the anharmonic fit.
     """
 
     def __init__(
@@ -158,41 +105,38 @@ class PheasyCalc(PropCalc):
         no_lasso_fitting_anhar: bool = False,
     ) -> None:
         """
-        Initializes the class with configuration for the phonon calculations. The initialization parameters control
-        the behavior of structural relaxation, thermal properties, force calculations, and output file generation.
-        The class allows for customization of key parameters to facilitate the study of material behaviors.
-
-        :param calculator: The calculator object or string name specifying the calculation backend to use.
-        :param atom_disp: Atom displacement to be used for finite difference calculation of force constants.
-        :param atom_disp_anhar: Atom displacement to be used for anharmonic calculation of force constants.
-        :param supercell_matrix: Transformation matrix to define the supercell for the calculation.
-        :param t_step: Temperature step for thermal property calculations.
-        :param t_max: Maximum temperature for thermal property calculations.
-        :param t_min: Minimum temperature for thermal property calculations.
-        :param fmax: Maximum force during structure relaxation, used as a convergence criterion.
-        :param optimizer: Name of the optimization algorithm for structural relaxation.
-        :param relax_structure: Flag to indicate whether structure relaxation should be performed before calculations.
-        :param relax_calc_kwargs: Additional keyword arguments for relaxation phase calculations.
-        :param write_force_constants: File path or boolean flag to write force constants.
-            Defaults to "force_constants".
-        :param write_band_structure: File path or boolean flag to write band structure data.
-            Defaults to "band_structure.yaml".
-        :param write_total_dos: File path or boolean flag to write total density of states (DOS) data.
-            Defaults to "total_dos.dat".
-        :param write_phonon: File path or boolean flag to write phonon data. Defaults to "phonon.yaml".
-        :param fitting_method: Method for fitting force constants. Options are "FDM", "LASSO", or "MD".
-        :param num_harmonic_snapshots: Number of snapshots for harmonic fitting. If None, it is set to double the
-            number of displacements.
-        :param num_anharmonic_snapshots: Number of snapshots for anharmonic fitting. If None, it is set to ten times
-            the number of displacements.
-        :param calc_anharmonic: Flag to indicate whether anharmonic calculations should be performed.
-        :param symprec: Symmetry precision for structure symmetry analysis.
-        :param min_length: Minimum length for the supercell.
-        :param force_diagonal: Flag to indicate whether to force the diagonalization of the supercell.
-        :param cutoff_distance_cubic: Cutoff distance for cubic force constants.
-        :param cutoff_distance_quartic: Cutoff distance for quartic force constants.
-        :param cutoff_distance_quintic: Cutoff distance for quintic force constants.
-        :param cutoff_distance_sextic: Cutoff distance for sextic force constants.
+        Args:
+            calculator: ASE calculator or universal model name string.
+            atom_disp: Harmonic finite-difference displacement (Å).
+            atom_disp_anhar: Anharmonic finite-difference displacement (Å).
+            supercell_matrix: 3x3 supercell matrix; if None, derived from
+                ``min_length`` via ``CubicSupercellTransformation``.
+            t_step: Temperature step for thermal properties (K).
+            t_max: Maximum temperature for thermal properties (K).
+            t_min: Minimum temperature for thermal properties (K).
+            fmax: Relaxation force tolerance (eV/Å).
+            optimizer: Optimizer name for pre-relaxation.
+            relax_structure: Whether to relax before phonon calculation.
+            relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
+            write_force_constants: Output path for force constants, or False.
+            write_band_structure: Output path for band structure YAML, or
+                False.
+            write_total_dos: Output path for total DOS data, or False.
+            write_phonon: Output path for phonopy save file, or False.
+            fitting_method: One of ``"FDM"``, ``"LASSO"``, ``"MD"``.
+            num_harmonic_snapshots: Snapshots for harmonic fitting; defaults
+                to 2x the number of generated displacements.
+            num_anharmonic_snapshots: Snapshots for anharmonic fitting;
+                defaults to 10x the number of generated displacements.
+            calc_anharmonic: Whether to compute anharmonic force constants.
+            symprec: Symmetry precision for spglib.
+            min_length: Minimum supercell length (Å).
+            force_diagonal: Force a diagonal supercell transformation.
+            cutoff_distance_cubic: Cutoff for cubic force constants (Å).
+            cutoff_distance_quartic: Cutoff for quartic force constants (Å).
+            cutoff_distance_quintic: Cutoff for quintic force constants (Å).
+            cutoff_distance_sextic: Cutoff for sextic force constants (Å).
+            no_lasso_fitting_anhar: Disable LASSO for the anharmonic fit.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.atom_disp = atom_disp
@@ -209,8 +153,6 @@ class PheasyCalc(PropCalc):
         self.write_band_structure = write_band_structure
         self.write_total_dos = write_total_dos
         self.write_phonon = write_phonon
-
-        # some new parameters for pheasy
         self.fitting_method = fitting_method
         self.num_harmonic_snapshots = num_harmonic_snapshots
         self.num_anharmonic_snapshots = num_anharmonic_snapshots
@@ -224,7 +166,6 @@ class PheasyCalc(PropCalc):
         self.cutoff_distance_sextic = cutoff_distance_sextic
         self.no_lasso_fitting_anhar = no_lasso_fitting_anhar
 
-        # Set default paths for output files.
         for key, val, default_path in (
             ("write_force_constants", self.write_force_constants, "force_constants"),
             ("write_band_structure", self.write_band_structure, "band_structure.yaml"),
@@ -233,34 +174,19 @@ class PheasyCalc(PropCalc):
         ):
             setattr(self, key, str({True: default_path, False: ""}.get(val, val)))  # type: ignore[arg-type]
 
-    def calc(self, structure: Structure | dict[str, Any]) -> dict:
-        """Calculates thermal properties of Pymatgen structure with phonopy.
+    def calc(self, structure: Structure | dict[str, Any]) -> dict:  # noqa: C901, PLR0912, PLR0915
+        """Compute phonon and thermal properties via pheasy.
 
         Args:
-            structure: Pymatgen structure.
+            structure: Pymatgen structure or a dict containing
+                ``final_structure``.
 
         Returns:
-        {
-            phonon: Phonopy object with force constants produced
-            thermal_properties:
-                {
-                    temperatures: list of temperatures in Kelvin,
-                    free_energy: list of Helmholtz free energies at corresponding temperatures in kJ/mol,
-                    entropy: list of entropies at corresponding temperatures in J/K/mol,
-                    heat_capacity: list of heat capacities at constant volume at corresponding temperatures in J/K/mol,
-                    The units are originally documented in phonopy.
-                    See phonopy.Phonopy.run_thermal_properties()
-                    (https://github.com/phonopy/phonopy/blob/develop/phonopy/api_phonopy.py#L2591)
-                    -> phonopy.phonon.thermal_properties.ThermalProperties.run()
-                    (https://github.com/phonopy/phonopy/blob/develop/phonopy/phonon/thermal_properties.py#L498)
-                    -> phonopy.phonon.thermal_properties.ThermalPropertiesBase.run_free_energy()
-                    (https://github.com/phonopy/phonopy/blob/develop/phonopy/phonon/thermal_properties.py#L217)
-                    phonopy.phonon.thermal_properties.ThermalPropertiesBase.run_entropy()
-                    (https://github.com/phonopy/phonopy/blob/develop/phonopy/phonon/thermal_properties.py#L233)
-                    phonopy.phonon.thermal_properties.ThermalPropertiesBase.run_heat_capacity()
-                    (https://github.com/phonopy/phonopy/blob/develop/phonopy/phonon/thermal_properties.py#L225)
-                }
-        }
+            A dict containing the input result merged with:
+
+            - ``phonon``: ``phonopy.Phonopy`` with force constants populated.
+            - ``thermal_properties``: per-temperature free energy, entropy,
+              and heat capacity (units as documented by phonopy).
         """
         result = super().calc(structure)
         structure_in: Structure = result["final_structure"]
@@ -272,83 +198,48 @@ class PheasyCalc(PropCalc):
             result |= relaxer.calc(structure_in)
             structure_in = result["final_structure"]
 
-        # generate the primitive cell from the structure
-        # let's start the calculation from the primitive cell
-
-        """I donot know why the following code does not work.
-        if i apply it and will give a huge error in force calculation"""
-
-        # sga = SpacegroupAnalyzer(structure, symprec=self.symprec)
-        # structure_in = sga.get_primitive_standard_structure()
-
         cell = get_phonopy_structure(structure_in)
-
-        # If the supercell matrix is not provided, we need to determine the
-        # supercell matrix from the structure. We use the
-        # CubicSupercellTransformation to determine the supercell matrix.
-        # The supercell matrix is a 3x3 matrix that defines the transformation
-        # from the primitive cell to the supercell. The supercell matrix is
-        # used to generate the supercell for the phonon calculations.
 
         if self.supercell_matrix is None:
             transformation = CubicSupercellTransformation(
                 min_length=self.min_length, force_diagonal=self.force_diagonal
             )
-            supercell = transformation.apply_transformation(structure_in)
+            transformation.apply_transformation(structure_in)
             self.supercell_matrix = np.array(transformation.transformation_matrix.transpose().tolist())
-            # transfer it to array
-
-            # self.supercell_matrix = supercell.lattice.matrix
-        else:
-            transformation = None
 
         phonon = phonopy.Phonopy(cell, self.supercell_matrix)  # type: ignore[arg-type]
 
         if self.fitting_method == "FDM":
             phonon.generate_displacements(distance=self.atom_disp)
-
         elif self.fitting_method == "LASSO":
             if self.num_harmonic_snapshots is None:
                 phonon.generate_displacements(distance=self.atom_disp)
-
                 self.num_harmonic_snapshots = len(phonon.displacements) * 2
-
                 phonon.generate_displacements(
                     distance=self.atom_disp, number_of_snapshots=self.num_harmonic_snapshots, random_seed=42
                 )
-
         elif self.fitting_method == "MD":
-            # pass
-            # phonon.generate_displacements(distance=self.atom_disp, number_of_snapshots=self.num_snapshots)
-
             logger.info("MD fitting method is not implemented yet.")
-
         else:
             raise ValueError(f"Unknown fitting method: {self.fitting_method}")
 
         disp_supercells = phonon.supercells_with_displacements
 
-        disp_array = []
-
         phonon.forces = [  # type: ignore[assignment]
             _calc_forces(self.calculator, supercell)
-            for supercell in disp_supercells  # type:ignore[union-attr]
+            for supercell in disp_supercells  # type: ignore[union-attr]
             if supercell is not None
         ]
 
         force_equilibrium = _calc_forces(self.calculator, phonon.supercell)  # type: ignore[union-attr]
         phonon.forces = np.array(phonon.forces) - force_equilibrium  # type: ignore[assignment]
 
-        for i, supercell in enumerate(disp_supercells):
-            disp = supercell.get_positions() - phonon.supercell.get_positions()
-            disp_array.append(np.array(disp))
+        disp_array = np.array(
+            [supercell.get_positions() - phonon.supercell.get_positions() for supercell in disp_supercells]
+        )
 
-        logger.info("...Forces calculated for the supercells...")
-        logger.info("..Producing force constants...")
+        logger.info("Forces computed for supercells; producing force constants.")
 
-        disp_array = np.array(disp_array)
-
-        logger.info("Saving disp_array and phonon.forces in files...")
         with open("disp_matrix.pkl", "wb") as file:
             pickle.dump(disp_array, file)
         with open("force_matrix.pkl", "wb") as file:
@@ -356,213 +247,130 @@ class PheasyCalc(PropCalc):
 
         supercell = phonon.get_supercell()
 
-        logger.info("Writing POSCAR and SPOSCAR files for Pheasy to read...")
+        logger.info("Writing POSCAR and SPOSCAR for pheasy.")
         write_vasp("POSCAR", cell)
         write_vasp("SPOSCAR", supercell)
 
         num_har = disp_array.shape[0]
-        supercell_matrix = self.supercell_matrix
+        supercell_matrix = np.asarray(self.supercell_matrix)
 
-        logger.info("start running pheasy for second order force constants in cluster")
-        logger.info("if you use this function, please cite the following pheasy paper:")
         logger.info(
-            "Lin, Changpeng, Samuel Poncé, and Nicola Marzari. General "
-            "invariance and equilibrium conditions for lattice dynamics in 1D, 2D, and "
-            "3D materials. npj Computational Materials 8.1 (2022): 236."
+            "Running pheasy for second-order force constants. "
+            "Please cite: Lin, Poncé, Marzari, npj Comput. Mater. 8, 236 (2022)."
         )
+
+        dim = (int(supercell_matrix[0][0]), int(supercell_matrix[1][1]), int(supercell_matrix[2][2]))
 
         pheasy_cmd_1 = (
-            f'pheasy --dim "{int(supercell_matrix[0][0])}" "{int(supercell_matrix[1][1])}" '
-            f'"{int(supercell_matrix[2][2])}" -s -w 2 --symprec "{float(self.symprec)}" --nbody 2'
+            f'pheasy --dim "{dim[0]}" "{dim[1]}" "{dim[2]}" -s -w 2 --symprec "{float(self.symprec)}" --nbody 2'
         )
-
-        # Create the null space to further reduce the free parameters for
-        # specific force constants and make them physically correct.
-        pheasy_cmd_2 = (
-            f'pheasy --dim "{int(supercell_matrix[0][0])}" "{int(supercell_matrix[1][1])}" '
-            f'"{int(supercell_matrix[2][2])}" -c --symprec "{float(self.symprec)}" -w 2'
-        )
-
-        # Generate the Compressive Sensing matrix,i.e., displacement matrix
-        # for the input of machine leaning method.i.e., LASSO,
+        # Build the null-space basis to reduce free parameters and enforce
+        # physical constraints on the harmonic FCs.
+        pheasy_cmd_2 = f'pheasy --dim "{dim[0]}" "{dim[1]}" "{dim[2]}" -c --symprec "{float(self.symprec)}" -w 2'
+        # Build the compressive-sensing (displacement) matrix used as input
+        # to the LASSO fit.
         pheasy_cmd_3 = (
-            f'pheasy --dim "{int(supercell_matrix[0][0])}" "{int(supercell_matrix[1][1])}" '
-            f'"{int(supercell_matrix[2][2])}" -w 2 -d --symprec "{float(self.symprec)}" '
-            f'--ndata "{int(num_har)}" --disp_file'
+            f'pheasy --dim "{dim[0]}" "{dim[1]}" "{dim[2]}" '
+            f'-w 2 -d --symprec "{float(self.symprec)}" --ndata "{int(num_har)}" --disp_file'
         )
-
         pheasy_cmd_4 = (
-            f'pheasy --dim "{int(supercell_matrix[0][0])}" "{int(supercell_matrix[1][1])}" '
-            f'"{int(supercell_matrix[2][2])}" -f --full_ifc -w 2 --symprec "{float(self.symprec)}" '
+            f'pheasy --dim "{dim[0]}" "{dim[1]}" "{dim[2]}" '
+            f'-f --full_ifc -w 2 --symprec "{float(self.symprec)}" '
             f'--rasr BHH --ndata "{int(num_har)}"'
         )
 
-        logger.info("...Start running pheasy in cluster...")
+        for cmd in (pheasy_cmd_1, pheasy_cmd_2, pheasy_cmd_3, pheasy_cmd_4):
+            subprocess.call(cmd, shell=True)  # noqa: S602
 
-        subprocess.call(pheasy_cmd_1, shell=True)
-        subprocess.call(pheasy_cmd_2, shell=True)
-        subprocess.call(pheasy_cmd_3, shell=True)
-        subprocess.call(pheasy_cmd_4, shell=True)
-
-        force_constants = parse_FORCE_CONSTANTS(filename="FORCE_CONSTANTS")
-        phonon.force_constants = force_constants
+        phonon.force_constants = parse_FORCE_CONSTANTS(filename="FORCE_CONSTANTS")
         phonon.symmetrize_force_constants()
 
-        # write the force constants to a file called FORCE_CONSTANTS_2ND
-        # The file is used by the ShengBTE and FOURPHON to calculate the
-        # thermal conductivity.
-
+        # FORCE_CONSTANTS_2ND is the harmonic FC file consumed by ShengBTE
+        # and FourPhonon for thermal-conductivity calculations.
         write_force_constants(phonon.force_constants, filename="FORCE_CONSTANTS_2ND")
 
-        logger.info("...Finished running Pheasy and FCs are ready...")
-
-        logger.info("...Running phonon calculations...")
+        logger.info("Harmonic force constants ready; running phonon calculations.")
         phonon.run_mesh()
         phonon.run_thermal_properties(t_step=self.t_step, t_max=self.t_max, t_min=self.t_min)
 
         if self.write_force_constants:
             write_force_constants(phonon.force_constants, filename=self.write_force_constants)
-
         if self.write_band_structure:
             phonon.auto_band_structure(write_yaml=True, filename=self.write_band_structure)
-
         if self.write_total_dos:
             phonon.auto_total_dos(write_dat=True, filename=self.write_total_dos)
-
         if self.write_phonon:
             phonon.save(filename=self.write_phonon)
 
-        logger.info("...Phonon calculations finished...")
-
-        # If the anharmonic calculation is requested, we need to
-        # generate the displacements and forces for the supercells.
-        # The displacements are generated with the same distance as
-        # the harmonic calculation, but the number of snapshots is
-        # set to 10 times the number of displacements.
-        # The forces are calculated with the same calculator as the
-        # harmonic calculation, but the forces are shifted by the
-        # equilibrium forces of the supercell.
-        # The displacements are saved in a file called disp_matrix.pkl
-        # and the forces are saved in a file called force_matrix.pkl.
-        # The files are used by the pheasy command to calculate the
-        # anharmonic force constants.
-
         if self.calc_anharmonic:
-            logger.info("...Start to Calculate anharmonic force constants using LASSO in pheasy...")
+            logger.info("Calculating anharmonic force constants with LASSO in pheasy.")
 
-            # remove the previous disp_matrix.pkl and force_matrix.pkl
-            # files if they exist. This is to avoid the error in
-            # running pheasy.
-            subprocess.call("rm -f disp_matrix.pkl force_matrix.pkl ", shell=True)
+            # Remove stale harmonic disp/force matrices before regenerating
+            # anharmonic ones — pheasy will pick up whichever files exist.
+            subprocess.call("rm -f disp_matrix.pkl force_matrix.pkl", shell=True)  # noqa: S602, S607
 
             if self.num_anharmonic_snapshots is None:
                 phonon.generate_displacements(distance=self.atom_disp_anhar)
                 self.num_anharmonic_snapshots = len(phonon.displacements) * 10
-                phonon.generate_displacements(
-                    distance=self.atom_disp_anhar, number_of_snapshots=self.num_anharmonic_snapshots, random_seed=42
-                )
-            else:
-                phonon.generate_displacements(
-                    distance=self.atom_disp_anhar, number_of_snapshots=self.num_anharmonic_snapshots, random_seed=42
-                )
+            phonon.generate_displacements(
+                distance=self.atom_disp_anhar,
+                number_of_snapshots=self.num_anharmonic_snapshots,
+                random_seed=42,
+            )
             disp_supercells = phonon.supercells_with_displacements
-            disp_array = []
             phonon.forces = [  # type: ignore[assignment]
                 _calc_forces(self.calculator, supercell)
-                for supercell in disp_supercells  # type:ignore[union-attr]
+                for supercell in disp_supercells  # type: ignore[union-attr]
                 if supercell is not None
             ]
             force_equilibrium = _calc_forces(self.calculator, phonon.supercell)
             phonon.forces = np.array(phonon.forces) - force_equilibrium
-            for i, supercell in enumerate(disp_supercells):
-                disp = supercell.get_positions() - phonon.supercell.get_positions()
-                disp_array.append(np.array(disp))
-            disp_array = np.array(disp_array)
+            disp_array = np.array(
+                [supercell.get_positions() - phonon.supercell.get_positions() for supercell in disp_supercells]
+            )
 
-            # save the disp_array and phonon.forces in a file
-            # called disp_matrix.pkl and force_matrix.pkl
-            # respectively. The files are used by the pheasy command
-            # to calculate the anharmonic force constants.
             with open("disp_matrix.pkl", "wb") as file:
                 pickle.dump(disp_array, file)
             with open("force_matrix.pkl", "wb") as file:
                 pickle.dump(phonon.forces, file)
 
-            # determine the datasize of the disp_array and
-            # phonon.forces. The datasize is used to determine the
-            # number of displacements and forces in the pheasy
-            # command.
             num_anh = disp_array.shape[0]
-            supercell_matrix = self.supercell_matrix
 
             pheasy_cmd_5 = (
-                f"pheasy --dim {int(supercell_matrix[0][0])} "
-                f"{int(supercell_matrix[1][1])} "
-                f"{int(supercell_matrix[2][2])} -s -w 4 --symprec "
-                f"{float(self.symprec)} "
-                f"--nbody 2 3 3 --c3 {float(self.cutoff_distance_cubic)} "
-                f"--c4 {float(self.cutoff_distance_quartic)}"
+                f"pheasy --dim {dim[0]} {dim[1]} {dim[2]} -s -w 4 "
+                f"--symprec {float(self.symprec)} --nbody 2 3 3 "
+                f"--c3 {float(self.cutoff_distance_cubic)} --c4 {float(self.cutoff_distance_quartic)}"
             )
-            logger.info("pheasy_cmd_5 = %s", pheasy_cmd_5)
-
-            pheasy_cmd_6 = (
-                f"pheasy --dim {int(supercell_matrix[0][0])} "
-                f"{int(supercell_matrix[1][1])} "
-                f"{int(supercell_matrix[2][2])} -c --symprec "
-                f"{float(self.symprec)} -w 4"
-            )
-            logger.info("pheasy_cmd_6 = %s", pheasy_cmd_6)
-
+            pheasy_cmd_6 = f"pheasy --dim {dim[0]} {dim[1]} {dim[2]} -c --symprec {float(self.symprec)} -w 4"
             pheasy_cmd_7 = (
-                f"pheasy --dim {int(supercell_matrix[0][0])} "
-                f"{int(supercell_matrix[1][1])} "
-                f"{int(supercell_matrix[2][2])} -w 4 -d --symprec "
-                f"{float(self.symprec)} "
-                f"--ndata {int(num_anh)} --disp_file"
+                f"pheasy --dim {dim[0]} {dim[1]} {dim[2]} -w 4 -d "
+                f"--symprec {float(self.symprec)} --ndata {int(num_anh)} --disp_file"
             )
-            logger.info("pheasy_cmd_7 = %s", pheasy_cmd_7)
+            pheasy_cmd_8 = (
+                f"pheasy --dim {dim[0]} {dim[1]} {dim[2]} -f -w 4 --fix_fc2 "
+                f"--symprec {float(self.symprec)} --ndata {int(num_anh)}"
+            )
+            if not self.no_lasso_fitting_anhar:
+                pheasy_cmd_8 += " -l LASSO --std"
 
-            if self.no_lasso_fitting_anhar:
-                pheasy_cmd_8 = (
-                    f"pheasy --dim {int(supercell_matrix[0][0])} "
-                    f"{int(supercell_matrix[1][1])} "
-                    f"{int(supercell_matrix[2][2])} -f -w 4 --fix_fc2 "
-                    f"--symprec {float(self.symprec)} "
-                    f"--ndata {int(num_anh)} "
-                )
-                logger.info("pheasy_cmd_8 = %s", pheasy_cmd_8)
-            else:
-                pheasy_cmd_8 = (
-                    f"pheasy --dim {int(supercell_matrix[0][0])} "
-                    f"{int(supercell_matrix[1][1])} "
-                    f"{int(supercell_matrix[2][2])} -f -w 4 --fix_fc2 "
-                    f"--symprec {float(self.symprec)} "
-                    f"--ndata {int(num_anh)} "
-                    f"-l LASSO --std"
-                )
-                logger.info("pheasy_cmd_8 = %s", pheasy_cmd_8)
+            for cmd in (pheasy_cmd_5, pheasy_cmd_6, pheasy_cmd_7, pheasy_cmd_8):
+                logger.info("pheasy: %s", cmd)
+                subprocess.call(cmd, shell=True)  # noqa: S602
 
-            logger.info("...Start running pheasy in cluster...")
-
-            subprocess.call(pheasy_cmd_5, shell=True)
-            subprocess.call(pheasy_cmd_6, shell=True)
-            subprocess.call(pheasy_cmd_7, shell=True)
-            subprocess.call(pheasy_cmd_8, shell=True)
-
-            logger.info("...Finished running Pheasy and higher-order FCs are ready...")
+            logger.info("Higher-order force constants ready.")
 
         return result | {"phonon": phonon, "thermal_properties": phonon.get_thermal_properties_dict()}
 
 
 def _calc_forces(calculator: Calculator, supercell: PhonopyAtoms) -> ArrayLike:
-    """Helper to compute forces on a structure.
+    """Compute forces on a supercell using the given ASE calculator.
 
     Args:
-        calculator: ASE Calculator
-        supercell: Supercell from phonopy.
+        calculator: ASE calculator.
+        supercell: Phonopy supercell.
 
-    Return:
-        forces
+    Returns:
+        Forces array (N x 3) in eV/Å.
     """
     struct = get_pmg_structure(supercell)
     atoms = AseAtomsAdaptor.get_atoms(struct)
