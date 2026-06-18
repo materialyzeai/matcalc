@@ -116,12 +116,18 @@ from pymatgen.ext.matproj import MPRester
 
 mpr = MPRester()
 si = mpr.get_structure_by_material_id("mp-149")
-c = mtc.ElasticityCalc("TensorNet-PES-MatPES-PBE-2025.2", relax_structure=True)
+c = mtc.ElasticityCalc("TensorNet-PES-MatPES-PBE-2025.2", relax_structure=True, units_GPa=True)
 props = c.calc(si)
-print(f"K_VRH = {props['bulk_modulus_vrh'] * 160.2176621} GPa")
+print(f"K_VRH = {props['bulk_modulus_vrh']} GPa")
 ```
 
 The calculated `K_VRH` is about 102 GPa, in reasonably good agreement with the experimental and DFT values.
+
+By default, `ElasticityCalc` returns the elastic tensor and moduli in pymatgen's native units of
+eV/Å³. Pass `units_GPa=True` (as above) to have `elastic_tensor`, `bulk_modulus_vrh`,
+`shear_modulus_vrh`, `youngs_modulus`, and `residuals_sum` returned directly in GPa, avoiding manual
+unit conversion. The returned dict also carries a `_units` entry mapping each numeric output to its
+unit string.
 
 You can list all supported universal calculators using the `UNIVERSAL_CALCULATORS` enum:
 
@@ -193,6 +199,7 @@ elast_calc = mtc.ElasticityCalc(
     use_equilibrium=True,
     relax_structure=False,  # Skip re-relaxation since we already relaxed above.
     relax_deformed_structures=True,
+    units_GPa=True,  # Report moduli in GPa rather than eV/A^3.
 )
 prop_calc = mtc.ChainedCalc([relax_calc, energetics_calc, elast_calc])
 results = prop_calc.calc(structure)
