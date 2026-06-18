@@ -2,10 +2,14 @@ ci:
   autoupdate_schedule: weekly
   autofix_commit_msg: pre-commit auto-fixes
   autoupdate_commit_msg: pre-commit autoupdate
+  # pyright downloads the pyright npm package at runtime; pre-commit.ci has no
+  # network during hook execution, so skip it there. It still runs locally and
+  # mypy remains the CI typechecker.
+  skip: [pyright]
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.14
+    rev: v0.15.17
     hooks:
       - id: ruff-check
         types_or: [ python, pyi ]
@@ -45,6 +49,6 @@ repos:
         args: [--drop-empty-cells, --keep-output]
 
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.409
+    rev: v1.1.410
     hooks:
       - id: pyright

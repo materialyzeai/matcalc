@@ -135,7 +135,7 @@ def test_qha_calc(
     assert units["volumes"] == "A^3"
     assert units["electronic_energies"] == "eV"
     assert units["thermal_expansion_coefficients"] == "1/K"
-    assert units["gibbs_free_energies"] == "kJ/mol"
+    assert units["gibbs_free_energies"] == "eV"
     assert units["bulk_modulus_P"] == "GPa"
     assert units["heat_capacity_P"] == "J/(K*mol)"
     assert units["gruneisen_parameters"] == "dimensionless"
@@ -218,6 +218,57 @@ def test_qha_pressure(
     # Test values at 300 K
     ind = result["temperatures"].tolist().index(300)
     assert result["gibbs_free_energies"][ind] == pytest.approx(-12.604636683826666, rel=1e-1)
+
+
+def test_qha_pressure_nonprimitive(
+    Li2O: Structure,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """Tests for QHACalc class with pressure parameter and non-primitive cell."""
+    # Initialize QHACalc
+    li2o_supercell = Li2O * (2, 1, 1)
+    qha_calc = QHACalc(
+        calculator=matpes_calculator,
+        t_step=50,
+        t_max=1000,
+        fmax=0.05,
+        scale_factors=[0.97, 0.98, 0.99, 1.00, 1.01, 1.02, 1.03],
+        pressure=10.0,
+        phonon_calc_kwargs={"supercell_matrix": ((2, 0, 0), (0, 2, 0), (0, 0, 2))},
+    )
+
+    result = qha_calc.calc(li2o_supercell)
+
+    # Test values corresponding to different scale factors
+    assert result["volumes"] == pytest.approx(
+        [
+            2 * 23.072070780556224,
+            2 * 23.7930216431222,
+            2 * 24.52883695069639,
+            2 * 25.279668381289056,
+            2 * 26.045667612910496,
+            2 * 26.826986323571,
+            2 * 27.623776191280843,
+        ],
+        rel=1e-2,
+    )
+
+    assert result["electronic_energies"] == pytest.approx(
+        [
+            2 * -14.253732681274414,
+            2 * -14.282975196838379,
+            2 * -14.298258781433105,
+            2 * -14.300981521606445,
+            2 * -14.292275428771973,
+            2 * -14.273163795471191,
+            2 * -14.244654655456543,
+        ],
+        abs=1e-2,
+    )
+
+    # Test values at 300 K
+    ind = result["temperatures"].tolist().index(300)
+    assert result["gibbs_free_energies"][ind] == pytest.approx(2 * -12.604636683826666, rel=1e-1)
 
 
 @pytest.mark.parametrize("relax_structure", [True, False])

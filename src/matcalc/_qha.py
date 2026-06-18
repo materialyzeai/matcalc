@@ -213,7 +213,7 @@ class QHACalc(PropCalc):
             ``electronic_energies`` in eV, ``scaled_structures``), a ``pressures`` list (GPa),
             ``temperatures`` (K), and a ``qha_results`` list of per-pressure dicts each
             containing ``pressure`` (GPa), ``qha`` (``PhonopyQHA``),
-            ``thermal_expansion_coefficients`` (1/K), ``gibbs_free_energies`` (kJ/mol),
+            ``thermal_expansion_coefficients`` (1/K), ``gibbs_free_energies`` (eV),
             ``bulk_modulus_P`` (GPa), ``heat_capacity_P`` (J/(K*mol)), and
             ``gruneisen_parameters`` (dimensionless). When only a single pressure was
             requested the top-level dict also contains those keys directly for backward
@@ -296,7 +296,7 @@ class QHACalc(PropCalc):
             "volumes": "A^3",
             "electronic_energies": "eV",
             "thermal_expansion_coefficients": "1/K",
-            "gibbs_free_energies": "kJ/mol",
+            "gibbs_free_energies": "eV",
             "bulk_modulus_P": "GPa",
             "heat_capacity_P": "J/(K*mol)",
             "gruneisen_parameters": "dimensionless",
@@ -354,23 +354,18 @@ class QHACalc(PropCalc):
 
             # Collect properties
             volume = phonon_result["final_structure"].volume
-            volume_drift = np.abs(volume - scaled_structure.volume) / scaled_structure.volume
-            if volume_drift > 1e-4:  # noqa: PLR2004
-                logger.warning(
-                    "Scale factor %.3f: fixed-cell relaxation drifted volume by %.4f%% "
-                    "(expected %.4f Å³, got %.4f Å³). Skipping this scale factor; the QHA "
-                    "fit will use the remaining points. Loosen fmax or tighten the cell "
-                    "filter constraints if this happens often.",
-                    scale_factor,
-                    volume_drift * 100,
-                    scaled_structure.volume,
-                    volume,
+            if (
+                np.abs(volume - scaled_structure.volume) / scaled_structure.volume > 1e-4  # noqa: PLR2004
+            ):
+                raise ValueError(
+                    f"Somehow the volume changed during relaxation. This is a bug! Before: {scaled_structure.volume}. "
+                    f"After: {volume}"
                 )
-                continue
             ha.append(phonon_result)
             scaled_structures.append(phonon_result["final_structure"])
-            volumes.append(volume)
-            electronic_energies.append(phonon_result.get("energy", relaxed_result.get("energy")))
+            volumes.append(phonon_result["phonon"].primitive.volume)
+            norm_factor = len(phonon_result["phonon"].primitive) / len(phonon_result["phonon"].unitcell)
+            electronic_energies.append(phonon_result.get("energy", relaxed_result["energy"]) * norm_factor)
             thermal_properties = phonon_result["thermal_properties"]
             free_energies.append(thermal_properties["free_energy"])
             entropies.append(thermal_properties["entropy"])
