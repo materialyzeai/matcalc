@@ -48,3 +48,4 @@ repos:
     rev: v1.1.409
     hooks:
       - id: pyright
+        additional_dependencies: ["pyright[nodejs]"]
