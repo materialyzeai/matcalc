@@ -118,3 +118,14 @@ def test_order_calc_invalid_args(matpes_calculator: PESCalculator, kwargs: dict,
     """Out-of-range constructor arguments are rejected."""
     with pytest.raises(ValueError, match=match):
         OrderCalc(matpes_calculator, **kwargs)
+
+
+def test_order_calc_overoccupied_sublattice(matpes_calculator: PESCalculator) -> None:
+    """Total occupancy > 1 per site raises ValueError (more atoms than sites)."""
+    overoccupied = Structure(
+        Lattice.cubic(4.0),
+        [{"Cu": 0.75, "Au": 0.75}],  # total occupancy 1.5 on a single site
+        [[0, 0, 0]],
+    )
+    with pytest.raises(ValueError, match="exceeds the number of disordered sites"):
+        OrderCalc(matpes_calculator, nsteps=1).calc(overoccupied)
