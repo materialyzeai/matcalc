@@ -81,7 +81,7 @@ class EnergeticsCalc(PropCalc):
             and other keys from relaxation / PES when applicable.
         """
         result = super().calc(structure)
-        result, structure_in = self._prerelax(
+        result, structure_in = self._check_and_prelax(
             result["final_structure"],
             result,
             fmax=self.fmax,

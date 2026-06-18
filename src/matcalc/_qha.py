@@ -224,7 +224,7 @@ class QHACalc(PropCalc):
         result = super().calc(structure)
         if self.relax_structure:
             logger.info("Relaxing input structure before QHA")
-        result, raw_structure = self._prerelax(
+        result, raw_structure = self._check_and_prelax(
             result["final_structure"],
             result,
             fmax=self.fmax,

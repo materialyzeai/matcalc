@@ -88,7 +88,7 @@ class PropCalc(abc.ABC):
         base: dict = prev.get("_units", prev) if isinstance(prev, dict) else {}
         return {**base, **new}
 
-    def _prerelax(
+    def _check_and_prelax(
         self,
         structure: Structure | Atoms,
         result: dict[str, Any],

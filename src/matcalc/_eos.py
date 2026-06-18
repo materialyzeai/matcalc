@@ -106,7 +106,7 @@ class EOSCalc(PropCalc):
             "max_steps": self.max_steps,
             **(self.relax_calc_kwargs or {}),
         }
-        result, raw_structure = self._prerelax(
+        result, raw_structure = self._check_and_prelax(
             result["final_structure"],
             result,
             **relax_calc_kwargs,

@@ -362,7 +362,7 @@ class MDCalc(PropCalc):
         result = super().calc(structure)
         # If structure relaxation is enabled, relax the structure (atoms only,
         # fixed cell) before the MD simulation.
-        result, structure_in = self._prerelax(
+        result, structure_in = self._check_and_prelax(
             result["final_structure"],
             result,
             fmax=self.fmax,

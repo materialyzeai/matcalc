@@ -348,6 +348,6 @@ class OrderCalc(PropCalc):
         )
 
         if self.relax_structure:
-            result, _ = self._prerelax(best_structure, result, **(self.relax_calc_kwargs or {}))
+            result, _ = self._check_and_prelax(best_structure, result, **(self.relax_calc_kwargs or {}))
 
         return result

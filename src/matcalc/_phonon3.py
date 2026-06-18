@@ -137,7 +137,7 @@ class Phonon3Calc(PropCalc):
             See phono3py RTA documentation for details.
         """
         result = super().calc(structure)
-        result, structure_in = self._prerelax(
+        result, structure_in = self._check_and_prelax(
             result["final_structure"],
             result,
             fmax=self.fmax,

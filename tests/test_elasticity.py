@@ -106,12 +106,12 @@ def test_elastic_calc_invalid_states(matpes_calculator: PESCalculator) -> None:
         ElasticityCalc(matpes_calculator, shear_strains=[0.0, 0.1])
 
 
-def test_prerelax_raises_on_non_convergence(
+def test_check_and_prelax_raises_on_non_convergence(
     Li2O: Structure,
     matpes_calculator: PESCalculator,
 ) -> None:
     # Force the pre-relax to fail by capping it at a single step with a
-    # tight fmax. _prerelax must abort rather than feed an unrelaxed
+    # tight fmax. _check_and_prelax must abort rather than feed an unrelaxed
     # structure into the elasticity calc.
     elast_calc = ElasticityCalc(
         matpes_calculator,

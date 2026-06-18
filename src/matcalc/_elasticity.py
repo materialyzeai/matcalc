@@ -115,7 +115,7 @@ class ElasticityCalc(PropCalc):
         result = super().calc(structure)
         structure_in = result["final_structure"]
 
-        result, structure_in = self._prerelax(structure_in, result, fmax=self.fmax)
+        result, structure_in = self._check_and_prelax(structure_in, result, fmax=self.fmax)
         relax_calc: RelaxCalc | None = None
         if self.relax_deformed_structures:
             relax_calc = RelaxCalc(self.calculator, fmax=self.fmax, **(self.relax_calc_kwargs or {}))
