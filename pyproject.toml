@@ -81,7 +81,7 @@ deepmd = [
     "deepmd-kit>=3.0.2",
 ]
 ci = [
-    "setuptools<82",  # Required by maml which uses pkg_resources
+    "setuptools<84",  # Required by maml which uses pkg_resources
     "codecov-cli>=10.3.0",
     "coverage>=7.7.1",
     "coveralls>=4.0.1",
@@ -114,12 +114,12 @@ include = ["matcalc", "matcalc.*"]
 ]
 
 [build-system]
-requires = ["oldest-supported-numpy", "setuptools>=58.0.3,<82"]
+requires = ["oldest-supported-numpy", "setuptools>=58.0.3,<84"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [
-    "setuptools<82",  # Required by maml which uses pkg_resources
+    "setuptools<84",  # Required by maml which uses pkg_resources
     "codecov-cli>=10.3.0",
     "coverage>=7.7.1",
     "coveralls>=4.0.1",
