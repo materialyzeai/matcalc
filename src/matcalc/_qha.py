@@ -70,7 +70,7 @@ class QHACalc(PropCalc):
         t_step: float = 10,
         t_max: float = 1000,
         t_min: float = 0,
-        pressure: None | float | Sequence[float] = None,
+        pressure: float | Sequence[float] | None = None,
         fmax: float = 1e-5,
         max_steps: int = 5000,
         optimizer: str = "FIRE",

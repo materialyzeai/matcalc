@@ -185,7 +185,7 @@ class PropCalc(abc.ABC):
     def calc_many(
         self,
         structures: Sequence[Structure | dict[str, Any] | Atoms],
-        n_jobs: None | int = None,
+        n_jobs: int | None = None,
         allow_errors: bool = False,  # noqa: FBT001,FBT002
         **kwargs: Any,
     ) -> Generator[dict | None, None, None]:
@@ -260,7 +260,7 @@ class ChainedCalc(PropCalc):
     def calc_many(
         self,
         structures: Sequence[Structure | Atoms | dict[str, Any]],
-        n_jobs: None | int = None,
+        n_jobs: int | None = None,
         allow_errors: bool = False,  # noqa: FBT001,FBT002
         **kwargs: Any,
     ) -> Generator[dict | None, None, None]:

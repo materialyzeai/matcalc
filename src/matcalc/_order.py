@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import random
-from collections import Counter
 from typing import TYPE_CHECKING
 
 from ase.units import kB
@@ -19,12 +18,12 @@ if TYPE_CHECKING:
 
     from ase import Atoms
     from ase.calculators.calculator import Calculator
-    from pymatgen.core import Species, Structure
+    from pymatgen.core import DummySpecies, Element, Species, Structure
 
 # A single ordering, represented as the per-site species assignment over the
 # disordered sites (``None`` denotes a vacancy). Made hashable (a tuple) so
 # distinct orderings can be deduplicated when collecting the lowest-energy set.
-Tokens = tuple["Species | None", ...]
+Tokens = tuple["Species | Element | DummySpecies | None", ...]
 
 
 class OrderCalc(PropCalc):
@@ -126,7 +125,7 @@ class OrderCalc(PropCalc):
         disordered_indices: list[int],
         rng: random.Random,
         tol: float = 1e-4,
-    ) -> list[Species | None]:
+    ) -> list[Species | Element | DummySpecies | None]:
         """Build a randomly shuffled species assignment for the disordered sites.
 
         Args:
@@ -144,12 +143,12 @@ class OrderCalc(PropCalc):
                 commensurate with an integer number of atoms (within ``tol``).
         """
         n_sites = len(disordered_indices)
-        amounts: Counter[Species] = Counter()
+        amounts: dict[Species | Element | DummySpecies, float] = {}
         for idx in disordered_indices:
             for sp, occ in structure[idx].species.items():
-                amounts[sp] += occ
+                amounts[sp] = amounts.get(sp, 0.0) + occ
 
-        counts: dict[Species, int] = {}
+        counts: dict[Species | Element | DummySpecies, int] = {}
         for sp, amt in amounts.items():
             rounded = round(amt)
             if abs(amt - rounded) > tol:
@@ -164,7 +163,7 @@ class OrderCalc(PropCalc):
         if n_atoms > n_sites:  # pragma: no cover
             raise ValueError(f"Rounded species count ({n_atoms}) exceeds the number of disordered sites ({n_sites}).")
 
-        tokens: list[Species | None] = []
+        tokens: list[Species | Element | DummySpecies | None] = []
         for sp, count in counts.items():
             tokens.extend([sp] * count)
         tokens.extend([None] * (n_sites - n_atoms))  # remaining sites are vacancies
@@ -175,7 +174,7 @@ class OrderCalc(PropCalc):
         self,
         structure: Structure,
         disordered_indices: list[int],
-        tokens: list[Species | None] | Tokens,
+        tokens: list[Species | Element | DummySpecies | None] | Tokens,
     ) -> Structure:
         """Construct an ordered structure from a species assignment.
 
@@ -227,7 +226,7 @@ class OrderCalc(PropCalc):
         tokens = self._initial_tokens(structure, disordered_indices, rng)
         n_sites = len(tokens)
 
-        def energy(toks: list[Species | None]) -> float:
+        def energy(toks: list[Species | Element | DummySpecies | None]) -> float:
             ordered = self._make_structure(structure, disordered_indices, toks)
             return run_pes_calc(ordered, self.calculator).energy
 
