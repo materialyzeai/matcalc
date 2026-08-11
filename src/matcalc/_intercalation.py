@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -303,7 +303,7 @@ class IntercalationCalc(PropCalc):
         self.concentration_range = concentration_range
         self.supercell = supercell
         self.save_freq = save_freq
-        self.trajfile = trajfile or f"traj-{datetime.now(tz=timezone.utc).strftime('%H%Mhrs_%d-%m-%Y')}.traj"
+        self.trajfile = trajfile or f"traj-{datetime.now(tz=UTC).strftime('%H%Mhrs_%d-%m-%Y')}.traj"
         self.species = species
         self.indices = indices
         self.algorithm = algorithm
