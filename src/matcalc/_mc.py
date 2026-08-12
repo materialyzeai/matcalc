@@ -185,18 +185,20 @@ class MCCalc(PropCalc):
         """
         raise NotImplementedError
 
-    def calc(self, structure: Structure | Atoms) -> dict[str, Any]:
+    def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict[str, Any]:
         """
         Run the Monte Carlo simulation on the input structure.
 
-        :param structure: The starting structure to sample from.
-        :type structure: Structure | Atoms
+        :param structure: The starting structure to sample from, or a dict carrying one under
+            ``final_structure`` / ``structure``.
+        :type structure: Structure | Atoms | dict[str, Any]
         :return: The final accepted configuration's results augmented with ``acceptance_ratio`` and
             the lowest-energy configuration visited (``min_energy`` and ``min_structure``).
         :rtype: dict[str, Any]
         :raises ValueError: If ``ensemble`` is not a recognized value.
         """
-        self._initial_structure = to_pmg_structure(structure)
+        result = super().calc(structure)
+        self._initial_structure = to_pmg_structure(result["final_structure"])
         if self.transform_initial:
             self._structure = self.transformation.apply_transformation(self._initial_structure)
         else:

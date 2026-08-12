@@ -176,6 +176,7 @@ class _SwapSites:
         return new
 
     def _swap_binary(self, structure: Structure) -> Structure:
+        assert self.species_b is not None  # noqa: S101  # only called when apply_transformation found a binary site
         swap_current = [i for i, site in enumerate(structure) if site.specie.symbol in (self.species_a, self.species_b)]
         pos = self._match(structure.frac_coords[swap_current])
         pos_to_current = {int(p): ci for p, ci in zip(pos.tolist(), swap_current, strict=True)}
@@ -316,13 +317,14 @@ class IntercalationCalc(PropCalc):
 
     def calc(
         self,
-        structure: Structure | Atoms,
+        structure: Structure | Atoms | dict[str, Any],
     ) -> dict[str, Any]:
         """
         Run the Monte Carlo deintercalation sweep over the requested concentrations.
 
-        :param structure: The fully occupied host structure to deintercalate.
-        :type structure: Structure | Atoms
+        :param structure: The fully occupied host structure to deintercalate, or a dict carrying
+            one under ``final_structure`` / ``structure``.
+        :type structure: Structure | Atoms | dict[str, Any]
         :return: A dictionary keyed by concentration index, each value being the accepted
             configuration's :class:`MCCalc` results augmented with ``Num_removed`` and
             ``concentration``.
@@ -330,7 +332,8 @@ class IntercalationCalc(PropCalc):
         :raises ValueError: If neither or both of ``species`` and ``indices`` are provided, or if
             ``supercell`` is combined with explicit ``indices``.
         """
-        structure = to_pmg_structure(structure)
+        result = super().calc(structure)
+        structure = to_pmg_structure(result["final_structure"])
 
         if self.indices is None and self.species is None:
             raise ValueError("Provide one of indices or species")
@@ -364,6 +367,7 @@ class IntercalationCalc(PropCalc):
                 mc_structure = structure
             elif self.algorithm == "markov":
                 # True Markov chain: seed a configuration at concentration k, then swap-move locally.
+                assert disordered is not None  # noqa: S101  # set above when algorithm == "markov"
                 transformation = _SwapSites(structure, disordered, self.swap_size, self._rng)
                 transform_initial = False
                 mc_structure = _RemoveKSites(self.indices, int(k), self._rng).apply_transformation(structure)
