@@ -82,6 +82,7 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "MatterSim-v1.0.0-5M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-5M.pth"},
     # FAIRChem (UMA family) — upstream uses ``uma-s-1p2`` style; we expose them
     # under the unified ``<Arch>-<Size>-<Version>`` form.
+    "UMA-S-1.2.1": {"provider": "fairchem", "model": "uma-s-1p2p1", "task_name": "omat"},
     "UMA-S-1.2": {"provider": "fairchem", "model": "uma-s-1p2", "task_name": "omat"},
     "UMA-S-1.1": {"provider": "fairchem", "model": "uma-s-1p1", "task_name": "omat"},
     "UMA-M-1.1": {"provider": "fairchem", "model": "uma-m-1p1", "task_name": "omat"},
