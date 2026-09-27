@@ -27,7 +27,7 @@ LAMMPS_TEMPLATES_DIR = Path(__file__).parent / "lammps_templates"
 MODEL_ALIASES = {
     "tensornet": "TensorNet-PES-MatPES-PBE-2025.2",
     "m3gnet": "M3GNet-MatPES-PBE-v2025.1-PES",
-    "chgnet": "CHGNet-MatPES-PBE-2025.2.10-2.7M-PES",
+    "chgnet": "CHGNet-PES-MatPES-PBE-1M-2026.9",
     "pbe": "TensorNet-PES-MatPES-PBE-2025.2",
     "r2scan": "TensorNet-PES-MatPES-r2SCAN-2025.2",
 }

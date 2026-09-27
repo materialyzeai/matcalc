@@ -43,6 +43,8 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     # MatGL — M3GNet
     "M3GNet-MatPES-PBE-2025.1": {"provider": "matgl", "path": "M3GNet-PES-MatPES-PBE-2025.1"},
     # MatGL — CHGNet
+    "CHGNet-MatPES-PBE-1M-2026.9": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-1M-2026.9"},
+    "CHGNet-MatPES-r2SCAN-1M-2026.9": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-1M-2026.9"},
     "CHGNet-MatPES-PBE-2025.2.10": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-2025.2.10"},
     "CHGNet-MatPES-r2SCAN-2025.2.10": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-2025.2.10"},
     # MACE foundation models (mace-foundations release names)
@@ -98,7 +100,7 @@ MODEL_ALIASES: dict[str, str] = {
     # short architecture / functional aliases — pick a sensible default per family
     "tensornet": "TensorNet-MatPES-PBE-2025.2",
     "m3gnet": "M3GNet-MatPES-PBE-2025.1",
-    "chgnet": "CHGNet-MatPES-PBE-2025.2.10",
+    "chgnet": "CHGNet-MatPES-PBE-1M-2026.9",
     "pbe": "TensorNet-MatPES-PBE-2025.2",
     "r2scan": "TensorNet-MatPES-r2SCAN-2025.2",
     "mace": "MACE-MPA-0-medium",
@@ -115,6 +117,8 @@ MODEL_ALIASES: dict[str, str] = {
     "tensornet-pes-matpes-pbe-2025.2": "TensorNet-MatPES-PBE-2025.2",
     "tensornet-pes-matpes-r2scan-2025.2": "TensorNet-MatPES-r2SCAN-2025.2",
     "m3gnet-pes-matpes-pbe-2025.1": "M3GNet-MatPES-PBE-2025.1",
+    "chgnet-pes-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-1M-2026.9",
+    "chgnet-pes-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-1M-2026.9",
     "chgnet-pes-matpes-pbe-2025.2.10": "CHGNet-MatPES-PBE-2025.2.10",
     "chgnet-pes-matpes-r2scan-2025.2.10": "CHGNet-MatPES-r2SCAN-2025.2.10",
     "chgnet-matpes-pbe-2025.2.10-2.7m-pes": "CHGNet-MatPES-PBE-2025.2.10",
