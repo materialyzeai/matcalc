@@ -11,7 +11,7 @@ import logging
 from inspect import isclass
 from typing import TYPE_CHECKING
 
-import ase
+import ase.optimize
 import numpy as np
 from ase.filters import FrechetCellFilter
 from ase.io import Trajectory

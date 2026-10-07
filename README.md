@@ -93,7 +93,8 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 | TensorNet-MatPES-PBE | `"TensorNet-PES-MatPES-PBE-2025.2"` or `"pbe"` | matgl |
 | TensorNet-MatPES-r²SCAN | `"TensorNet-PES-MatPES-r2SCAN-2025.2"` or `"r2scan"` | matgl |
 | M3GNet-MatPES-PBE | `"M3GNet-PES-MatPES-PBE-v2025.1"` or `"m3gnet"` | matgl |
-| CHGNet | `"CHGNet-PES-MatPES-PBE-2025.2.10"` or `"chgnet"` | matgl |
+| CHGNet-MatPES-PBE | `"CHGNet-PES-MatPES-PBE-1M-2026.9"` or `"chgnet"` | matgl |
+| CHGNet-MatPES-r²SCAN | `"CHGNet-PES-MatPES-r2SCAN-1M-2026.9"` | matgl |
 | MACE-MP | `"MACE"` | mace-torch |
 | SevenNet | `"SevenNet"` | sevenn |
 | GRACE / TensorPotential | `"GRACE"` or `"TensorPotential"` | tensorpotential |
@@ -104,6 +105,8 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 | DeePMD | `"DeePMD"` | deepmd-kit |
 
 Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovered if MatGL is installed.
+
+The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).
 
 ## Basic Usage
 

@@ -43,7 +43,7 @@ dependencies = [
     "joblib>=1.4.2",
     "phonopy>=4.2.0",
 ]
-version = "0.5.1"
+version = "0.6.0"
 
 [project.optional-dependencies]
 phonon = ["seekpath"]
@@ -169,9 +169,15 @@ conflicts = [
       { extra = "deepmd" },
     ],
 ]
+# Restrict the lock to platforms with torch wheels; Python < 3.15 until torch ships cp315 wheels.
+# Does not affect the published requires-python.
+environments = [
+    "sys_platform == 'linux' and python_version < '3.15'",
+    "sys_platform == 'darwin' and python_version < '3.15'",
+    "sys_platform == 'win32' and python_version < '3.15'",
+]
 required-environments = [
     "sys_platform == 'linux'",
-    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
