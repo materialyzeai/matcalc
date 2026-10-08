@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import phonopy
 import pytest
 from numpy.testing import assert_allclose
+from phonopy.file_IO import read_v_e
 
 from matcalc import QHACalc
 
@@ -31,9 +32,10 @@ if TYPE_CHECKING:
         "cp_numerical_file",
         "cp_polyfit_file",
         "gruneisen_file",
+        "energy_volume_file",
     ),
     [
-        ("", "", "", "", "", "", "", ""),
+        ("", "", "", "", "", "", "", "", ""),
         (
             "helmholtz.dat",
             "volume_temp.dat",
@@ -43,6 +45,7 @@ if TYPE_CHECKING:
             "cp_numerical.dat",
             "cp_polyfit.dat",
             "gruneisen.dat",
+            "e-v.dat",
         ),
     ],
 )
@@ -58,6 +61,7 @@ def test_qha_calc(
     cp_numerical_file: str,
     cp_polyfit_file: str,
     gruneisen_file: str,
+    energy_volume_file: str,
 ) -> None:
     """Tests for QHACalc class."""
     # Note that the fmax is probably too high. This is for testing purposes only.
@@ -81,6 +85,7 @@ def test_qha_calc(
         "write_heat_capacity_p_numerical": cp_numerical,
         "write_heat_capacity_p_polyfit": cp_polyfit,
         "write_gruneisen_temperature": gruneisen_temperature,
+        "write_energy_volume": tmp_path / energy_volume_file if energy_volume_file else False,
     }
 
     # Initialize QHACalc
@@ -154,20 +159,29 @@ def test_qha_calc(
     assert len(result["heat_capacity_P"]) == n_temps
     assert len(result["gruneisen_parameters"]) == n_temps
 
-    # Only count the 8 QHA-output write_* params, not write_ha_phonon
+    # Only count the 9 QHA-output write_* params, not write_ha_phonon
     qha_calc_params = inspect.signature(QHACalc).parameters
     file_write_defaults = {
         key: val.default
         for key, val in qha_calc_params.items()
         if key.startswith("write_") and key != "write_ha_phonon"
     }
-    assert len(file_write_defaults) == 8
+    assert len(file_write_defaults) == 9
 
     for keyword, default_path in file_write_defaults.items():
         if instance_val := write_kwargs[keyword]:
             assert os.path.isfile(str(instance_val))
         elif not default_path and not instance_val:
             assert not os.path.isfile(default_path)
+
+    # e-v.dat must be readable by phonopy-qha and hold exactly the data fed to PhonopyQHA
+    if energy_volume_file:
+        assert_allclose(
+            read_v_e(tmp_path / energy_volume_file),
+            (result["volumes"], result["electronic_energies"]),
+            rtol=0,
+            atol=1e-6,
+        )
 
 
 def test_qha_pressure(
