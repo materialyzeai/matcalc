@@ -57,6 +57,8 @@ class QHACalc(PropCalc):
         write_ha_phonon: Write per-scale-factor phonopy files. False disables writing,
             True uses the default name ``phonon_{scale_factor:.3f}.yaml``, or a format string
             with a ``{scale_factor}`` placeholder selects a custom name.
+        write_energy_volume: Output path (or True for ``e-v.dat``) for the electronic energy vs.
+            volume data read by ``phonopy-qha``.
         write_*: Output paths (or True for defaults) for phonopy QHA text files.
         write_*: Output paths (or True for defaults) for phonopy QHA text files. When multiple
             pressures are requested a ``_P{pressure}GPa`` suffix is inserted before the file
@@ -93,6 +95,7 @@ class QHACalc(PropCalc):
         write_heat_capacity_p_numerical: bool | str | os.PathLike = False,
         write_heat_capacity_p_polyfit: bool | str | os.PathLike = False,
         write_gruneisen_temperature: bool | str | os.PathLike = False,
+        write_energy_volume: bool | str | os.PathLike = False,
     ) -> None:
         """
         Args:
@@ -129,6 +132,8 @@ class QHACalc(PropCalc):
             write_heat_capacity_p_numerical: Write Cp(T) numerical.
             write_heat_capacity_p_polyfit: Write Cp(T) polyfit.
             write_gruneisen_temperature: Write Gruneisen gamma(T).
+            write_energy_volume: Write the electronic energy vs. volume data (``e-v.dat``) in the
+                format read by ``phonopy-qha``. Written once, independent of pressure.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.t_step = t_step
@@ -183,6 +188,7 @@ class QHACalc(PropCalc):
         self.write_heat_capacity_p_numerical: str | os.PathLike | None = None
         self.write_heat_capacity_p_polyfit: str | os.PathLike | None = None
         self.write_gruneisen_temperature: str | os.PathLike | None = None
+        self.write_energy_volume: str | os.PathLike | None = None
 
         for key, val, default_path in (
             ("write_helmholtz_volume", write_helmholtz_volume, "helmholtz_volume.dat"),
@@ -193,6 +199,7 @@ class QHACalc(PropCalc):
             ("write_heat_capacity_p_numerical", write_heat_capacity_p_numerical, "Cp_temperature.dat"),
             ("write_heat_capacity_p_polyfit", write_heat_capacity_p_polyfit, "Cp_temperature_polyfit.dat"),
             ("write_gruneisen_temperature", write_gruneisen_temperature, "gruneisen_temperature.dat"),
+            ("write_energy_volume", write_energy_volume, "e-v.dat"),
         ):
             if val is True:
                 normalized: str | os.PathLike | None = default_path
@@ -239,6 +246,9 @@ class QHACalc(PropCalc):
             list(self.scale_factors),
         )
         properties = self._collect_properties(structure_in)
+        # E(V) does not depend on pressure, so it is written once rather than per pressure.
+        if self.write_energy_volume is not None:
+            _write_energy_volume(self.write_energy_volume, properties["volumes"], properties["electronic_energies"])
 
         temperatures = np.arange(self.t_min, self.t_max + self.t_step, self.t_step)
         # PhonopyQHA needs one extra temperature point for finite-difference derivatives.
@@ -460,3 +470,21 @@ class QHACalc(PropCalc):
             qha.write_heat_capacity_P_polyfit(filename=_suffixed(self.write_heat_capacity_p_polyfit))
         if self.write_gruneisen_temperature is not None:
             qha.write_gruneisen_temperature(filename=_suffixed(self.write_gruneisen_temperature))
+
+
+def _write_energy_volume(
+    filename: str | os.PathLike, volumes: Sequence[float], electronic_energies: Sequence[float]
+) -> None:
+    """Write electronic energy vs. volume data in the ``e-v.dat`` format read by ``phonopy-qha``.
+
+    Args:
+        filename: Output path.
+        volumes: Cell volumes (A^3), in the order passed to ``PhonopyQHA``.
+        electronic_energies: Electronic energies (eV) of the cells at ``volumes``.
+    """
+    np.savetxt(
+        filename,
+        np.column_stack((volumes, electronic_energies)),
+        fmt="%20.6f",
+        header="  cell volume (A^3)  energy of cell (eV)",
+    )
