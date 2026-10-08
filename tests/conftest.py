@@ -15,10 +15,12 @@ import os
 from typing import TYPE_CHECKING
 
 import pytest
+from ase.build import bulk
+from ase.calculators.emt import EMT
 from pymatgen.util.testing import PymatgenTest
 
 import matcalc
-from matcalc.utils import PESCalculator, to_ase_atoms
+from matcalc.utils import PESCalculator, to_ase_atoms, to_pmg_structure
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -65,9 +67,27 @@ def Si_atoms() -> Atoms:
 
 
 @pytest.fixture(scope="session")
+def Cu() -> Structure:
+    """Conventional fcc Cu (4 atoms) as session-scoped fixture (don't modify in-place)."""
+    return to_pmg_structure(bulk("Cu", "fcc", a=3.58, cubic=True))
+
+
+@pytest.fixture(scope="session")
+def Cu_supercell(Cu: Structure) -> Structure:
+    """2x2x2 supercell of fcc Cu (32 atoms) as session-scoped fixture."""
+    return Cu * (2, 2, 2)
+
+
+@pytest.fixture(scope="session")
 def matpes_calculator() -> PESCalculator:
     """TensorNet calculator as session-scoped fixture."""
     return matcalc.load_fp("TensorNet-MatPES-PBE-2025.2")
+
+
+@pytest.fixture(scope="session")
+def emt_calculator() -> EMT:
+    """ASE EMT calculator as session-scoped fixture (fast, for Monte Carlo tests)."""
+    return EMT()
 
 
 @pytest.fixture(autouse=True)

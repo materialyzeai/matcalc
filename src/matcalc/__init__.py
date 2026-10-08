@@ -10,8 +10,10 @@ from ._base import ChainedCalc, PropCalc
 from ._elasticity import ElasticityCalc
 from ._eos import EOSCalc
 from ._gb import GBCalc
+from ._intercalation import IntercalationCalc
 from ._interface import InterfaceCalc
 from ._lammps import LAMMPSMDCalc
+from ._mc import MCCalc
 from ._md import MDCalc
 from ._neb import MEP, NEBCalc
 from ._order import OrderCalc
