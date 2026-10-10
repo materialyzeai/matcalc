@@ -52,6 +52,7 @@ class PhononCalc(PropCalc):
         imaginary_freq_tol: Frequencies below this (THz) count as imaginary.
         on_imaginary_modes: ``"warn"`` or ``"error"`` on imaginary modes.
         fix_imaginary_attempts: Rattle/retry cycles to fix imaginary modes.
+        rattle_stdev: Rattle amplitude (Å).
         seed: Seed for the rattle random number generator (None for nondeterministic).
         symprec: symmetry precision used for spglib symmetry finding.
         write_force_constants: Output path for force constants (or False).
@@ -78,6 +79,7 @@ class PhononCalc(PropCalc):
         imaginary_freq_tol: float = -0.01,
         on_imaginary_modes: Literal["error", "warn"] = "warn",
         fix_imaginary_attempts: int = 0,
+        rattle_stdev: float = 0.01,
         seed: int | None = 42,
         symprec: float = 1e-5,
         write_force_constants: bool | str | Path = False,
@@ -102,6 +104,7 @@ class PhononCalc(PropCalc):
             imaginary_freq_tol: Threshold (THz) for classifying imaginary modes.
             on_imaginary_modes: ``"warn"`` or ``"error"`` when imaginary modes exist.
             fix_imaginary_attempts: Rattle/relax/phonon retries; 0 disables.
+            rattle_stdev: Standard deviation (Å) of the rattle displacements per Cartesian component.
             seed: Seed for the rattle random number generator (None for nondeterministic).
             symprec: symmetry precision used for spglib symmetry finding.
             write_force_constants: Path to write FCs, True for default name, or False.
@@ -124,6 +127,7 @@ class PhononCalc(PropCalc):
         self.imaginary_freq_tol = imaginary_freq_tol
         self.on_imaginary_modes = on_imaginary_modes
         self.fix_imaginary_attempts = fix_imaginary_attempts
+        self.rattle_stdev = rattle_stdev
         self.seed = seed
         self.symprec = symprec
         self.write_force_constants = write_force_constants
@@ -297,7 +301,7 @@ class PhononCalc(PropCalc):
         rng = np.random.RandomState(self.seed)
         for attempt in range(self.fix_imaginary_attempts):
             logger.info("Imaginary mode correction attempt %d/%d", attempt + 1, self.fix_imaginary_attempts)
-            structure_in = self._rattle_structure(structure_in, rng=rng)
+            structure_in = self._rattle_structure(structure_in, stdev=self.rattle_stdev, rng=rng)
 
             logger.info("Re-relaxing structure at fixed cell volume following rattle.")
             relax_result = self._relax_structure(structure_in)

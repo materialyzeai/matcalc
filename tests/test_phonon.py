@@ -251,7 +251,8 @@ def test_phonon_calc_rattle_seed(
     matpes_calculator: PESCalculator,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Each correction attempt rattles differently and a fixed seed reproduces the sequence."""
+    """Each correction attempt rattles differently, a fixed seed reproduces the sequence, and the
+    displacements scale with rattle_stdev."""
     distorted_si_atoms = Si_atoms.copy()
     distorted_si_atoms.cell += 0.5
     rattle = PhononCalc._rattle_structure  # noqa: SLF001
@@ -266,7 +267,7 @@ def test_phonon_calc_rattle_seed(
 
     monkeypatch.setattr(PhononCalc, "_rattle_structure", recording_rattle)
 
-    def run(seed: int | None) -> list[np.ndarray]:
+    def run(seed: int | None, rattle_stdev: float = 0.01) -> list[np.ndarray]:
         displacements.clear()
         PhononCalc(
             calculator=matpes_calculator,
@@ -274,6 +275,7 @@ def test_phonon_calc_rattle_seed(
             fmax=100.0,
             imaginary_freq_tol=-0.1,
             fix_imaginary_attempts=2,
+            rattle_stdev=rattle_stdev,
             seed=seed,
             write_phonon=False,
         ).calc(distorted_si_atoms)
@@ -285,3 +287,4 @@ def test_phonon_calc_rattle_seed(
     for disp, disp_again in zip(first, run(seed=7), strict=True):
         assert_allclose(disp, disp_again)
     assert not np.allclose(first[0], run(seed=8)[0])
+    assert_allclose(run(seed=7, rattle_stdev=0.02)[0], 2 * first[0], atol=1e-8)
