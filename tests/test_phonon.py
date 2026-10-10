@@ -244,3 +244,50 @@ def test_phonon_calc_fix_imaginary_attempts(
     with caplog.at_level(logging.INFO, logger="matcalc"), pytest.raises(ValueError, match="modes are imaginary"):
         phonon_calc.calc(distorted_si_atoms)
     assert any("Imaginary mode correction attempt" in r.message for r in caplog.records)
+
+
+@pytest.mark.parametrize("rattle_method", ["random", "mc"])
+def test_phonon_calc_rattle_seed(
+    Si_atoms: Atoms,
+    matpes_calculator: PESCalculator,
+    monkeypatch: pytest.MonkeyPatch,
+    rattle_method: str,
+) -> None:
+    """Each correction attempt rattles differently, a fixed seed reproduces the sequence, and the
+    displacements scale with rattle_stdev."""
+    distorted_si_atoms = Si_atoms.copy()
+    distorted_si_atoms.cell += 0.5
+    rattle = PhononCalc._rattle_structure  # noqa: SLF001
+    displacements: list[np.ndarray] = []
+
+    def recording_rattle(self: PhononCalc, structure_in: Structure, **kwargs: object) -> Structure:
+        rattled = rattle(self, structure_in, **kwargs)  # type: ignore[arg-type]
+        frac_disp = rattled.frac_coords - structure_in.frac_coords
+        frac_disp -= np.round(frac_disp)  # undo wrapping back into the cell
+        displacements.append(structure_in.lattice.get_cartesian_coords(frac_disp))
+        return rattled
+
+    monkeypatch.setattr(PhononCalc, "_rattle_structure", recording_rattle)
+
+    def run(seed: int | None, rattle_stdev: float = 0.01) -> list[np.ndarray]:
+        displacements.clear()
+        PhononCalc(
+            calculator=matpes_calculator,
+            supercell_matrix=((2, 0, 0), (0, 2, 0), (0, 0, 2)),
+            fmax=100.0,
+            imaginary_freq_tol=-0.1,
+            fix_imaginary_attempts=2,
+            rattle_method=rattle_method,  # type: ignore[arg-type]
+            rattle_stdev=rattle_stdev,
+            seed=seed,
+            write_phonon=False,
+        ).calc(distorted_si_atoms)
+        return list(displacements)
+
+    first = run(seed=7)
+    assert len(first) == 2
+    assert not np.allclose(first[0], first[1])
+    for disp, disp_again in zip(first, run(seed=7), strict=True):
+        assert_allclose(disp, disp_again)
+    assert not np.allclose(first[0], run(seed=8)[0])
+    assert_allclose(run(seed=7, rattle_stdev=0.02)[0], 2 * first[0], atol=1e-8)
