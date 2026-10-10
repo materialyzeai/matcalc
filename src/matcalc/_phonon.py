@@ -382,10 +382,12 @@ def _mc_rattle(
 ) -> np.ndarray:
     """Monte Carlo rattle displacements.
 
-    Adapted from ``hiphive.structure_generation.rattle.mc_rattle`` (MIT License,
-    Copyright (c) 2018 materials-modeling). Each Gaussian trial move of an atom is accepted
-    with probability ``(erf((d - d_min) / width) + 1) / 2``, where ``d`` is the shortest
-    distance from the atom to its neighbors within ``2 * d_min``.
+    Adapted from hiphive (MIT License, Copyright (c) 2018 materials-modeling), described in:
+        F. Eriksson, E. Fransson, P. Erhart, Adv. Theory Simul. 2, 1800184 (2019).
+        doi: 10.1002/adts.201800184
+    Each Gaussian trial move of an atom is accepted with probability
+    ``(erf((d - d_min) / width) + 1) / 2``, where ``d`` is the shortest distance from the
+    atom to its neighbors within ``2 * d_min``.
 
     Args:
         atoms: ASE atoms to rattle (not modified).
