@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import phonopy
+from ase.neighborlist import NeighborList
 from phonopy.file_IO import write_FORCE_CONSTANTS as write_force_constants
 from pymatgen.io.phonopy import get_phonopy_structure, get_pmg_structure
 
@@ -52,6 +54,7 @@ class PhononCalc(PropCalc):
         imaginary_freq_tol: Frequencies below this (THz) count as imaginary.
         on_imaginary_modes: ``"warn"`` or ``"error"`` on imaginary modes.
         fix_imaginary_attempts: Rattle/retry cycles to fix imaginary modes.
+        rattle_method: ``"random"`` or ``"mc"`` rattle used to fix imaginary modes.
         rattle_stdev: Rattle amplitude (Å).
         seed: Seed for the rattle random number generator (None for nondeterministic).
         symprec: symmetry precision used for spglib symmetry finding.
@@ -79,6 +82,7 @@ class PhononCalc(PropCalc):
         imaginary_freq_tol: float = -0.01,
         on_imaginary_modes: Literal["error", "warn"] = "warn",
         fix_imaginary_attempts: int = 0,
+        rattle_method: Literal["random", "mc"] = "random",
         rattle_stdev: float = 0.01,
         seed: int | None = 42,
         symprec: float = 1e-5,
@@ -104,6 +108,9 @@ class PhononCalc(PropCalc):
             imaginary_freq_tol: Threshold (THz) for classifying imaginary modes.
             on_imaginary_modes: ``"warn"`` or ``"error"`` when imaginary modes exist.
             fix_imaginary_attempts: Rattle/relax/phonon retries; 0 disables.
+            rattle_method: Rattle used by the retries. ``"random"`` draws Gaussian displacements;
+                ``"mc"`` uses MC rattle, which rejects moves that bring atoms closer than 0.8 times
+                the shortest interatomic distance.
             rattle_stdev: Standard deviation (Å) of the rattle displacements per Cartesian component.
             seed: Seed for the rattle random number generator (None for nondeterministic).
             symprec: symmetry precision used for spglib symmetry finding.
@@ -127,6 +134,7 @@ class PhononCalc(PropCalc):
         self.imaginary_freq_tol = imaginary_freq_tol
         self.on_imaginary_modes = on_imaginary_modes
         self.fix_imaginary_attempts = fix_imaginary_attempts
+        self.rattle_method = rattle_method
         self.rattle_stdev = rattle_stdev
         self.seed = seed
         self.symprec = symprec
@@ -334,7 +342,15 @@ class PhononCalc(PropCalc):
             Pymatgen structure with rattled atomic positions.
         """
         atoms = to_ase_atoms(structure_in)
-        atoms.rattle(stdev=stdev, rng=rng)
+        if self.rattle_method == "mc":
+            # One sub-seed per rattled structure.
+            sub_rng = np.random.RandomState(rng.randint(1, 1_000_000_000))
+            distances = atoms.get_all_distances(mic=True)[np.triu_indices(len(atoms), 1)]
+            d_min = 0.8 * distances.min() if distances.size else 0.0
+            n_iter = 10  # final displacements are ~ sqrt(n_iter) * step, i.e. ~ stdev
+            atoms.positions += _mc_rattle(atoms, stdev / np.sqrt(n_iter), d_min, sub_rng, n_iter=n_iter)
+        else:
+            atoms.rattle(stdev=stdev, rng=rng)
         atoms.wrap()
         return to_pmg_structure(atoms)
 
@@ -352,3 +368,55 @@ class PhononCalc(PropCalc):
         )
         relaxer = RelaxCalc(self.calculator, **cast("Any", relax_calc_kwargs))
         return relaxer.calc(structure_in)
+
+
+def _mc_rattle(
+    atoms: Atoms,
+    rattle_std: float,
+    d_min: float,
+    rng: np.random.RandomState,
+    width: float = 0.1,
+    n_iter: int = 10,
+    max_attempts: int = 5000,
+    max_disp: float = 2.0,
+) -> np.ndarray:
+    """Monte Carlo rattle displacements.
+
+    Adapted from ``hiphive.structure_generation.rattle.mc_rattle`` (MIT License,
+    Copyright (c) 2018 materials-modeling). Each Gaussian trial move of an atom is accepted
+    with probability ``(erf((d - d_min) / width) + 1) / 2``, where ``d`` is the shortest
+    distance from the atom to its neighbors within ``2 * d_min``.
+
+    Args:
+        atoms: ASE atoms to rattle (not modified).
+        rattle_std: Standard deviation of each trial move (Å).
+        d_min: Center of the acceptance error function (Å).
+        rng: Random number generator.
+        width: Width of the acceptance error function (Å).
+        n_iter: Number of Monte Carlo sweeps over all atoms.
+        max_attempts: Maximum trial moves per atom and sweep.
+        max_disp: Trial moves that displace an atom by more than this (Å) are rejected.
+
+    Returns:
+        Displacements (N, 3) in Å.
+    """
+    work = atoms.copy()
+    reference = work.get_positions()
+    neighbors = NeighborList([d_min] * len(work), skin=0.0, self_interaction=False, bothways=True)
+    neighbors.update(work)
+    for _ in range(n_iter):
+        for i in range(len(work)):
+            i_nbrs = np.setdiff1d(neighbors.get_neighbors(i)[0], [i])
+            for _ in range(max_attempts):
+                delta = rng.normal(0.0, rattle_std, 3)
+                work.positions[i] += delta
+                if np.linalg.norm(work.positions[i] - reference[i]) > max_disp:
+                    work.positions[i] -= delta
+                    continue
+                d = np.min(work.get_distances(i, i_nbrs, mic=True)) if len(i_nbrs) else np.inf
+                if (math.erf((d - d_min) / width) + 1.0) / 2 > rng.random():
+                    break
+                work.positions[i] -= delta
+            else:
+                raise RuntimeError(f"MC rattle exceeded {max_attempts} trial moves for atom {i}.")
+    return work.positions - reference

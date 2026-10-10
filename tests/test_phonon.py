@@ -246,10 +246,12 @@ def test_phonon_calc_fix_imaginary_attempts(
     assert any("Imaginary mode correction attempt" in r.message for r in caplog.records)
 
 
+@pytest.mark.parametrize("rattle_method", ["random", "mc"])
 def test_phonon_calc_rattle_seed(
     Si_atoms: Atoms,
     matpes_calculator: PESCalculator,
     monkeypatch: pytest.MonkeyPatch,
+    rattle_method: str,
 ) -> None:
     """Each correction attempt rattles differently, a fixed seed reproduces the sequence, and the
     displacements scale with rattle_stdev."""
@@ -275,6 +277,7 @@ def test_phonon_calc_rattle_seed(
             fmax=100.0,
             imaginary_freq_tol=-0.1,
             fix_imaginary_attempts=2,
+            rattle_method=rattle_method,  # type: ignore[arg-type]
             rattle_stdev=rattle_stdev,
             seed=seed,
             write_phonon=False,
