@@ -52,6 +52,7 @@ class PhononCalc(PropCalc):
         imaginary_freq_tol: Frequencies below this (THz) count as imaginary.
         on_imaginary_modes: ``"warn"`` or ``"error"`` on imaginary modes.
         fix_imaginary_attempts: Rattle/retry cycles to fix imaginary modes.
+        seed: Seed for the rattle random number generator (None for nondeterministic).
         symprec: symmetry precision used for spglib symmetry finding.
         write_force_constants: Output path for force constants (or False).
         write_band_structure: Band structure YAML path (or False).
@@ -77,6 +78,7 @@ class PhononCalc(PropCalc):
         imaginary_freq_tol: float = -0.01,
         on_imaginary_modes: Literal["error", "warn"] = "warn",
         fix_imaginary_attempts: int = 0,
+        seed: int | None = 42,
         symprec: float = 1e-5,
         write_force_constants: bool | str | Path = False,
         write_band_structure: bool | str | Path = False,
@@ -100,6 +102,7 @@ class PhononCalc(PropCalc):
             imaginary_freq_tol: Threshold (THz) for classifying imaginary modes.
             on_imaginary_modes: ``"warn"`` or ``"error"`` when imaginary modes exist.
             fix_imaginary_attempts: Rattle/relax/phonon retries; 0 disables.
+            seed: Seed for the rattle random number generator (None for nondeterministic).
             symprec: symmetry precision used for spglib symmetry finding.
             write_force_constants: Path to write FCs, True for default name, or False.
             write_band_structure: Path, True for default YAML, or False.
@@ -121,6 +124,7 @@ class PhononCalc(PropCalc):
         self.imaginary_freq_tol = imaginary_freq_tol
         self.on_imaginary_modes = on_imaginary_modes
         self.fix_imaginary_attempts = fix_imaginary_attempts
+        self.seed = seed
         self.symprec = symprec
         self.write_force_constants = write_force_constants
         self.write_band_structure = write_band_structure
@@ -290,9 +294,10 @@ class PhononCalc(PropCalc):
             self.fix_imaginary_attempts,
         )
         relax_result: dict = {}
+        rng = np.random.RandomState(self.seed)
         for attempt in range(self.fix_imaginary_attempts):
             logger.info("Imaginary mode correction attempt %d/%d", attempt + 1, self.fix_imaginary_attempts)
-            structure_in = self._rattle_structure(structure_in)
+            structure_in = self._rattle_structure(structure_in, rng=rng)
 
             logger.info("Re-relaxing structure at fixed cell volume following rattle.")
             relax_result = self._relax_structure(structure_in)
@@ -313,18 +318,19 @@ class PhononCalc(PropCalc):
                 break
         return relax_result, phonon, frequencies, disp_supercells
 
-    def _rattle_structure(self, structure_in: Structure, stdev: float = 0.01) -> Structure:
+    def _rattle_structure(self, structure_in: Structure, rng: np.random.RandomState, stdev: float = 0.01) -> Structure:
         """Rattle the atoms to bump out of stationary point (stdev=0.01 Å).
 
         Args:
             structure_in: Pymatgen structure.
+            rng: Random number generator for the displacements.
             stdev: standard deviation in angstrom for the rattle.
 
         Returns:
             Pymatgen structure with rattled atomic positions.
         """
         atoms = to_ase_atoms(structure_in)
-        atoms.rattle(stdev=stdev)
+        atoms.rattle(stdev=stdev, rng=rng)
         atoms.wrap()
         return to_pmg_structure(atoms)
 
