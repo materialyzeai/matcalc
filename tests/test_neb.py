@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+from unittest.mock import call, patch
 
 import numpy as np
 import pytest
+from ase.calculators.calculator import Calculator
 
-from matcalc import MEP, NEBCalc, RelaxCalc
+from matcalc import MEP, NEBCalc
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -16,17 +18,18 @@ if TYPE_CHECKING:
 
 def test_neb_calc(LiFePO4: Structure, matpes_calculator: PESCalculator, tmp_path: Path) -> None:
     """Tests for NEBCalc class"""
-    relax = RelaxCalc(matpes_calculator, fmax=0.5, relax_cell=False)
     image_start = LiFePO4.copy()
     image_start.remove_sites([2])
-    image_start = relax.calc(image_start)["final_structure"]
     image_end = LiFePO4.copy()
     image_end.remove_sites([3])
-    image_end = relax.calc(image_end)["final_structure"]
     neb_calc = NEBCalc(matpes_calculator, traj_folder=tmp_path, fmax=0.5, method="aseneb")
-    barriers = neb_calc.calc_images(image_start, image_end, n_images=5)
+    start_result, end_result = neb_calc.calc_endpoints(image_start, image_end, relax_calc_kwargs={"optimizer": "FIRE"})
+    barriers = neb_calc.calc_images(start_result["final_structure"], end_result["final_structure"], n_images=5)
     assert barriers["barrier"] == pytest.approx(0.26219177246093794, rel=0.05)
     assert barriers["force"] == pytest.approx(0.00128173828125, abs=1e-3)
+    assert barriers["band_forces"].shape == (5 * len(image_start), 3)
+    assert np.isfinite(barriers["band_forces"]).all()
+    assert barriers["_units"]["band_forces"] == "eV/Å"
     assert isinstance(barriers["mep"], MEP), "barriers['mep'] should be an MEP instance"
     mep = barriers["mep"]
     assert len(mep.labels) > 0, "MEP should have labels"
@@ -119,3 +122,43 @@ def test_neb_calc_requires_dict(matpes_calculator: PESCalculator) -> None:
     """NEBCalc.calc must raise ValueError when structure is not a dict of images."""
     with pytest.raises(ValueError, match="For NEB calculations, structure must be a dict"):
         NEBCalc(matpes_calculator).calc("not-a-dict")
+
+
+def test_neb_calc_endpoints(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    start = Li2O.copy()
+    start.translate_sites([0], [0.1, 0, 0], frac_coords=False)
+    end = Li2O.copy()
+    end.translate_sites([0], [-0.1, 0, 0], frac_coords=False)
+    neb_calc = NEBCalc(matpes_calculator, optimizer="FIRE", fmax=0.1, max_steps=20)
+
+    start_result, end_result = neb_calc.calc_endpoints({"final_structure": start, "label": "start"}, end)
+
+    for result in (start_result, end_result):
+        assert result["final_structure"].lattice == Li2O.lattice
+    assert start_result["label"] == "start"
+    assert start_result["final_structure"] != start
+    assert end_result["final_structure"] != end
+
+
+@pytest.mark.parametrize(
+    "relax_calc_kwargs",
+    [None, {"fmax": 0.02, "relax_cell": True}],
+)
+def test_neb_calc_endpoints_settings(Si: Structure, relax_calc_kwargs: dict[str, Any] | None) -> None:
+    neb_calc = NEBCalc(Calculator(), fmax=0.25, max_steps=12)
+    start, end = Si.copy(), Si.copy()
+    results = ({"final_structure": start, "energy": -1.0}, {"final_structure": end, "energy": -2.0})
+    with patch("matcalc._relaxation.RelaxCalc") as relaxer:
+        relaxer.return_value.calc.side_effect = results
+        actual = neb_calc.calc_endpoints(start, end, relax_calc_kwargs=relax_calc_kwargs)
+
+    assert actual == results
+    expected = {
+        "optimizer": neb_calc.optimizer,
+        "fmax": 0.25,
+        "max_steps": 12,
+        "relax_cell": False,
+        **(relax_calc_kwargs or {}),
+    }
+    relaxer.assert_called_once_with(neb_calc.calculator, **expected)
+    assert relaxer.return_value.calc.call_args_list == [call(start), call(end)]

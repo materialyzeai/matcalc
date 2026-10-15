@@ -189,7 +189,7 @@ class NEBCalc(PropCalc):
             climb (bool, optional): Whether to perform climbing image nudged elastic band (CI-NEB). Defaults to True.
             fmax (float, optional): The maximum force tolerance for convergence. Defaults to 0.1.
             max_steps (int, optional): The maximum number of optimization steps. Defaults to 1000.
-            **kwargs (Any): Additional keyword arguments.
+            **kwargs (Any): Additional keyword arguments forwarded to ``ase.mep.NEB``.
 
         Returns:
             None
@@ -204,6 +204,37 @@ class NEBCalc(PropCalc):
         self.method = method
         self.max_steps = max_steps
         self.kwargs = kwargs
+
+    def calc_endpoints(
+        self,
+        start_struct: Structure | Atoms | dict[str, Any],
+        end_struct: Structure | Atoms | dict[str, Any],
+        *,
+        relax_calc_kwargs: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Relax the two endpoint structures independently before building the band.
+
+        Args:
+            start_struct: Initial structure.
+            end_struct: Final structure.
+            relax_calc_kwargs: Options forwarded to ``RelaxCalc``, overriding this
+                calculator's ``optimizer``, ``fmax`` and ``max_steps``, and the
+                default ``relax_cell=False``.
+
+        Returns:
+            The two complete ``RelaxCalc.calc()`` results, in start/end order.
+        """
+        from ._relaxation import RelaxCalc
+
+        relax_kwargs = {
+            "optimizer": self.optimizer,
+            "fmax": self.fmax,
+            "max_steps": self.max_steps,
+            "relax_cell": False,
+            **(relax_calc_kwargs or {}),
+        }
+        relaxer = RelaxCalc(self.calculator, **relax_kwargs)
+        return relaxer.calc(start_struct), relaxer.calc(end_struct)
 
     def calc_images(
         self,
@@ -248,7 +279,8 @@ class NEBCalc(PropCalc):
         Returns:
                 dict:
                     - "barrier" (float): The energy barrier of the reaction pathway.
-                    - "force" (float): The force exerted on the atoms during the NEB calculation.
+                    - "force" (float): The reaction energy (eV).
+                    - "band_forces" (np.ndarray): Final NEB forces on the moving images (eV/Å).
                     - "mep" (MEP): An MEP dataclass containing the images and their respective energies.
         """
         if not isinstance(structure, dict):
@@ -282,7 +314,8 @@ class NEBCalc(PropCalc):
             )
         neb_tool = NEBTools(self.neb.images)
         data = neb_tool.get_barrier()  # add structures
-        result = {"barrier": data[0], "force": data[1], "converged": converged}
+        band_forces = self.neb.get_forces()
+        result = {"barrier": data[0], "force": data[1], "converged": converged, "band_forces": band_forces}
 
         energies = fit_images(self.neb.images).energies
         # Convert images to pymatgen structures
@@ -291,5 +324,5 @@ class NEBCalc(PropCalc):
         # Create MEP instance from structures and energies
         mep = MEP(structures, list(energies))
         result["mep"] = mep
-        result["_units"] = self._merge_units(None, {"barrier": "eV", "force": "eV/Å"})
+        result["_units"] = self._merge_units(None, {"barrier": "eV", "force": "eV/Å", "band_forces": "eV/Å"})
         return result
