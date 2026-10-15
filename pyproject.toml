@@ -174,12 +174,12 @@ conflicts = [
       { extra = "deepmd" },
     ],
 ]
-# Restrict the lock to platforms with torch wheels; Python < 3.15 until torch ships cp315 wheels.
+# Restrict the lock to platforms with torch wheels and Python < 3.14 for TensorFlow 2.20.
 # Does not affect the published requires-python.
 environments = [
-    "sys_platform == 'linux' and python_version < '3.15'",
-    "sys_platform == 'darwin' and python_version < '3.15'",
-    "sys_platform == 'win32' and python_version < '3.15'",
+    "sys_platform == 'linux' and python_version < '3.14'",
+    "sys_platform == 'darwin' and python_version < '3.14'",
+    "sys_platform == 'win32' and python_version < '3.14'",
 ]
 required-environments = [
     "sys_platform == 'linux'",
