@@ -49,6 +49,7 @@ version = "0.6.0"
 phonon = ["seekpath"]
 phonon3 = ["phono3py>=4.2.0"]
 benchmark = ["matminer>=0.10.1"]
+defects = ["pymatgen-analysis-defects>=2026.3.20"]
 diffusion = ["pymatgen-analysis-diffusion>=2025.11.15"]
 maml = [
     "maml>=2025.4.3",
@@ -94,6 +95,7 @@ ci = [
     "mp-api>=0.45.3",
     "nbmake>=1.5.5",
     "pre-commit>=4.2.0",
+    "pymatgen-analysis-defects>=2026.3.20",
     "pymatgen-analysis-diffusion>=2025.11.15",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
@@ -137,6 +139,7 @@ dev = [
     "nbmake>=1.5.5",
     "openai>=1.101.0",
     "pre-commit>=4.2.0",
+    "pymatgen-analysis-defects>=2026.3.20",
     "pymatgen-analysis-diffusion>=2025.11.15",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",

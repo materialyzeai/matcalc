@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from pymatgen.core import Lattice, Structure
 from pymatgen.util.testing import PymatgenTest
 
 import matcalc
@@ -23,7 +24,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from ase.atoms import Atoms
-    from pymatgen.core import Structure
 
 import matgl
 
@@ -67,6 +67,12 @@ def Si() -> Structure:
 def SiO2() -> Structure:
     """SiO2 structure as session-scoped fixture."""
     return PymatgenTest.get_structure("SiO2")
+
+
+@pytest.fixture(scope="session")
+def Cu() -> Structure:
+    """Conventional fcc Cu structure as session-scoped fixture."""
+    return Structure.from_spacegroup("Fm-3m", Lattice.cubic(3.6), ["Cu"], [[0, 0, 0]])
 
 
 @pytest.fixture
