@@ -68,10 +68,10 @@ jobs:
             models: '["TensorNet-MatPES-PBE-2025.2", "TensorNet-MatPES-r2SCAN-2025.2", "M3GNet-MatPES-PBE-2025.2"]'
           - name: mace
             extras: mace
-            models: '["MACE-MP-0-small", "MACE-MPA-0-medium", "MACE-MatPES-PBE-0"]'
+            models: '["MACE-MPtrj-0a-small", "MACE-MPA-0-medium", "MACE-MatPES-PBE-0"]'
           - name: grace
             extras: grace
-            models: '["GRACE-2L-OAM"]'
+            models: '["GRACE-OAM-2L"]'
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
 

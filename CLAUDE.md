@@ -50,7 +50,7 @@ Everything in `src/matcalc/` is built around one base class in `_base.py`:
 
 `PESCalculator.load_universal(name)` (re-exported as `matcalc.load_fp` and `matcalc.load_up`) is the single dispatcher for loading any supported model. Two data structures drive it:
 
-- `MODEL_REGISTRY` — canonical name → `{provider, ...kwargs}`. Naming convention is `<Architecture>-<Dataset>-<Optional Version>`, e.g. `TensorNet-MatPES-PBE-2025.2`.
+- `MODEL_REGISTRY` — canonical name → `{provider, ...kwargs}`. Naming convention is `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`, e.g. `TensorNet-MatPES-PBE-2025.2`.
 - `MODEL_ALIASES` — short / legacy spellings (`pbe`, `r2scan`, `mace`, `chgnet`, …) that resolve to a canonical name. Lookups are case-insensitive.
 
 To add a new model, add an entry to `MODEL_REGISTRY` and (if the provider is new) extend the loader branch in `PESCalculator.load_universal`. Provider stacks (matgl, mace-torch, sevenn, tensorpotential, orb-models, mattersim, fairchem-core, pet-mad, deepmd-kit) are imported lazily inside their branches so that missing optional deps don't break import of `matcalc`.

@@ -12,6 +12,7 @@ from monty.serialization import dumpfn
 from pymatgen.core import Structure
 
 import matcalc as mtc
+from matcalc.utils import _resolve_canonical, _suggest_models
 
 if typing.TYPE_CHECKING:
     from typing import Any
@@ -96,9 +97,8 @@ def main() -> None:
         "--model",
         dest="model",
         type=str,
-        choices=mtc.UNIVERSAL_CALCULATOR_NAMES,
         default="TensorNet-MatPES-PBE-2025.2",
-        help="Universal MLIP to use.",
+        help="Canonical model name or alias to use.",
     )
 
     p_calc.add_argument(
@@ -144,5 +144,14 @@ def main() -> None:
     p_clear.set_defaults(func=clear_cache)
 
     args = parser.parse_args()
+    if args.func is calculate_property:
+        canonical = _resolve_canonical(args.model)
+        if canonical is None:
+            message = f"Unknown model {args.model!r}."
+            suggestions = _suggest_models(args.model)
+            if suggestions:
+                message += f" Did you mean: {', '.join(suggestions)}?"
+            p_calc.error(message)
+        args.model = canonical
 
     return args.func(args)

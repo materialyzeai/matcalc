@@ -25,13 +25,26 @@ if TYPE_CHECKING:
 
 # Unified naming convention for foundation potentials:
 #
-#     <Architecture>-<Dataset>-<Optional Version>
+#     <Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]
 #
 # e.g. ``TensorNet-MatPES-PBE-2025.2`` or ``MACE-MPA-0-medium``. Each entry in
 # ``MODEL_REGISTRY`` maps a canonical name to a provider and the provider-specific
 # kwargs used to materialise the calculator. Users select a model by its canonical
 # name; ``MODEL_ALIASES`` provides short / legacy spellings that resolve to a
 # canonical name.
+#
+# Dataset labels:
+# Label                      | Data                  | Notes
+# MPtrj                      | MPtrj                 | Materials Project relaxation trajectories.
+# MPA                        | MPtrj + Alexandria    | MACE-MPA-0 uses sAlex; ORB-v2 uses Alexandria.
+# OMat24                     | OMat24                | Open Materials 2024.
+# OAM                        | OMat24 + sAlex + MPtrj | GRACE and SevenNet use different training procedures.
+# MatPES-PBE / MatPES-r2SCAN  | MatPES                | The suffix identifies the functional.
+#
+# GRACE OAM pretrains on OMat24, then fine-tunes on sAlex + MPtrj. SevenNet OAM
+# uses joint multifidelity training; modal="mpa" selects the MPtrj/sAlex DFT setting.
+# sAlex is an Alexandria subset with WBM matches removed and trajectories subsampled.
+# See the README dataset table for upstream sources.
 #
 # To add a new model, append an entry here. The ``provider`` key picks the loader
 # branch in ``PESCalculator.load_universal``; remaining keys are forwarded to that
@@ -49,48 +62,48 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "CHGNet-MatPES-PBE-2025.2.10": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-2025.2.10"},
     "CHGNet-MatPES-r2SCAN-2025.2.10": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-2025.2.10"},
     # MACE foundation models (mace-foundations release names)
-    "MACE-MP-0-small": {"provider": "mace_mp", "model": "small"},
-    "MACE-MP-0-medium": {"provider": "mace_mp", "model": "medium"},
-    "MACE-MP-0-large": {"provider": "mace_mp", "model": "large"},
-    "MACE-MP-0b-small": {"provider": "mace_mp", "model": "small-0b"},
-    "MACE-MP-0b-medium": {"provider": "mace_mp", "model": "medium-0b"},
-    "MACE-MP-0b2-small": {"provider": "mace_mp", "model": "small-0b2"},
-    "MACE-MP-0b2-medium": {"provider": "mace_mp", "model": "medium-0b2"},
-    "MACE-MP-0b2-large": {"provider": "mace_mp", "model": "large-0b2"},
-    "MACE-MP-0b3-medium": {"provider": "mace_mp", "model": "medium-0b3"},
+    "MACE-MPtrj-0a-small": {"provider": "mace_mp", "model": "small"},
+    "MACE-MPtrj-0a-medium": {"provider": "mace_mp", "model": "medium"},
+    "MACE-MPtrj-0a-large": {"provider": "mace_mp", "model": "large"},
+    "MACE-MPtrj-0b-small": {"provider": "mace_mp", "model": "small-0b"},
+    "MACE-MPtrj-0b-medium": {"provider": "mace_mp", "model": "medium-0b"},
+    "MACE-MPtrj-0b2-small": {"provider": "mace_mp", "model": "small-0b2"},
+    "MACE-MPtrj-0b2-medium": {"provider": "mace_mp", "model": "medium-0b2"},
+    "MACE-MPtrj-0b2-large": {"provider": "mace_mp", "model": "large-0b2"},
+    "MACE-MPtrj-0b3-medium": {"provider": "mace_mp", "model": "medium-0b3"},
     "MACE-MPA-0-medium": {"provider": "mace_mp", "model": "medium-mpa-0"},
-    "MACE-OMAT-0-small": {"provider": "mace_mp", "model": "small-omat-0"},
-    "MACE-OMAT-0-medium": {"provider": "mace_mp", "model": "medium-omat-0"},
+    "MACE-OMat24-0-small": {"provider": "mace_mp", "model": "small-omat-0"},
+    "MACE-OMat24-0-medium": {"provider": "mace_mp", "model": "medium-omat-0"},
     "MACE-MatPES-PBE-0": {"provider": "mace_mp", "model": "mace-matpes-pbe-0"},
     "MACE-MatPES-r2SCAN-0": {"provider": "mace_mp", "model": "mace-matpes-r2scan-0"},
     # NOTE: MACE multi-head checkpoints (mh-0, mh-1) require a mandatory ``head=...``
     # kwarg per use; they are not registered as default-loadable canonical names.
-    # SevenNet (model names match the upstream HF / SevenNetCalculator strings)
-    "SevenNet-0": {"provider": "sevennet", "model": "7net-0"},
-    "SevenNet-l3i5": {"provider": "sevennet", "model": "7net-l3i5"},
-    "SevenNet-MF-OMPA": {"provider": "sevennet", "model": "7net-mf-ompa"},
-    "SevenNet-OMAT": {"provider": "sevennet", "model": "7net-omat"},
+    # SevenNet (provider arguments use upstream SevenNetCalculator names)
+    "SevenNet-MPtrj-0": {"provider": "sevennet", "model": "7net-0"},
+    "SevenNet-MPtrj-l3i5": {"provider": "sevennet", "model": "7net-l3i5"},
+    "SevenNet-OAM-MF": {"provider": "sevennet", "model": "7net-mf-ompa"},
+    "SevenNet-OMat24": {"provider": "sevennet", "model": "7net-omat"},
     # GRACE / TensorPotential
-    "GRACE-1L-OAM": {"provider": "grace", "model": "GRACE-1L-OAM"},
-    "GRACE-2L-OAM": {"provider": "grace", "model": "GRACE-2L-OAM"},
-    "GRACE-2L-OMAT": {"provider": "grace", "model": "GRACE-2L-OMAT"},
-    "GRACE-2L-MPtrj": {"provider": "grace", "model": "GRACE-2L-MPtrj"},
+    "GRACE-OAM-1L": {"provider": "grace", "model": "GRACE-1L-OAM"},
+    "GRACE-OAM-2L": {"provider": "grace", "model": "GRACE-2L-OAM"},
+    "GRACE-OMat24-2L": {"provider": "grace", "model": "GRACE-2L-OMAT"},
+    "GRACE-MPtrj-2L": {"provider": "grace", "model": "GRACE-2L-MPtrj"},
     # Orb
-    "ORB-v2": {"provider": "orb", "model": "orb-v2"},
-    "ORB-d3-v2": {"provider": "orb", "model": "orb-d3-v2"},
-    "ORB-d3-sm-v2": {"provider": "orb", "model": "orb-d3-sm-v2"},
-    "ORB-d3-xs-v2": {"provider": "orb", "model": "orb-d3-xs-v2"},
+    "ORB-MPA-v2": {"provider": "orb", "model": "orb-v2"},
+    "ORB-MPA-v2-D3": {"provider": "orb", "model": "orb-d3-v2"},
+    "ORB-MPA-v2-D3-sm": {"provider": "orb", "model": "orb-d3-sm-v2"},
+    "ORB-MPA-v2-D3-xs": {"provider": "orb", "model": "orb-d3-xs-v2"},
     # MatterSim
     "MatterSim-v1.0.0-1M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-1M.pth"},
     "MatterSim-v1.0.0-5M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-5M.pth"},
     # FAIRChem (UMA family) — upstream uses ``uma-s-1p2`` style; we expose them
-    # under the unified ``<Arch>-<Size>-<Version>`` form.
+    # under ``<Architecture>-<Size>-<Version>`` with the ``omat`` task.
     "UMA-S-1.2.1": {"provider": "fairchem", "model": "uma-s-1p2p1", "task_name": "omat"},
     "UMA-S-1.2": {"provider": "fairchem", "model": "uma-s-1p2", "task_name": "omat"},
     "UMA-S-1.1": {"provider": "fairchem", "model": "uma-s-1p1", "task_name": "omat"},
     "UMA-M-1.1": {"provider": "fairchem", "model": "uma-m-1p1", "task_name": "omat"},
     # PET-MAD
-    "PETMAD-1.0.0": {"provider": "petmad"},
+    "PET-MAD-1.0.0": {"provider": "petmad"},
     # DeePMD-LAM
     "DPA3-LAM-2025.3.14": {"provider": "deepmd"},
 }
@@ -105,15 +118,40 @@ MODEL_ALIASES: dict[str, str] = {
     "pbe": "TensorNet-MatPES-PBE-2025.2",
     "r2scan": "TensorNet-MatPES-r2SCAN-2025.2",
     "mace": "MACE-MPA-0-medium",
-    "sevennet": "SevenNet-0",
-    "grace": "GRACE-2L-OAM",
-    "tensorpotential": "GRACE-2L-OAM",
-    "orb": "ORB-v2",
+    "sevennet": "SevenNet-MPtrj-0",
+    "grace": "GRACE-OAM-2L",
+    "tensorpotential": "GRACE-OAM-2L",
+    "orb": "ORB-MPA-v2",
     "mattersim": "MatterSim-v1.0.0-1M",
     "fairchem": "UMA-S-1.2",
     "uma": "UMA-S-1.2",
-    "petmad": "PETMAD-1.0.0",
+    "petmad": "PET-MAD-1.0.0",
     "deepmd": "DPA3-LAM-2025.3.14",
+    # Previous canonical names.
+    "mace-mp-0-small": "MACE-MPtrj-0a-small",
+    "mace-mp-0-medium": "MACE-MPtrj-0a-medium",
+    "mace-mp-0-large": "MACE-MPtrj-0a-large",
+    "mace-mp-0b-small": "MACE-MPtrj-0b-small",
+    "mace-mp-0b-medium": "MACE-MPtrj-0b-medium",
+    "mace-mp-0b2-small": "MACE-MPtrj-0b2-small",
+    "mace-mp-0b2-medium": "MACE-MPtrj-0b2-medium",
+    "mace-mp-0b2-large": "MACE-MPtrj-0b2-large",
+    "mace-mp-0b3-medium": "MACE-MPtrj-0b3-medium",
+    "mace-omat-0-small": "MACE-OMat24-0-small",
+    "mace-omat-0-medium": "MACE-OMat24-0-medium",
+    "grace-1l-oam": "GRACE-OAM-1L",
+    "grace-2l-oam": "GRACE-OAM-2L",
+    "grace-2l-omat": "GRACE-OMat24-2L",
+    "grace-2l-mptrj": "GRACE-MPtrj-2L",
+    "orb-v2": "ORB-MPA-v2",
+    "orb-d3-v2": "ORB-MPA-v2-D3",
+    "orb-d3-sm-v2": "ORB-MPA-v2-D3-sm",
+    "orb-d3-xs-v2": "ORB-MPA-v2-D3-xs",
+    "sevennet-0": "SevenNet-MPtrj-0",
+    "sevennet-l3i5": "SevenNet-MPtrj-l3i5",
+    "sevennet-mf-ompa": "SevenNet-OAM-MF",
+    "sevennet-omat": "SevenNet-OMat24",
+    "petmad-1.0.0": "PET-MAD-1.0.0",
     # legacy MatGL spellings — keep working so existing code/notebooks don't break
     "tensornet-pes-matpes-pbe-2025.2": "TensorNet-MatPES-PBE-2025.2",
     "tensornet-pes-matpes-r2scan-2025.2": "TensorNet-MatPES-r2SCAN-2025.2",
@@ -482,7 +520,7 @@ class PESCalculator(Calculator):
         """
         Load a foundation potential calculator by its canonical name.
 
-        Names follow the unified convention ``<Architecture>-<Dataset>-<Optional Version>``
+        Names follow the unified convention ``<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]``
         (e.g. ``TensorNet-MatPES-PBE-2025.2``, ``MACE-MPA-0-medium``). The full list of
         canonical names is the keys of :data:`MODEL_REGISTRY`; short / legacy spellings
         in :data:`MODEL_ALIASES` resolve to a canonical name. Lookups are

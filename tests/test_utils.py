@@ -13,6 +13,7 @@ from ase.calculators.calculator import Calculator
 from matcalc import RelaxCalc
 from matcalc.utils import (
     MODEL_ALIASES,
+    MODEL_REGISTRY,
     UNIVERSAL_CALCULATORS,
     PESCalculator,
     _resolve_canonical,
@@ -27,27 +28,18 @@ UNIVERSAL_CALCULATORS = [calc for calc in UNIVERSAL_CALCULATORS if "DGL" not in 
 
 
 def _map_calculators_to_packages(calculators: list) -> dict[str, str]:
-    prefix_package_map: list[tuple[tuple[str, ...], str]] = [
-        (("tensornet", "m3gnet", "chgnet"), "matgl"),
-        (("mace",), "mace"),
-        (("sevennet",), "sevenn"),
-        (("grace",), "tensorpotential"),
-        (("orb",), "orb_models"),
-        (("mattersim",), "mattersim"),
-        (("uma",), "fairchem"),
-        (("petmad",), "pet_mad"),
-        (("dpa", "deepmd"), "deepmd"),
-    ]
-
-    calculator_to_package: dict[str, str] = {}
-
-    for calc in calculators:
-        lower_calc = calc.name.lower()
-        for prefixes, package in prefix_package_map:
-            if any(lower_calc.startswith(prefix) for prefix in prefixes):
-                calculator_to_package[calc.name] = package
-                break
-    return calculator_to_package
+    provider_package_map = {
+        "matgl": "matgl",
+        "mace_mp": "mace",
+        "sevennet": "sevenn",
+        "grace": "tensorpotential",
+        "orb": "orb_models",
+        "mattersim": "mattersim",
+        "fairchem": "fairchem",
+        "petmad": "pet_mad",
+        "deepmd": "deepmd",
+    }
+    return {calc.name: provider_package_map[MODEL_REGISTRY[calc.name]["provider"]] for calc in calculators}
 
 
 UNIVERSAL_TO_PACKAGE = _map_calculators_to_packages(UNIVERSAL_CALCULATORS)
@@ -191,8 +183,6 @@ def test_resolve_m3gnet(name: str, expected: str | None) -> None:
 
 def test_aliases() -> None:
     # Every alias must resolve to a canonical name in the registry.
-    from matcalc.utils import MODEL_REGISTRY
-
     for v in MODEL_ALIASES.values():
         assert v in MODEL_REGISTRY, f"Alias target {v!r} is not a canonical model name."
 
@@ -241,3 +231,51 @@ def test_install_hint() -> None:
     assert "pip install" in hint
     assert "matcalc[totally-unmapped-xyz]" in hint
     assert "totally-unmapped-xyz" in hint
+@pytest.mark.parametrize(
+    ("old_name", "canonical"),
+    [
+        ("MACE-MP-0-small", "MACE-MPtrj-0a-small"),
+        ("MACE-MP-0-medium", "MACE-MPtrj-0a-medium"),
+        ("MACE-MP-0-large", "MACE-MPtrj-0a-large"),
+        ("MACE-MP-0b-small", "MACE-MPtrj-0b-small"),
+        ("MACE-MP-0b-medium", "MACE-MPtrj-0b-medium"),
+        ("MACE-MP-0b2-small", "MACE-MPtrj-0b2-small"),
+        ("MACE-MP-0b2-medium", "MACE-MPtrj-0b2-medium"),
+        ("MACE-MP-0b2-large", "MACE-MPtrj-0b2-large"),
+        ("MACE-MP-0b3-medium", "MACE-MPtrj-0b3-medium"),
+        ("MACE-OMAT-0-small", "MACE-OMat24-0-small"),
+        ("MACE-OMAT-0-medium", "MACE-OMat24-0-medium"),
+        ("GRACE-1L-OAM", "GRACE-OAM-1L"),
+        ("GRACE-2L-OAM", "GRACE-OAM-2L"),
+        ("GRACE-2L-OMAT", "GRACE-OMat24-2L"),
+        ("GRACE-2L-MPtrj", "GRACE-MPtrj-2L"),
+        ("ORB-v2", "ORB-MPA-v2"),
+        ("ORB-d3-v2", "ORB-MPA-v2-D3"),
+        ("ORB-d3-sm-v2", "ORB-MPA-v2-D3-sm"),
+        ("ORB-d3-xs-v2", "ORB-MPA-v2-D3-xs"),
+        ("SevenNet-0", "SevenNet-MPtrj-0"),
+        ("SevenNet-l3i5", "SevenNet-MPtrj-l3i5"),
+        ("SevenNet-MF-OMPA", "SevenNet-OAM-MF"),
+        ("SevenNet-OMAT", "SevenNet-OMat24"),
+        ("PETMAD-1.0.0", "PET-MAD-1.0.0"),
+    ],
+)
+def test_renamed_models(old_name: str, canonical: str) -> None:
+    assert canonical in MODEL_REGISTRY
+    assert old_name not in MODEL_REGISTRY
+    for name in (old_name, old_name.lower(), old_name.upper(), canonical, canonical.lower()):
+        assert _resolve_canonical(name) == canonical
+
+
+@pytest.mark.parametrize(
+    ("alias", "canonical"),
+    [
+        ("grace", "GRACE-OAM-2L"),
+        ("tensorpotential", "GRACE-OAM-2L"),
+        ("orb", "ORB-MPA-v2"),
+        ("sevennet", "SevenNet-MPtrj-0"),
+        ("petmad", "PET-MAD-1.0.0"),
+    ],
+)
+def test_short_aliases(alias: str, canonical: str) -> None:
+    assert _resolve_canonical(alias) == canonical
