@@ -90,31 +90,69 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 
 `PESCalculator.load_universal()` — aliased as `matcalc.load_fp()` and `matcalc.load_up()` — supports these models out of the box:
 
-| Model | String Name / Alias | Package |
-|---|---|---|
-| TensorNet-MatPES-PBE | `"TensorNet-PES-MatPES-PBE-2025.2"` or `"pbe"` | matgl |
-| TensorNet-MatPES-r²SCAN | `"TensorNet-PES-MatPES-r2SCAN-2025.2"` or `"r2scan"` | matgl |
-| M3GNet-MatPES-PBE | `"M3GNet-MatPES-PBE-2025.2"` or `"m3gnet"` | matgl |
-| M3GNet-MatPES-r²SCAN | `"M3GNet-MatPES-r2SCAN-2025.2"` | matgl |
-| CHGNet-MatPES-PBE | `"CHGNet-PES-MatPES-PBE-1M-2026.9"` or `"chgnet"` | matgl |
-| CHGNet-MatPES-r²SCAN | `"CHGNet-PES-MatPES-r2SCAN-1M-2026.9"` | matgl |
-| MACE-MP | `"MACE"` | mace-torch |
-| SevenNet | `"SevenNet"` | sevenn |
-| GRACE / TensorPotential | `"GRACE"` or `"TensorPotential"` | tensorpotential |
-| ORB | `"ORB"` | orb-models |
-| MatterSim | `"MatterSim"` | mattersim |
-| FAIRChem | `"FAIRChem"` | fairchem-core |
-| PET-MAD | `"PETMAD"` | pet-mad |
-| DeePMD | `"DeePMD"` | deepmd-kit |
+Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`.
+Braces in the table list available variants.
 
-Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovered if MatGL is installed.
+| Canonical name | Common aliases |
+|---|---|
+| `TensorNet-MatPES-PBE-2025.2` | `tensornet`, `pbe` |
+| `TensorNet-MatPES-r2SCAN-2025.2` | `r2scan` |
+| `M3GNet-MatPES-PBE-2025.2` | `m3gnet` |
+| `M3GNet-MatPES-r2SCAN-2025.2` | — |
+| `CHGNet-MatPES-PBE-1M-2026.9` | `chgnet` |
+| `CHGNet-MatPES-r2SCAN-1M-2026.9` | — |
+| `CHGNet-MatPES-{PBE,r2SCAN}-2025.2.10` | — |
+| `MACE-MPtrj-0a-{small,medium,large}` | — |
+| `MACE-MPtrj-0b-{small,medium}` | — |
+| `MACE-MPtrj-0b2-{small,medium,large}` | — |
+| `MACE-MPtrj-0b3-medium` | — |
+| `MACE-MPA-0-medium` | `mace` |
+| `MACE-OMat24-0-{small,medium}` | — |
+| `MACE-MatPES-{PBE,r2SCAN}-0` | — |
+| `SevenNet-MPtrj-0` | `sevennet` |
+| `SevenNet-MPtrj-l3i5` | — |
+| `SevenNet-OAM-MF` | — |
+| `SevenNet-OMat24` | — |
+| `GRACE-OAM-2L` | `grace`, `tensorpotential` |
+| `GRACE-OAM-1L` | — |
+| `GRACE-OMat24-2L` | — |
+| `GRACE-MPtrj-2L` | — |
+| `ORB-MPA-v2` | `orb` |
+| `ORB-MPA-v2-D3`, `ORB-MPA-v2-D3-{sm,xs}` | — |
+| `MatterSim-v1.0.0-1M` | `mattersim` |
+| `MatterSim-v1.0.0-5M` | — |
+| `UMA-S-1.2` | `uma`, `fairchem` |
+| `UMA-S-{1.1,1.2.1}`, `UMA-M-1.1` | — |
+| `PET-MAD-1.0.0` | `petmad` |
+| `DPA3-LAM-2025.3.14` | `deepmd` |
+
+Canonical names and aliases are case-insensitive in Python and the CLI. Renamed models retain their previous canonical names as aliases.
+`load_fp()` also accepts pretrained MatGL PES names discovered when MatGL is installed.
+
+| Dataset label | Data sources | Model-specific details |
+|---|---|---|
+| `MPtrj` | Materials Project relaxation trajectories | Used by MACE-MPtrj, SevenNet-MPtrj, and GRACE-MPtrj. |
+| `MPA` | MPtrj + Alexandria-family data | [MACE-MPA-0](https://github.com/ACEsuit/mace-foundations#latest-recommended-foundation-models) uses sAlex; [ORB-v2](https://github.com/orbital-materials/orb-models/blob/v0.5.5/MODELS.md#v2-models) uses Alexandria. |
+| `OMat24` | Open Materials 2024 | Used by MACE-OMat24, GRACE-OMat24, and SevenNet-OMat24. |
+| `OAM` | OMat24 + sAlex + MPtrj | [GRACE](https://huggingface.co/AMS-ICAMS-RUB/grace-foundation-models#oam-models) pretrains on OMat24, then fine-tunes on sAlex + MPtrj; [SevenNet](https://github.com/MDIL-SNU/SevenNet/blob/v0.11.2/README.md#sevennet-mf-ompa-17mar2025) uses joint multifidelity training. |
+| `MatPES-PBE` / `MatPES-r2SCAN` | MatPES | The suffix identifies the density functional. |
+
+[sAlex](https://huggingface.co/datasets/facebook/OMAT24#salex-dataset) is an Alexandria subset with WBM matches
+removed and relaxation trajectories subsampled. `ORB-MPA-v2` loads the upstream `orb-v2` model.
+
+For `SevenNet-OAM-MF` (upstream `SevenNet-MF-ompa`), pass `modal="mpa"` to select the MPtrj/sAlex DFT setting,
+or `modal="omat24"` for the OMat24 setting; see the [SevenNet model documentation](https://sevennet.readthedocs.io/en/latest/user_guide/pretrained.html#sevennet-mf-ompa).
+
+UMA retains `<Architecture>-<Size>-<Version>` names and uses the `omat` task. MatterSim retains its
+[upstream model names](https://github.com/microsoft/mattersim#reference). SevenNet's OAM/OMat24 names omit a version,
+and CHGNet's 1M models retain their upstream size-before-version order.
 
 The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).
 
 ## Basic Usage
 
 MatCalc provides convenient methods to quickly compute properties with minimal code. The following example
-computes the elastic constants of Si using the `TensorNet-PES-MatPES-PBE-2025.2` universal MLIP.
+computes the elastic constants of Si using the `TensorNet-MatPES-PBE-2025.2` universal MLIP.
 
 ```python
 import matcalc as mtc
@@ -122,7 +160,7 @@ from pymatgen.ext.matproj import MPRester
 
 mpr = MPRester()
 si = mpr.get_structure_by_material_id("mp-149")
-c = mtc.ElasticityCalc("TensorNet-PES-MatPES-PBE-2025.2", relax_structure=True, units_GPa=True)
+c = mtc.ElasticityCalc("TensorNet-MatPES-PBE-2025.2", relax_structure=True, units_GPa=True)
 props = c.calc(si)
 print(f"K_VRH = {props['bulk_modulus_vrh']} GPa")
 ```
@@ -149,7 +187,7 @@ pbe_calculator = mtc.load_fp("pbe")
 r2scan_calculator = mtc.load_fp("r2scan")
 ```
 
-These currently resolve to the `TensorNet-PES-MatPES-*-2025.2` models, but may be updated as better models
+These currently resolve to the `TensorNet-MatPES-*-2025.2` models, but may be updated as better models
 become available.
 
 `matcalc.load_up` is the same as `matcalc.load_fp` (historical alias).
@@ -222,7 +260,7 @@ A command-line interface allows computing properties for any structure file:
 matcalc calc -p ElasticityCalc -s Li2O.cif
 
 # Use a specific model and write output to a JSON file
-matcalc calc -p RelaxCalc -m TensorNet -s structure.cif -o results.json
+matcalc calc -p RelaxCalc -m TensorNet-MatPES-PBE-2025.2 -s structure.cif -o results.json
 
 # Clear the local benchmark data cache
 matcalc clear
@@ -238,7 +276,7 @@ MatCalc includes a benchmarking framework released alongside [MatPES].
 ```python
 import matcalc as mtc
 
-calculator = mtc.load_fp("TensorNet-PES-MatPES-PBE-2025.2")
+calculator = mtc.load_fp("TensorNet-MatPES-PBE-2025.2")
 benchmark = mtc.benchmark.ElasticityBenchmark(fmax=0.05, relax_structure=True)
 results = benchmark.run(calculator, "TensorNet-MatPES")
 ```
@@ -250,8 +288,8 @@ To run multiple benchmarks on multiple models:
 ```python
 import matcalc as mtc
 
-tensornet = mtc.load_fp("TensorNet-PES-MatPES-PBE-2025.2")
-m3gnet = mtc.load_fp("M3GNet-PES-MatPES-PBE-2025.1")
+tensornet = mtc.load_fp("TensorNet-MatPES-PBE-2025.2")
+m3gnet = mtc.load_fp("M3GNet-MatPES-PBE-2025.2")
 
 elasticity_benchmark = mtc.benchmark.ElasticityBenchmark(fmax=0.5, relax_structure=True)
 phonon_benchmark = mtc.benchmark.PhononBenchmark(write_phonon=False)
