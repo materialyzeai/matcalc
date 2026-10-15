@@ -14,7 +14,7 @@ from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
 
 from ._base import PropCalc
 from ._relaxation import RelaxCalc
-from .utils import to_pmg_structure
+from .utils import MODEL_REGISTRY, _resolve_canonical, to_pmg_structure
 
 if TYPE_CHECKING:
     from typing import Any, Literal
@@ -22,15 +22,6 @@ if TYPE_CHECKING:
     from ase import Atoms
 
 LAMMPS_TEMPLATES_DIR = Path(__file__).parent / "lammps_templates"
-
-# Provide simple aliases for some common models. The key in MODEL_ALIASES must be lower case.
-MODEL_ALIASES = {
-    "tensornet": "TensorNet-PES-MatPES-PBE-2025.2",
-    "m3gnet": "M3GNet-MatPES-PBE-v2025.1-PES",
-    "chgnet": "CHGNet-PES-MatPES-PBE-1M-2026.9",
-    "pbe": "TensorNet-PES-MatPES-PBE-2025.2",
-    "r2scan": "TensorNet-PES-MatPES-r2SCAN-2025.2",
-}
 
 
 class LAMMPSMDCalc(PropCalc):
@@ -108,8 +99,9 @@ class LAMMPSMDCalc(PropCalc):
         self.settings = settings
         self.relax_calc_kwargs = relax_calc_kwargs
 
-        if any(self.model_name.lower().startswith(m) for m in ("m3gnet", "chgnet", "tensornet", "pbe", "r2scan")):
-            self.model_name = MODEL_ALIASES.get(self.model_name.lower(), self.model_name)
+        canonical = _resolve_canonical(self.model_name)
+        if canonical is not None and MODEL_REGISTRY[canonical]["provider"] == "matgl":
+            self.model_name = MODEL_REGISTRY[canonical]["path"]
             self.gnnp_type = "matgl"
         else:
             self.gnnp_type = self.model_name.lower()
