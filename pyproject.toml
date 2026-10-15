@@ -54,7 +54,7 @@ maml = [
     "maml>=2025.4.3",
 ]
 matgl = [
-    "matgl>=4.0.1",
+    "matgl>=4.1.0",
 ]
 mace = [
     "mace-torch>=0.3.12",
@@ -89,7 +89,7 @@ ci = [
     "ipython>=8.34.0",
     "jupyter>=1.1.1",
     "maml>=2025.4.3",
-    "matgl>=4.0.1",
+    "matgl>=4.1.0",
     "matminer>=0.10.1",
     "mp-api>=0.45.3",
     "nbmake>=1.5.5",
@@ -131,7 +131,7 @@ dev = [
     "ipython>=8.34.0",
     "jupyter>=1.1.1",
     "maml>=2025.4.3",
-    "matgl>=4.0.1",
+    "matgl>=4.1.0",
     "matminer>=0.10.1",
     "mp-api>=0.45.3",
     "nbmake>=1.5.5",

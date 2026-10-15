@@ -15,6 +15,7 @@ from matcalc.utils import (
     MODEL_ALIASES,
     UNIVERSAL_CALCULATORS,
     PESCalculator,
+    _resolve_canonical,
 )
 
 DIR = Path(__file__).parent.absolute()
@@ -22,13 +23,7 @@ DIR = Path(__file__).parent.absolute()
 if TYPE_CHECKING:
     from pymatgen.core import Structure
 
-UNIVERSAL_CALCULATORS = [
-    calc
-    for calc in UNIVERSAL_CALCULATORS
-    # MatGL DGL backend / M3GNet / CHGNet are intentionally excluded from the
-    # parametrized smoke test (covered separately or skipped due to runtime).
-    if "DGL" not in calc.name and "M3GNet" not in calc.name and "CHGNet" not in calc.name
-]
+UNIVERSAL_CALCULATORS = [calc for calc in UNIVERSAL_CALCULATORS if "DGL" not in calc.name and "CHGNet" not in calc.name]
 
 
 def _map_calculators_to_packages(calculators: list) -> dict[str, str]:
@@ -176,6 +171,22 @@ def test_pescalculator_calculate() -> None:
     assert isinstance(energy, float)
     assert list(forces.shape) == [4, 3]
     assert list(stresses.shape) == [6]
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("m3gnet", "M3GNet-MatPES-PBE-2025.2"),
+        ("M3GNet-MatPES-PBE-2025.2", "M3GNet-MatPES-PBE-2025.2"),
+        ("M3GNet-MatPES-r2SCAN-2025.2", "M3GNet-MatPES-r2SCAN-2025.2"),
+        ("m3gnet-pes-matpes-pbe-2025.2", "M3GNet-MatPES-PBE-2025.2"),
+        ("m3gnet-pes-matpes-r2scan-2025.2", "M3GNet-MatPES-r2SCAN-2025.2"),
+        ("M3GNet-MatPES-PBE-2025.1", None),
+        ("m3gnet-pes-matpes-pbe-2025.1", None),
+    ],
+)
+def test_resolve_m3gnet(name: str, expected: str | None) -> None:
+    assert _resolve_canonical(name) == expected
 
 
 def test_aliases() -> None:

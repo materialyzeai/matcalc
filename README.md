@@ -38,6 +38,8 @@ For MatGL foundation potential support (TensorNet, M3GNet, CHGNet):
 pip install matcalc[matgl]
 ```
 
+M3GNet MatPES 2025.2 models require MatGL 4.1.0 or newer.
+
 For MAML classical potential support (MTP, GAP, NNP, SNAP):
 
 ```bash
@@ -92,7 +94,8 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 |---|---|---|
 | TensorNet-MatPES-PBE | `"TensorNet-PES-MatPES-PBE-2025.2"` or `"pbe"` | matgl |
 | TensorNet-MatPES-r²SCAN | `"TensorNet-PES-MatPES-r2SCAN-2025.2"` or `"r2scan"` | matgl |
-| M3GNet-MatPES-PBE | `"M3GNet-PES-MatPES-PBE-v2025.1"` or `"m3gnet"` | matgl |
+| M3GNet-MatPES-PBE | `"M3GNet-MatPES-PBE-2025.2"` or `"m3gnet"` | matgl |
+| M3GNet-MatPES-r²SCAN | `"M3GNet-MatPES-r2SCAN-2025.2"` | matgl |
 | CHGNet-MatPES-PBE | `"CHGNet-PES-MatPES-PBE-1M-2026.9"` or `"chgnet"` | matgl |
 | CHGNet-MatPES-r²SCAN | `"CHGNet-PES-MatPES-r2SCAN-1M-2026.9"` | matgl |
 | MACE-MP | `"MACE"` | mace-torch |

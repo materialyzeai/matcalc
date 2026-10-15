@@ -41,7 +41,8 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "TensorNet-MatPES-PBE-2025.2": {"provider": "matgl", "path": "TensorNet-PES-MatPES-PBE-2025.2"},
     "TensorNet-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "TensorNet-PES-MatPES-r2SCAN-2025.2"},
     # MatGL — M3GNet
-    "M3GNet-MatPES-PBE-2025.1": {"provider": "matgl", "path": "M3GNet-PES-MatPES-PBE-2025.1"},
+    "M3GNet-MatPES-PBE-2025.2": {"provider": "matgl", "path": "M3GNet-PES-MatPES-PBE-2025.2"},
+    "M3GNet-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "M3GNet-PES-MatPES-r2SCAN-2025.2"},
     # MatGL — CHGNet
     "CHGNet-MatPES-PBE-1M-2026.9": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-1M-2026.9"},
     "CHGNet-MatPES-r2SCAN-1M-2026.9": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-1M-2026.9"},
@@ -99,7 +100,7 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
 MODEL_ALIASES: dict[str, str] = {
     # short architecture / functional aliases — pick a sensible default per family
     "tensornet": "TensorNet-MatPES-PBE-2025.2",
-    "m3gnet": "M3GNet-MatPES-PBE-2025.1",
+    "m3gnet": "M3GNet-MatPES-PBE-2025.2",
     "chgnet": "CHGNet-MatPES-PBE-1M-2026.9",
     "pbe": "TensorNet-MatPES-PBE-2025.2",
     "r2scan": "TensorNet-MatPES-r2SCAN-2025.2",
@@ -116,7 +117,8 @@ MODEL_ALIASES: dict[str, str] = {
     # legacy MatGL spellings — keep working so existing code/notebooks don't break
     "tensornet-pes-matpes-pbe-2025.2": "TensorNet-MatPES-PBE-2025.2",
     "tensornet-pes-matpes-r2scan-2025.2": "TensorNet-MatPES-r2SCAN-2025.2",
-    "m3gnet-pes-matpes-pbe-2025.1": "M3GNet-MatPES-PBE-2025.1",
+    "m3gnet-pes-matpes-pbe-2025.2": "M3GNet-MatPES-PBE-2025.2",
+    "m3gnet-pes-matpes-r2scan-2025.2": "M3GNet-MatPES-r2SCAN-2025.2",
     "chgnet-pes-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-1M-2026.9",
     "chgnet-pes-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-1M-2026.9",
     "chgnet-pes-matpes-pbe-2025.2.10": "CHGNet-MatPES-PBE-2025.2.10",
