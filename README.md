@@ -102,8 +102,8 @@ Names are case-insensitive, and previous names (including MatGL PES names) still
 | `M3GNet-MatPES-PBE-2025.2` | `m3gnet` |
 | `M3GNet-MatPES-r2SCAN-2025.2` | — |
 | `QET-MatPES-{PBE,r2SCAN}-2025.2` | — |
-| `CHGNet-MatPES-PBE-1M-2026.9` | `chgnet` |
-| `CHGNet-MatPES-r2SCAN-1M-2026.9` | — |
+| `CHGNet-MatPES-PBE-2026.9-1M` | `chgnet` |
+| `CHGNet-MatPES-r2SCAN-2026.9-1M` | — |
 | `CHGNet-MatPES-{PBE,r2SCAN}-2025.2.10` | — |
 | `MACE-MPtrj-0a-{small,medium,large}` | — |
 | `MACE-MPtrj-0b-{small,medium}` | — |

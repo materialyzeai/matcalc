@@ -48,7 +48,6 @@ if TYPE_CHECKING:
 # Exceptions to the convention, where upstream names lack a field:
 #   - UMA uses ``<Architecture>-<Size>-<Version>`` and the ``omat`` task (no dataset field).
 #   - SevenNet OAM/OMat24 and GRACE names omit a version.
-#   - CHGNet 1M models keep MatGL's size-before-version order, e.g. ``CHGNet-MatPES-PBE-1M-2026.9``.
 #   - MatterSim names prefix the upstream model name with its M3GNet architecture.
 #
 # Other provider notes:
@@ -70,8 +69,8 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "QET-MatPES-PBE-2025.2": {"provider": "matgl", "path": "QET-PES-MatPES-PBE-2025.2"},
     "QET-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "QET-PES-MatPES-r2SCAN-2025.2"},
     # MatGL — CHGNet
-    "CHGNet-MatPES-PBE-1M-2026.9": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-1M-2026.9"},
-    "CHGNet-MatPES-r2SCAN-1M-2026.9": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-1M-2026.9"},
+    "CHGNet-MatPES-PBE-2026.9-1M": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-1M-2026.9"},
+    "CHGNet-MatPES-r2SCAN-2026.9-1M": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-1M-2026.9"},
     "CHGNet-MatPES-PBE-2025.2.10": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-2025.2.10"},
     "CHGNet-MatPES-r2SCAN-2025.2.10": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-2025.2.10"},
     # MACE foundation models (mace-foundations release names)
@@ -128,7 +127,7 @@ MODEL_ALIASES: dict[str, str] = {
     # short architecture / functional aliases — pick a sensible default per family
     "tensornet": "TensorNet-MatPES-PBE-2025.2",
     "m3gnet": "M3GNet-MatPES-PBE-2025.2",
-    "chgnet": "CHGNet-MatPES-PBE-1M-2026.9",
+    "chgnet": "CHGNet-MatPES-PBE-2026.9-1M",
     "pbe": "TensorNet-MatPES-PBE-2025.2",
     "r2scan": "TensorNet-MatPES-r2SCAN-2025.2",
     "mace": "MACE-MPA-0-medium",
@@ -174,8 +173,10 @@ MODEL_ALIASES: dict[str, str] = {
     "m3gnet-pes-matpes-r2scan-2025.2": "M3GNet-MatPES-r2SCAN-2025.2",
     "qet-pes-matpes-pbe-2025.2": "QET-MatPES-PBE-2025.2",
     "qet-pes-matpes-r2scan-2025.2": "QET-MatPES-r2SCAN-2025.2",
-    "chgnet-pes-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-1M-2026.9",
-    "chgnet-pes-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-1M-2026.9",
+    "chgnet-pes-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-2026.9-1M",
+    "chgnet-pes-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-2026.9-1M",
+    "chgnet-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-2026.9-1M",
+    "chgnet-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-2026.9-1M",
     "chgnet-pes-matpes-pbe-2025.2.10": "CHGNet-MatPES-PBE-2025.2.10",
     "chgnet-pes-matpes-r2scan-2025.2.10": "CHGNet-MatPES-r2SCAN-2025.2.10",
     "chgnet-matpes-pbe-2025.2.10-2.7m-pes": "CHGNet-MatPES-PBE-2025.2.10",
