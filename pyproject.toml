@@ -75,8 +75,8 @@ mattersim = [
 fairchem = [
     "fairchem-core",
 ]
-petmad = [
-    "pet-mad",
+upet = [
+    "upet>=0.3.0",
 ]
 deepmd = [
     "deepmd-kit>=3.0.2",
@@ -170,7 +170,7 @@ conflicts = [
       { extra = "sevennet" },
       { extra = "grace" },
       { extra = "orb" },
-      { extra = "petmad" },
+      { extra = "upet" },
       { extra = "deepmd" },
     ],
 ]

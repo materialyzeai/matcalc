@@ -53,7 +53,7 @@ Everything in `src/matcalc/` is built around one base class in `_base.py`:
 - `MODEL_REGISTRY` — canonical name → `{provider, ...kwargs}`. Naming convention is `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`, e.g. `TensorNet-MatPES-PBE-2025.2`.
 - `MODEL_ALIASES` — short / legacy spellings (`pbe`, `r2scan`, `mace`, `chgnet`, …) that resolve to a canonical name. Lookups are case-insensitive.
 
-To add a new model, add an entry to `MODEL_REGISTRY` and (if the provider is new) extend the loader branch in `PESCalculator.load_universal`. Provider stacks (matgl, mace-torch, sevenn, tensorpotential, orb-models, mattersim, fairchem-core, pet-mad, deepmd-kit) are imported lazily inside their branches so that missing optional deps don't break import of `matcalc`.
+To add a new model, add an entry to `MODEL_REGISTRY` and (if the provider is new) extend the loader branch in `PESCalculator.load_universal`. Provider stacks (matgl, mace-torch, sevenn, tensorpotential, orb-models, mattersim, fairchem-core, upet, deepmd-kit) are imported lazily inside their branches so that missing optional deps don't break import of `matcalc`.
 
 The `test-fp-loaders` matrix in `.github/workflows/test.yml` smoke-tests one canonical name per provider — keep it in sync when adding/removing canonical names for a covered provider.
 

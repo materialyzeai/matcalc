@@ -123,7 +123,7 @@ Braces in the table list available variants.
 | `MatterSim-v1.0.0-5M` | — |
 | `UMA-S-1.2` | `uma`, `fairchem` |
 | `UMA-S-{1.1,1.2.1}`, `UMA-M-1.1` | — |
-| `PET-MAD-1.0.0` | `petmad` |
+| `PET-MAD-1.0.2` | `petmad` |
 | `DPA3-LAM-2025.3.14` | `deepmd` |
 
 Canonical names and aliases are case-insensitive in Python and the CLI. Renamed models retain their previous canonical names as aliases.
@@ -148,6 +148,7 @@ or `modal="omat24"` for the OMat24 setting; see the [SevenNet model documentatio
 UMA retains `<Architecture>-<Size>-<Version>` names and uses the `omat` task. MatterSim retains its
 [upstream model names](https://github.com/microsoft/mattersim#reference). SevenNet's OAM/OMat24 names omit a version,
 and CHGNet's 1M models retain their upstream size-before-version order.
+PET models load through [upet](https://github.com/lab-cosmo/upet) (`pip install matcalc[upet]`); `PET-MAD-1.0.2` is upstream `pet-mad-s` version 1.0.2.
 
 The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).
 

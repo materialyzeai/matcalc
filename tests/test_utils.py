@@ -36,7 +36,7 @@ def _map_calculators_to_packages(calculators: list) -> dict[str, str]:
         "orb": "orb_models",
         "mattersim": "mattersim",
         "fairchem": "fairchem",
-        "petmad": "pet_mad",
+        "upet": "upet",
         "deepmd": "deepmd",
     }
     return {calc.name: provider_package_map[MODEL_REGISTRY[calc.name]["provider"]] for calc in calculators}
@@ -181,6 +181,19 @@ def test_resolve_m3gnet(name: str, expected: str | None) -> None:
     assert _resolve_canonical(name) == expected
 
 
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("PET-MAD-1.0.2", "PET-MAD-1.0.2"),
+        ("pet-mad-1.0.2", "PET-MAD-1.0.2"),
+        ("PET-MAD-1.0.0", None),
+        ("PETMAD-1.0.0", None),
+    ],
+)
+def test_resolve_pet_mad(name: str, expected: str | None) -> None:
+    assert _resolve_canonical(name) == expected
+
+
 def test_aliases() -> None:
     # Every alias must resolve to a canonical name in the registry.
     for v in MODEL_ALIASES.values():
@@ -257,7 +270,6 @@ def test_install_hint() -> None:
         ("SevenNet-l3i5", "SevenNet-MPtrj-l3i5"),
         ("SevenNet-MF-OMPA", "SevenNet-OAM-MF"),
         ("SevenNet-OMAT", "SevenNet-OMat24"),
-        ("PETMAD-1.0.0", "PET-MAD-1.0.0"),
     ],
 )
 def test_renamed_models(old_name: str, canonical: str) -> None:
@@ -274,7 +286,7 @@ def test_renamed_models(old_name: str, canonical: str) -> None:
         ("tensorpotential", "GRACE-OAM-2L"),
         ("orb", "ORB-MPA-v2"),
         ("sevennet", "SevenNet-MPtrj-0"),
-        ("petmad", "PET-MAD-1.0.0"),
+        ("petmad", "PET-MAD-1.0.2"),
     ],
 )
 def test_short_aliases(alias: str, canonical: str) -> None:

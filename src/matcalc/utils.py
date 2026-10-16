@@ -103,8 +103,8 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "UMA-S-1.2": {"provider": "fairchem", "model": "uma-s-1p2", "task_name": "omat"},
     "UMA-S-1.1": {"provider": "fairchem", "model": "uma-s-1p1", "task_name": "omat"},
     "UMA-M-1.1": {"provider": "fairchem", "model": "uma-m-1p1", "task_name": "omat"},
-    # PET-MAD
-    "PET-MAD-1.0.0": {"provider": "petmad"},
+    # UPET
+    "PET-MAD-1.0.2": {"provider": "upet", "model": "pet-mad-s", "version": "1.0.2"},
     # DeePMD-LAM
     "DPA3-LAM-2025.3.14": {"provider": "deepmd"},
 }
@@ -126,7 +126,7 @@ MODEL_ALIASES: dict[str, str] = {
     "mattersim": "MatterSim-v1.0.0-1M",
     "fairchem": "UMA-S-1.2",
     "uma": "UMA-S-1.2",
-    "petmad": "PET-MAD-1.0.0",
+    "petmad": "PET-MAD-1.0.2",
     "deepmd": "DPA3-LAM-2025.3.14",
     # Previous canonical names.
     "mace-mp-0-small": "MACE-MPtrj-0a-small",
@@ -152,7 +152,6 @@ MODEL_ALIASES: dict[str, str] = {
     "sevennet-l3i5": "SevenNet-MPtrj-l3i5",
     "sevennet-mf-ompa": "SevenNet-OAM-MF",
     "sevennet-omat": "SevenNet-OMat24",
-    "petmad-1.0.0": "PET-MAD-1.0.0",
     # legacy MatGL spellings — keep working so existing code/notebooks don't break
     "tensornet-pes-matpes-pbe-2025.2": "TensorNet-MatPES-PBE-2025.2",
     "tensornet-pes-matpes-r2scan-2025.2": "TensorNet-MatPES-r2SCAN-2025.2",
@@ -202,7 +201,7 @@ _PROVIDER_INSTALL_EXTRA: dict[str, str] = {
     "orb": "orb",
     "mattersim": "mattersim",
     "fairchem": "fairchem",
-    "petmad": "petmad",
+    "upet": "upet",
     "deepmd": "deepmd",
 }
 
@@ -631,10 +630,10 @@ def _load_fairchem(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
     return FAIRChemCalculator(predictor, task_name=task_name, **kwargs)
 
 
-def _load_petmad(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
-    from pet_mad.calculator import PETMADCalculator
+def _load_upet(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
+    from upet.ase import UPETCalculator
 
-    return PETMADCalculator(**kwargs)
+    return UPETCalculator(**kwargs)
 
 
 # Bundled DPA3 checkpoint under tests/ (only present in editable installs).
@@ -669,7 +668,7 @@ _PROVIDER_LOADERS: dict[str, Callable[[dict[str, Any]], Calculator]] = {
     "orb": _load_orb,
     "mattersim": _load_mattersim,
     "fairchem": _load_fairchem,
-    "petmad": _load_petmad,
+    "upet": _load_upet,
     "deepmd": _load_deepmd,
 }
 
