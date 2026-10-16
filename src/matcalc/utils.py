@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 #
 # Exceptions to the convention, where upstream names lack a field:
 #   - UMA uses ``<Architecture>-<Size>-<Version>`` and the ``omat`` task (no dataset field).
-#   - SevenNet OAM/OMat24 and GRACE names omit a version.
+#   - SevenNet OAM/OMat24, GRACE and QET-MatQ names omit a version.
 #   - MatterSim keeps its upstream names (``MatterSim-v1.0.0-1M``/``-5M``), omitting the M3GNet architecture.
 #
 # To add a new model, append an entry here. The ``provider`` key picks the loader
@@ -64,6 +64,7 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     # MatGL — QET
     "QET-MatPES-PBE-2025.2": {"provider": "matgl", "path": "QET-PES-MatPES-PBE-2025.2"},
     "QET-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "QET-PES-MatPES-r2SCAN-2025.2"},
+    "QET-MatQ": {"provider": "matgl", "path": "QET-PES-MatQ"},
     # MatGL — CHGNet
     "CHGNet-MatPES-PBE-2026.9-1M": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-1M-2026.9"},
     "CHGNet-MatPES-r2SCAN-2026.9-1M": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-1M-2026.9"},
@@ -133,6 +134,7 @@ MODEL_ALIASES: dict[str, str] = {
     "tensornet": "TensorNet-MatPES-PBE-2025.2",
     "m3gnet": "M3GNet-MatPES-PBE-2025.2",
     "chgnet": "CHGNet-MatPES-PBE-2026.9-1M",
+    "qet": "QET-MatPES-PBE-2025.2",
     "pbe": "TensorNet-MatPES-PBE-2025.2",
     "r2scan": "TensorNet-MatPES-r2SCAN-2025.2",
     "mace": "MACE-MPA-0-medium",
@@ -177,6 +179,7 @@ MODEL_ALIASES: dict[str, str] = {
     "m3gnet-pes-matpes-r2scan-2025.2": "M3GNet-MatPES-r2SCAN-2025.2",
     "qet-pes-matpes-pbe-2025.2": "QET-MatPES-PBE-2025.2",
     "qet-pes-matpes-r2scan-2025.2": "QET-MatPES-r2SCAN-2025.2",
+    "qet-pes-matq": "QET-MatQ",
     "chgnet-pes-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-2026.9-1M",
     "chgnet-pes-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-2026.9-1M",
     "chgnet-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-2026.9-1M",

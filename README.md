@@ -94,7 +94,8 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 | `TensorNet-MatPES-r2SCAN-2025.2` | `r2scan` | matgl |
 | `M3GNet-MatPES-PBE-2025.2` | `m3gnet` | matgl |
 | `M3GNet-MatPES-r2SCAN-2025.2` | — | matgl |
-| `QET-MatPES-{PBE,r2SCAN}-2025.2` | — | matgl |
+| `QET-MatPES-{PBE,r2SCAN}-2025.2` | `qet` | matgl |
+| `QET-MatQ` | — | matgl |
 | `CHGNet-MatPES-PBE-2026.9-1M` | `chgnet` | matgl |
 | `CHGNet-MatPES-r2SCAN-2026.9-1M` | — | matgl |
 | `CHGNet-MatPES-{PBE,r2SCAN}-2025.2.10` | — | matgl |
