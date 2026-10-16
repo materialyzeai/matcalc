@@ -26,10 +26,10 @@ def test_neb_calc(LiFePO4: Structure, matpes_calculator: PESCalculator, tmp_path
     start_result, end_result = neb_calc.calc_endpoints(image_start, image_end, relax_calc_kwargs={"optimizer": "FIRE"})
     barriers = neb_calc.calc_images(start_result["final_structure"], end_result["final_structure"], n_images=5)
     assert barriers["barrier"] == pytest.approx(0.26219177246093794, rel=0.05)
-    assert barriers["force"] == pytest.approx(0.00128173828125, abs=1e-3)
-    assert barriers["band_forces"].shape == (5 * len(image_start), 3)
-    assert np.isfinite(barriers["band_forces"]).all()
-    assert barriers["_units"]["band_forces"] == "eV/Å"
+    assert barriers["reaction_energy"] == pytest.approx(0.00128173828125, abs=1e-3)
+    assert barriers["force"].shape == (5 * len(image_start), 3)
+    assert np.isfinite(barriers["force"]).all()
+    assert barriers["_units"] == {"barrier": "eV", "reaction_energy": "eV", "force": "eV/Å"}
     assert isinstance(barriers["mep"], MEP), "barriers['mep'] should be an MEP instance"
     mep = barriers["mep"]
     assert len(mep.labels) > 0, "MEP should have labels"
