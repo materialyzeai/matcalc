@@ -87,7 +87,8 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "GRACE-OAM-1L": {"provider": "grace", "model": "GRACE-1L-OAM"},
     "GRACE-OAM-2L": {"provider": "grace", "model": "GRACE-2L-OAM"},
     "GRACE-OMat24-2L": {"provider": "grace", "model": "GRACE-2L-OMAT"},
-    "GRACE-MPtrj-2L": {"provider": "grace", "model": "GRACE-2L-MPtrj"},
+    # GRACE-2L-MP-r6 is only available in tensorpotential<0.5.8.
+    "GRACE-MPtrj-2L": {"provider": "grace", "model": "GRACE-2L-MP-r6"},
     # Orb
     "ORB-MPA-v2": {"provider": "orb", "model": "orb-v2"},
     "ORB-MPA-v2-D3": {"provider": "orb", "model": "orb-d3-v2"},
