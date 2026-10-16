@@ -66,7 +66,7 @@ grace = [
     "tensorpotential>=0.5.1",
 ]
 orb = [
-    "orb-models>=0.4.2",
+    "orb-models>=0.6.0; python_version >= '3.12'",
     "pynanoflann>=0.10.0",
 ]
 mattersim = [

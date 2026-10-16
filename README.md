@@ -141,6 +141,7 @@ Models not in the registry can be loaded by passing a provider alias with an ove
 
 [sAlex](https://huggingface.co/datasets/facebook/OMAT24#salex-dataset) is an Alexandria subset with WBM matches
 removed and relaxation trajectories subsampled. `ORB-MPA-v2` loads the upstream `orb-v2` model.
+ORB models require Python 3.12 or later (orb-models 0.6 or later).
 
 `SevenNet-OAM-MF` (upstream `SevenNet-MF-ompa`) uses `modal="mpa"`, the MPtrj/sAlex DFT setting used for Matbench Discovery;
 pass `modal="omat24"` for the OMat24 setting; see the [SevenNet model documentation](https://sevennet.readthedocs.io/en/latest/user_guide/pretrained.html#sevennet-mf-ompa).

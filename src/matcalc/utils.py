@@ -605,13 +605,13 @@ def _load_grace(kwargs: dict[str, Any]) -> Calculator:
 
 
 def _load_orb(kwargs: dict[str, Any]) -> Calculator:
-    from orb_models.forcefield.calculator import ORBCalculator
+    from orb_models.forcefield.inference.calculator import ORBCalculator
     from orb_models.forcefield.pretrained import ORB_PRETRAINED_MODELS
 
     model = kwargs.pop("model")
     device = kwargs.get("device", "cpu")
-    orbff = ORB_PRETRAINED_MODELS[model](device=device)
-    return ORBCalculator(orbff, **kwargs)
+    orbff, atoms_adapter = ORB_PRETRAINED_MODELS[model](device=device)
+    return ORBCalculator(orbff, atoms_adapter=atoms_adapter, **kwargs)
 
 
 def _load_mattersim(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
