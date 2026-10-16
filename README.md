@@ -88,8 +88,6 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 
 `PESCalculator.load_universal()` — aliased as `matcalc.load_fp()` and `matcalc.load_up()` — supports these models out of the box:
 
-Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`; braces list variants.
-
 | Canonical name | Common aliases | Package |
 |---|---|---|
 | `TensorNet-MatPES-PBE-2025.2` | `tensornet`, `pbe` | matgl |
@@ -123,8 +121,9 @@ Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`; br
 | `UMA-S-{1.1,1.2.1}`, `UMA-M-1.1` | — | fairchem-core |
 | `PET-MAD-1.0.2` | `petmad` | upet |
 | `DPA3-LAM-2025.3.14` | `deepmd` | deepmd-kit |
-| `DPA4-OMat24-2026.8.5-{Mini,Neo}` | — | deepmd-kit |
+| `DPA4-OMat24-2026.8.5-{Nano,Mini,Neo,Air,Plus}` | — | deepmd-kit |
 
+Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`; braces list variants.
 Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovered if MatGL is installed.
 
 The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).

@@ -114,8 +114,11 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "PET-MAD-1.0.2": {"provider": "upet", "model": "pet-mad-s", "version": "1.0.2"},
     # DPA (DPA4 checkpoints are CC-BY-NC-4.0)
     "DPA3-LAM-2025.3.14": {"provider": "deepmd"},
+    "DPA4-OMat24-2026.8.5-Nano": {"provider": "deepmd", "model": "DPA4-Nano-OMat24-v20260805"},
     "DPA4-OMat24-2026.8.5-Mini": {"provider": "deepmd", "model": "DPA4-Mini-OMat24-v20260805"},
     "DPA4-OMat24-2026.8.5-Neo": {"provider": "deepmd", "model": "DPA4-Neo-OMat24-v20260805"},
+    "DPA4-OMat24-2026.8.5-Air": {"provider": "deepmd", "model": "DPA4-Air-OMat24-v20260805"},
+    "DPA4-OMat24-2026.8.5-Plus": {"provider": "deepmd", "model": "DPA4-Plus-OMat24-v20260805"},
 }
 
 # Short / legacy aliases. Keys are matched case-insensitively. Values must be
