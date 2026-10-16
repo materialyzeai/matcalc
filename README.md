@@ -128,6 +128,7 @@ Braces in the table list available variants.
 
 Canonical names and aliases are case-insensitive in Python and the CLI. Renamed models retain their previous canonical names as aliases.
 `load_fp()` also accepts pretrained MatGL PES names discovered when MatGL is installed.
+Models not in the registry can be loaded by passing a provider alias with an override, e.g. `load_fp("grace", model="GRACE-2L-SMAX-OMAT-large")`, or by passing any ASE calculator directly.
 `GRACE-MPtrj-2L` loads upstream `GRACE-2L-MP-r6`, which was removed in tensorpotential 0.5.8; it requires `tensorpotential<0.5.8` (Python < 3.13).
 
 | Dataset label | Data sources | Model-specific details |
