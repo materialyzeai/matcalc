@@ -99,6 +99,7 @@ Braces in the table list available variants.
 | `TensorNet-MatPES-r2SCAN-2025.2` | `r2scan` |
 | `M3GNet-MatPES-PBE-2025.2` | `m3gnet` |
 | `M3GNet-MatPES-r2SCAN-2025.2` | — |
+| `QET-MatPES-{PBE,r2SCAN}-2025.2` | — |
 | `CHGNet-MatPES-PBE-1M-2026.9` | `chgnet` |
 | `CHGNet-MatPES-r2SCAN-1M-2026.9` | — |
 | `CHGNet-MatPES-{PBE,r2SCAN}-2025.2.10` | — |

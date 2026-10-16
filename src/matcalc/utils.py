@@ -56,6 +56,9 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     # MatGL — M3GNet
     "M3GNet-MatPES-PBE-2025.2": {"provider": "matgl", "path": "M3GNet-PES-MatPES-PBE-2025.2"},
     "M3GNet-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "M3GNet-PES-MatPES-r2SCAN-2025.2"},
+    # MatGL — QET
+    "QET-MatPES-PBE-2025.2": {"provider": "matgl", "path": "QET-PES-MatPES-PBE-2025.2"},
+    "QET-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "QET-PES-MatPES-r2SCAN-2025.2"},
     # MatGL — CHGNet
     "CHGNet-MatPES-PBE-1M-2026.9": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-1M-2026.9"},
     "CHGNet-MatPES-r2SCAN-1M-2026.9": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-1M-2026.9"},
@@ -159,6 +162,8 @@ MODEL_ALIASES: dict[str, str] = {
     "tensornet-pes-matpes-r2scan-2025.2": "TensorNet-MatPES-r2SCAN-2025.2",
     "m3gnet-pes-matpes-pbe-2025.2": "M3GNet-MatPES-PBE-2025.2",
     "m3gnet-pes-matpes-r2scan-2025.2": "M3GNet-MatPES-r2SCAN-2025.2",
+    "qet-pes-matpes-pbe-2025.2": "QET-MatPES-PBE-2025.2",
+    "qet-pes-matpes-r2scan-2025.2": "QET-MatPES-r2SCAN-2025.2",
     "chgnet-pes-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-1M-2026.9",
     "chgnet-pes-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-1M-2026.9",
     "chgnet-pes-matpes-pbe-2025.2.10": "CHGNet-MatPES-PBE-2025.2.10",
