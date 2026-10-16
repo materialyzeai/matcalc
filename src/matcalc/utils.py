@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 # MatPES-PBE / MatPES-r2SCAN  | MatPES                | The suffix identifies the functional.
 # SMAX                       | SMAX                  | GRACE max-entropy structures; element-dependent 5.0-7.5 A cutoff.
 # SMAX-OMat24                | SMAX + OMat24         | GRACE's general-purpose recommendation.
+# MAD                        | MAD                   | PET-MAD; MAD-1.0 is PBEsol, MAD-1.5/1.6 are r2SCAN.
 # OpenLAM                    | OpenLAM               | Multi-task DPA3 pretraining; the registry uses the Omat24 head.
 #
 # GRACE OAM pretrains on OMat24, then fine-tunes on sAlex + MPtrj. SevenNet OAM
@@ -137,7 +138,18 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "UMA-S-1.1": {"provider": "fairchem", "model": "uma-s-1p1", "task_name": "omat"},
     "UMA-M-1.1": {"provider": "fairchem", "model": "uma-m-1p1", "task_name": "omat"},
     # UPET
-    "PET-MAD-1.0.2": {"provider": "upet", "model": "pet-mad-s", "version": "1.0.2"},
+    "PET-OMat24-1.0.0-XS": {"provider": "upet", "model": "pet-omat-xs", "version": "1.0.0"},
+    "PET-OMat24-1.0.0-S": {"provider": "upet", "model": "pet-omat-s", "version": "1.0.0"},
+    "PET-OMat24-1.0.0-M": {"provider": "upet", "model": "pet-omat-m", "version": "1.0.0"},
+    "PET-OMat24-1.0.0-L": {"provider": "upet", "model": "pet-omat-l", "version": "1.0.0"},
+    "PET-OMat24-1.0.0-XL": {"provider": "upet", "model": "pet-omat-xl", "version": "1.0.0"},
+    "PET-OAM-0.1.0-L": {"provider": "upet", "model": "pet-oam-l", "version": "0.1.0"},
+    "PET-OAM-1.0.0-XL": {"provider": "upet", "model": "pet-oam-xl", "version": "1.0.0"},
+    "PET-MatPES-r2SCAN-0.1.0-L": {"provider": "upet", "model": "pet-omatpes-l", "version": "0.1.0"},
+    "PET-MAD-r2SCAN-1.6.0-XS": {"provider": "upet", "model": "pet-mad-xs", "version": "1.6.0"},
+    "PET-MAD-r2SCAN-1.6.0-S": {"provider": "upet", "model": "pet-mad-s", "version": "1.6.0"},
+    "PET-MAD-r2SCAN-1.6.0-M": {"provider": "upet", "model": "pet-mad-m", "version": "1.6.0"},
+    "PET-MAD-PBEsol-1.0.2-S": {"provider": "upet", "model": "pet-mad-s", "version": "1.0.2"},
     # DPA (DPA4 checkpoints are CC-BY-NC-4.0)
     # DPA-2.4-7M targets deepmd-kit 3.1 (upstream model card).
     "DPA2-OpenLAM-2.4-7M": {"provider": "deepmd", "model": "DPA-2.4-7M", "head": "Omat24"},
@@ -169,7 +181,8 @@ MODEL_ALIASES: dict[str, str] = {
     "mattersim": "MatterSim-v1.0.0-1M",
     "fairchem": "UMA-S-1.2",
     "uma": "UMA-S-1.2",
-    "petmad": "PET-MAD-1.0.2",
+    "pet": "PET-OMat24-1.0.0-S",
+    "petmad": "PET-MAD-PBEsol-1.0.2-S",
     "deepmd": "DPA4-OMat24-2026.8.5-Mini",
     "dpa": "DPA4-OMat24-2026.8.5-Mini",
     # Previous canonical names.

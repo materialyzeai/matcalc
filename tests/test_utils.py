@@ -184,8 +184,8 @@ def test_resolve_m3gnet(name: str, expected: str | None) -> None:
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        ("PET-MAD-1.0.2", "PET-MAD-1.0.2"),
-        ("pet-mad-1.0.2", "PET-MAD-1.0.2"),
+        ("PET-MAD-PBEsol-1.0.2-S", "PET-MAD-PBEsol-1.0.2-S"),
+        ("pet-mad-pbesol-1.0.2-s", "PET-MAD-PBEsol-1.0.2-S"),
         ("PET-MAD-1.0.0", None),
         ("PETMAD-1.0.0", None),
     ],
@@ -286,7 +286,7 @@ def test_renamed_models(old_name: str, canonical: str) -> None:
         ("tensorpotential", "GRACE-SMAX-OMat24-2L-medium"),
         ("orb", "ORB-MPA-v2"),
         ("sevennet", "SevenNet-MPtrj-0"),
-        ("petmad", "PET-MAD-1.0.2"),
+        ("petmad", "PET-MAD-PBEsol-1.0.2-S"),
     ],
 )
 def test_short_aliases(alias: str, canonical: str) -> None:
