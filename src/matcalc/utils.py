@@ -170,8 +170,8 @@ MODEL_ALIASES: dict[str, str] = {
     "fairchem": "UMA-S-1.2",
     "uma": "UMA-S-1.2",
     "petmad": "PET-MAD-1.0.2",
-    "deepmd": "DPA3-OpenLAM-3.2-5M",
-    "dpa": "DPA3-OpenLAM-3.2-5M",
+    "deepmd": "DPA4-OMat24-2026.8.5-Mini",
+    "dpa": "DPA4-OMat24-2026.8.5-Mini",
     # Previous canonical names.
     "mace-mp-0-small": "MACE-MPtrj-0a-small",
     "mace-mp-0-medium": "MACE-MPtrj-0a-medium",

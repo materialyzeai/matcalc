@@ -123,8 +123,8 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 | `UMA-S-{1.1,1.2.1}`, `UMA-M-1.1` | — | fairchem-core |
 | `PET-MAD-1.0.2` | `petmad` | upet |
 | `DPA2-OpenLAM-2.4-7M` | — | deepmd-kit |
-| `DPA3-OpenLAM-{3.1-3M,3.2-5M,3.3-1M}` | `deepmd`, `dpa` | deepmd-kit |
-| `DPA4-OMat24-2026.8.5-{Nano,Mini,Neo,Air,Plus}` | — | deepmd-kit |
+| `DPA3-OpenLAM-{3.1-3M,3.2-5M,3.3-1M}` | — | deepmd-kit |
+| `DPA4-OMat24-2026.8.5-{Nano,Mini,Neo,Air,Plus}` | `deepmd`, `dpa` | deepmd-kit |
 
 Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`; braces list variants.
 Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovered if MatGL is installed.
