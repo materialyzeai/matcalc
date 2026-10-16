@@ -142,8 +142,8 @@ Models not in the registry can be loaded by passing a provider alias with an ove
 [sAlex](https://huggingface.co/datasets/facebook/OMAT24#salex-dataset) is an Alexandria subset with WBM matches
 removed and relaxation trajectories subsampled. `ORB-MPA-v2` loads the upstream `orb-v2` model.
 
-For `SevenNet-OAM-MF` (upstream `SevenNet-MF-ompa`), pass `modal="mpa"` to select the MPtrj/sAlex DFT setting,
-or `modal="omat24"` for the OMat24 setting; see the [SevenNet model documentation](https://sevennet.readthedocs.io/en/latest/user_guide/pretrained.html#sevennet-mf-ompa).
+`SevenNet-OAM-MF` (upstream `SevenNet-MF-ompa`) uses `modal="mpa"`, the MPtrj/sAlex DFT setting used for Matbench Discovery;
+pass `modal="omat24"` for the OMat24 setting; see the [SevenNet model documentation](https://sevennet.readthedocs.io/en/latest/user_guide/pretrained.html#sevennet-mf-ompa).
 
 UMA retains `<Architecture>-<Size>-<Version>` names and uses the `omat` task. MatterSim retains its
 [upstream model names](https://github.com/microsoft/mattersim#reference). SevenNet's OAM/OMat24 names omit a version,

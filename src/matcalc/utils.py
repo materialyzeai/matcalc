@@ -81,7 +81,7 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     # SevenNet (provider arguments use upstream SevenNetCalculator names)
     "SevenNet-MPtrj-0": {"provider": "sevennet", "model": "7net-0"},
     "SevenNet-MPtrj-l3i5": {"provider": "sevennet", "model": "7net-l3i5"},
-    "SevenNet-OAM-MF": {"provider": "sevennet", "model": "7net-mf-ompa"},
+    "SevenNet-OAM-MF": {"provider": "sevennet", "model": "7net-mf-ompa", "modal": "mpa"},
     "SevenNet-OMat24": {"provider": "sevennet", "model": "7net-omat"},
     # GRACE / TensorPotential
     "GRACE-OAM-1L": {"provider": "grace", "model": "GRACE-1L-OAM"},
