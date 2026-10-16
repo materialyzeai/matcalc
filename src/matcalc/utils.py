@@ -40,6 +40,8 @@ if TYPE_CHECKING:
 # OMat24                     | OMat24                | Open Materials 2024.
 # OAM                        | OMat24 + sAlex + MPtrj | GRACE and SevenNet use different training procedures.
 # MatPES-PBE / MatPES-r2SCAN  | MatPES                | The suffix identifies the functional.
+# SMAX                       | SMAX                  | GRACE max-entropy structures; element-dependent 5.0-7.5 A cutoff.
+# SMAX-OMat24                | SMAX + OMat24         | GRACE's general-purpose recommendation.
 # OpenLAM                    | OpenLAM               | Multi-task DPA3 pretraining; the registry uses the Omat24 head.
 #
 # GRACE OAM pretrains on OMat24, then fine-tunes on sAlex + MPtrj. SevenNet OAM
@@ -93,11 +95,33 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "SevenNet-OAM-MF": {"provider": "sevennet", "model": "7net-mf-ompa", "modal": "mpa"},
     "SevenNet-OMat24": {"provider": "sevennet", "model": "7net-omat"},
     # GRACE / TensorPotential
-    "GRACE-OAM-1L": {"provider": "grace", "model": "GRACE-1L-OAM"},
-    "GRACE-OAM-2L": {"provider": "grace", "model": "GRACE-2L-OAM"},
-    "GRACE-OMat24-2L": {"provider": "grace", "model": "GRACE-2L-OMAT"},
-    # GRACE-2L-MP-r6 is only available in tensorpotential<0.5.8.
-    "GRACE-MPtrj-2L": {"provider": "grace", "model": "GRACE-2L-MP-r6"},
+    "GRACE-SMAX-OMat24-1L-large": {"provider": "grace", "model": "GRACE-1L-SMAX-OMAT-large"},
+    "GRACE-SMAX-OMat24-2L-medium": {"provider": "grace", "model": "GRACE-2L-SMAX-OMAT-medium"},
+    "GRACE-SMAX-OMat24-2L-large": {"provider": "grace", "model": "GRACE-2L-SMAX-OMAT-large"},
+    "GRACE-SMAX-1L-large": {"provider": "grace", "model": "GRACE-1L-SMAX-large"},
+    "GRACE-SMAX-2L-medium": {"provider": "grace", "model": "GRACE-2L-SMAX-medium"},
+    "GRACE-SMAX-2L-large": {"provider": "grace", "model": "GRACE-2L-SMAX-large"},
+    "GRACE-OAM-1L-small": {"provider": "grace", "model": "GRACE-1L-OAM"},
+    "GRACE-OAM-1L-medium": {"provider": "grace", "model": "GRACE-1L-OMAT-medium-ft-AM"},
+    "GRACE-OAM-1L-large": {"provider": "grace", "model": "GRACE-1L-OMAT-large-ft-AM"},
+    "GRACE-OAM-2L-small": {"provider": "grace", "model": "GRACE-2L-OAM"},
+    "GRACE-OAM-2L-medium": {"provider": "grace", "model": "GRACE-2L-OMAT-medium-ft-AM"},
+    "GRACE-OAM-2L-large": {"provider": "grace", "model": "GRACE-2L-OMAT-large-ft-AM"},
+    "GRACE-OAM-3L-large": {"provider": "grace", "model": "GRACE-3L-OMAT-large-ft-AM"},
+    "GRACE-OMat24-1L-medium-base": {"provider": "grace", "model": "GRACE-1L-OMAT-medium-base"},
+    "GRACE-OMat24-1L-medium-ft-E": {"provider": "grace", "model": "GRACE-1L-OMAT-medium-ft-E"},
+    "GRACE-OMat24-1L-large-base": {"provider": "grace", "model": "GRACE-1L-OMAT-large-base"},
+    "GRACE-OMat24-1L-large-ft-E": {"provider": "grace", "model": "GRACE-1L-OMAT-large-ft-E"},
+    "GRACE-OMat24-2L-small": {"provider": "grace", "model": "GRACE-2L-OMAT"},
+    "GRACE-OMat24-2L-medium-base": {"provider": "grace", "model": "GRACE-2L-OMAT-medium-base"},
+    "GRACE-OMat24-2L-medium-ft-E": {"provider": "grace", "model": "GRACE-2L-OMAT-medium-ft-E"},
+    "GRACE-OMat24-2L-large-base": {"provider": "grace", "model": "GRACE-2L-OMAT-large-base"},
+    "GRACE-OMat24-2L-large-ft-E": {"provider": "grace", "model": "GRACE-2L-OMAT-large-ft-E"},
+    "GRACE-OMat24-3L-large": {"provider": "grace", "model": "GRACE-3L-OMAT-large"},
+    # GRACE MP models are only available in tensorpotential<0.5.8; -r5/-r6 give the cutoff in Angstrom.
+    "GRACE-MPtrj-1L-r6": {"provider": "grace", "model": "GRACE-1L-MP-r6"},
+    "GRACE-MPtrj-2L-r5": {"provider": "grace", "model": "GRACE-2L-MP-r5"},
+    "GRACE-MPtrj-2L-r6": {"provider": "grace", "model": "GRACE-2L-MP-r6"},
     # Orb (orb-models>=0.6 needs Python>=3.12)
     "ORB-MPA-v2": {"provider": "orb", "model": "orb-v2"},
     "ORB-MPA-v2-D3": {"provider": "orb", "model": "orb-d3-v2"},
@@ -139,8 +163,8 @@ MODEL_ALIASES: dict[str, str] = {
     "r2scan": "TensorNet-MatPES-r2SCAN-2025.2",
     "mace": "MACE-MPA-0-medium",
     "sevennet": "SevenNet-MPtrj-0",
-    "grace": "GRACE-OAM-2L",
-    "tensorpotential": "GRACE-OAM-2L",
+    "grace": "GRACE-SMAX-OMat24-2L-medium",
+    "tensorpotential": "GRACE-SMAX-OMat24-2L-medium",
     "orb": "ORB-MPA-v2",
     "mattersim": "MatterSim-v1.0.0-1M",
     "fairchem": "UMA-S-1.2",
@@ -160,10 +184,10 @@ MODEL_ALIASES: dict[str, str] = {
     "mace-mp-0b3-medium": "MACE-MPtrj-0b3-medium",
     "mace-omat-0-small": "MACE-OMat24-0-small",
     "mace-omat-0-medium": "MACE-OMat24-0-medium",
-    "grace-1l-oam": "GRACE-OAM-1L",
-    "grace-2l-oam": "GRACE-OAM-2L",
-    "grace-2l-omat": "GRACE-OMat24-2L",
-    "grace-2l-mptrj": "GRACE-MPtrj-2L",
+    "grace-1l-oam": "GRACE-OAM-1L-small",
+    "grace-2l-oam": "GRACE-OAM-2L-small",
+    "grace-2l-omat": "GRACE-OMat24-2L-small",
+    "grace-2l-mptrj": "GRACE-MPtrj-2L-r6",
     "orb-v2": "ORB-MPA-v2",
     "orb-d3-v2": "ORB-MPA-v2-D3",
     "orb-d3-sm-v2": "ORB-MPA-v2-D3-sm",

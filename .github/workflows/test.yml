@@ -71,7 +71,7 @@ jobs:
             models: '["MACE-MPtrj-0a-small", "MACE-MPA-0-medium", "MACE-MatPES-PBE-0"]'
           - name: grace
             extras: grace
-            models: '["GRACE-OAM-2L"]'
+            models: '["GRACE-SMAX-OMat24-2L-medium"]'
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
 

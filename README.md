@@ -110,10 +110,11 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 | `SevenNet-MPtrj-l3i5` | — | sevenn |
 | `SevenNet-OAM-MF` | — | sevenn |
 | `SevenNet-OMat24` | — | sevenn |
-| `GRACE-OAM-2L` | `grace`, `tensorpotential` | tensorpotential |
-| `GRACE-OAM-1L` | — | tensorpotential |
-| `GRACE-OMat24-2L` | — | tensorpotential |
-| `GRACE-MPtrj-2L` | — | tensorpotential |
+| `GRACE-SMAX-OMat24-2L-medium` | `grace`, `tensorpotential` | tensorpotential |
+| `GRACE-SMAX-OMat24-{1L-large,2L-large}`, `GRACE-SMAX-{1L-large,2L-medium,2L-large}` | — | tensorpotential |
+| `GRACE-OAM-{1L,2L}-{small,medium,large}`, `GRACE-OAM-3L-large` | — | tensorpotential |
+| `GRACE-OMat24-{1L,2L}-{medium,large}-{base,ft-E}`, `GRACE-OMat24-2L-small`, `GRACE-OMat24-3L-large` | — | tensorpotential |
+| `GRACE-MPtrj-{1L-r6,2L-r5,2L-r6}` | — | tensorpotential |
 | `ORB-MPA-v2` | `orb` | orb-models |
 | `ORB-MPA-v2-D3`, `ORB-MPA-v2-D3-{sm,xs}` | — | orb-models |
 | `MatterSim-v1.0.0-1M` | `mattersim` | mattersim |
@@ -131,7 +132,7 @@ Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovere
 The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).
 
 The table is not exhaustive. Other models from these packages can be loaded with a provider override,
-e.g. `load_fp("grace", model="GRACE-2L-SMAX-OMAT-large")`, or by passing any ASE calculator directly,
+e.g. `load_fp("grace", model="GRACE-2L-SMAX-OMAT-large-fp64")`, or by passing any ASE calculator directly,
 e.g. a fairchem 1.x model (`fairchem-core==1.10`):
 
 ```python
