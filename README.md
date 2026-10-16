@@ -130,6 +130,20 @@ Braces in the table list available variants.
 Canonical names and aliases are case-insensitive in Python and the CLI. Renamed models retain their previous canonical names as aliases.
 `load_fp()` also accepts pretrained MatGL PES names discovered when MatGL is installed.
 Models not in the registry can be loaded by passing a provider alias with an override, e.g. `load_fp("grace", model="GRACE-2L-SMAX-OMAT-large")`, or by passing any ASE calculator directly.
+
+For example, fairchem 1.x models such as eSEN-30M-OAM and EquiformerV2 are not in the registry, but their
+ASE calculator can be passed to any `PropCalc`. This requires `fairchem-core==1.10` (Python < 3.13, SciPy < 1.17),
+`torch_scatter`/`torch_sparse` wheels from https://data.pyg.org/whl/, and access to the gated
+[facebook/OMAT24](https://huggingface.co/facebook/OMAT24) checkpoints (`hf auth login`):
+
+```python
+import matcalc as mtc
+from fairchem.core import OCPCalculator
+
+calc = OCPCalculator(model_name="eSEN-30M-OAM", local_cache="fairchem_checkpoints", cpu=False)
+results = mtc.RelaxCalc(calc, relax_cell=True).calc(structure)
+```
+
 `GRACE-MPtrj-2L` loads upstream `GRACE-2L-MP-r6`, which was removed in tensorpotential 0.5.8; it requires `tensorpotential<0.5.8` (Python < 3.13).
 
 | Dataset label | Data sources | Model-specific details |

@@ -73,7 +73,7 @@ mattersim = [
     "mattersim",
 ]
 fairchem = [
-    "fairchem-core",
+    "fairchem-core>=2",
 ]
 upet = [
     "upet>=0.3.0",
