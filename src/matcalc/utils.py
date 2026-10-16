@@ -48,12 +48,7 @@ if TYPE_CHECKING:
 # Exceptions to the convention, where upstream names lack a field:
 #   - UMA uses ``<Architecture>-<Size>-<Version>`` and the ``omat`` task (no dataset field).
 #   - SevenNet OAM/OMat24 and GRACE names omit a version.
-#   - MatterSim names prefix the upstream model name with its M3GNet architecture.
-#
-# Other provider notes:
-#   - ``ORB-MPA-v2`` loads upstream ``orb-v2``; ORB models need Python >= 3.12 (orb-models >= 0.6).
-#   - ``PET-MAD-1.0.2`` is upstream ``pet-mad-s`` version 1.0.2, loaded through upet.
-#   - ``GRACE-MPtrj-2L`` loads ``GRACE-2L-MP-r6``, which needs tensorpotential < 0.5.8 (Python < 3.13).
+#   - MatterSim keeps its upstream names (``MatterSim-v1.0.0-1M``/``-5M``), omitting the M3GNet architecture.
 #
 # To add a new model, append an entry here. The ``provider`` key picks the loader
 # branch in ``PESCalculator.load_universal``; remaining keys are forwarded to that
@@ -101,14 +96,14 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "GRACE-OMat24-2L": {"provider": "grace", "model": "GRACE-2L-OMAT"},
     # GRACE-2L-MP-r6 is only available in tensorpotential<0.5.8.
     "GRACE-MPtrj-2L": {"provider": "grace", "model": "GRACE-2L-MP-r6"},
-    # Orb
+    # Orb (orb-models>=0.6 needs Python>=3.12)
     "ORB-MPA-v2": {"provider": "orb", "model": "orb-v2"},
     "ORB-MPA-v2-D3": {"provider": "orb", "model": "orb-d3-v2"},
     "ORB-MPA-v2-D3-sm": {"provider": "orb", "model": "orb-d3-sm-v2"},
     "ORB-MPA-v2-D3-xs": {"provider": "orb", "model": "orb-d3-xs-v2"},
     # MatterSim (M3GNet architecture)
-    "M3GNet-MatterSim-v1.0.0-1M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-1M.pth"},
-    "M3GNet-MatterSim-v1.0.0-5M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-5M.pth"},
+    "MatterSim-v1.0.0-1M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-1M.pth"},
+    "MatterSim-v1.0.0-5M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-5M.pth"},
     # FAIRChem (UMA family) — upstream uses ``uma-s-1p2`` style; we expose them
     # under ``<Architecture>-<Size>-<Version>`` with the ``omat`` task.
     "UMA-S-1.2.1": {"provider": "fairchem", "model": "uma-s-1p2p1", "task_name": "omat"},
@@ -135,7 +130,7 @@ MODEL_ALIASES: dict[str, str] = {
     "grace": "GRACE-OAM-2L",
     "tensorpotential": "GRACE-OAM-2L",
     "orb": "ORB-MPA-v2",
-    "mattersim": "M3GNet-MatterSim-v1.0.0-1M",
+    "mattersim": "MatterSim-v1.0.0-1M",
     "fairchem": "UMA-S-1.2",
     "uma": "UMA-S-1.2",
     "petmad": "PET-MAD-1.0.2",
@@ -164,8 +159,6 @@ MODEL_ALIASES: dict[str, str] = {
     "sevennet-l3i5": "SevenNet-MPtrj-l3i5",
     "sevennet-mf-ompa": "SevenNet-OAM-MF",
     "sevennet-omat": "SevenNet-OMat24",
-    "mattersim-v1.0.0-1m": "M3GNet-MatterSim-v1.0.0-1M",
-    "mattersim-v1.0.0-5m": "M3GNet-MatterSim-v1.0.0-5M",
     # legacy MatGL spellings — keep working so existing code/notebooks don't break
     "tensornet-pes-matpes-pbe-2025.2": "TensorNet-MatPES-PBE-2025.2",
     "tensornet-pes-matpes-r2scan-2025.2": "TensorNet-MatPES-r2SCAN-2025.2",

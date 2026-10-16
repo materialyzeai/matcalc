@@ -93,6 +93,7 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 `PESCalculator.load_universal()` — aliased as `matcalc.load_fp()` and `matcalc.load_up()` — supports these models out of the box:
 
 Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`; braces list variants.
+MatterSim keeps its upstream names, omitting the M3GNet architecture.
 Names are case-insensitive, and previous names (including MatGL PES names) still work as aliases.
 
 | Canonical name | Common aliases |
@@ -122,8 +123,8 @@ Names are case-insensitive, and previous names (including MatGL PES names) still
 | `GRACE-MPtrj-2L` | — |
 | `ORB-MPA-v2` | `orb` |
 | `ORB-MPA-v2-D3`, `ORB-MPA-v2-D3-{sm,xs}` | — |
-| `M3GNet-MatterSim-v1.0.0-1M` | `mattersim` |
-| `M3GNet-MatterSim-v1.0.0-5M` | — |
+| `MatterSim-v1.0.0-1M` | `mattersim` |
+| `MatterSim-v1.0.0-5M` | — |
 | `UMA-S-1.2` | `uma`, `fairchem` |
 | `UMA-S-{1.1,1.2.1}`, `UMA-M-1.1` | — |
 | `PET-MAD-1.0.2` | `petmad` |
