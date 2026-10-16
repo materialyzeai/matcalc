@@ -6,6 +6,7 @@ from unittest.mock import call, patch
 import numpy as np
 import pytest
 from ase.calculators.calculator import Calculator
+from pymatgen.core import Lattice, Structure
 
 from matcalc import MEP, NEBCalc
 
@@ -13,7 +14,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from matgl.ext.ase import PESCalculator
-    from pymatgen.core import Structure
 
 
 def test_neb_calc(LiFePO4: Structure, matpes_calculator: PESCalculator, tmp_path: Path) -> None:
@@ -162,3 +162,31 @@ def test_neb_calc_endpoints_settings(Si: Structure, relax_calc_kwargs: dict[str,
     }
     relaxer.assert_called_once_with(neb_calc.calculator, **expected)
     assert relaxer.return_value.calc.call_args_list == [call(start), call(end)]
+
+
+def test_neb_calc_images_pbc(matpes_calculator: PESCalculator) -> None:
+    bulk = Structure.from_spacegroup("Fm-3m", Lattice.cubic(3.6), ["Cu"], [[0, 0, 0]]).make_supercell(2)
+    # The nearest neighbor at (0.75, 0.75, 0) hops across the cell boundary into the vacancy at the origin.
+    hop = int(np.argmin(np.linalg.norm(bulk.frac_coords - [0.75, 0.75, 0], axis=1)))
+    start = bulk.copy()
+    start.remove_sites([0])
+    end = start.copy()
+    end.replace(hop - 1, "Cu", [0, 0, 0])
+
+    def path_length(result: dict[str, Any]) -> float:
+        coords = np.array([s[hop - 1].coords for s in result["mep"].get_structures()])
+        return float(np.linalg.norm(np.diff(coords, axis=0), axis=1).sum())
+
+    # Zero NEB steps keep the interpolated band.
+    unrelaxed = NEBCalc(matpes_calculator, max_steps=0)
+    with pytest.warns(RuntimeWarning, match="did not converge"):
+        periodic = unrelaxed.calc_images(start, end, n_images=3)
+    with pytest.warns(RuntimeWarning, match="did not converge"):
+        raw = unrelaxed.calc_images(start, end, n_images=3, pbc=False)
+    assert path_length(periodic) == pytest.approx(3.6 / np.sqrt(2))
+    assert path_length(raw) == pytest.approx(3 * 3.6 / np.sqrt(2))
+
+    result = NEBCalc(matpes_calculator, fmax=0.1, max_steps=200).calc_images(start, end, n_images=3)
+    assert result["converged"]
+    assert path_length(result) < 3
+    assert 0.3 < result["barrier"] < 1.5

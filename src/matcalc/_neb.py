@@ -244,6 +244,7 @@ class NEBCalc(PropCalc):
         n_images: int = 7,
         interpolate_lattices: bool = False,
         autosort_tol: float = 0.5,
+        pbc: bool = True,
     ) -> dict[str, Any]:
         """Calculate NEB images between given start and end structures.
 
@@ -254,6 +255,9 @@ class NEBCalc(PropCalc):
             interpolate_lattices (bool): Whether to interpolate lattices between start and end structures (default is
                 False).
             autosort_tol (float): Tolerance for autosorting the images (default is 0.5).
+            pbc (bool): Interpolate each atom along its shortest periodic displacement, so that hops across
+                the cell boundary take the short path (default is True). False interpolates the raw
+                fractional coordinates.
 
         Returns:
             NEBCalc: NEB calculation object containing the interpolated images.
@@ -262,7 +266,7 @@ class NEBCalc(PropCalc):
             end_struct,
             nimages=n_images + 1,
             interpolate_lattices=interpolate_lattices,
-            pbc=False,
+            pbc=pbc,
             autosort_tol=autosort_tol,
         )
         return self.calc({f"image{i:02d}": s for i, s in enumerate(images)})
