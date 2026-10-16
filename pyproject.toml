@@ -79,7 +79,7 @@ upet = [
     "upet>=0.3.0",
 ]
 deepmd = [
-    "deepmd-kit>=3.0.2",
+    "deepmd-kit>=3.2.0",
 ]
 ci = [
     "setuptools<82",  # Required by maml which uses pkg_resources

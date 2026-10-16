@@ -4847,7 +4847,7 @@ requires-dist = [
     { name = "codecov-cli", marker = "extra == 'ci'", specifier = ">=10.3.0" },
     { name = "coverage", marker = "extra == 'ci'", specifier = ">=7.7.1" },
     { name = "coveralls", marker = "extra == 'ci'", specifier = ">=4.0.1" },
-    { name = "deepmd-kit", marker = "extra == 'deepmd'", specifier = ">=3.0.2" },
+    { name = "deepmd-kit", marker = "extra == 'deepmd'", specifier = ">=3.2.0" },
     { name = "fairchem-core", marker = "extra == 'fairchem'", specifier = ">=2" },
     { name = "huggingface-hub", specifier = ">=0.30.0" },
     { name = "ipython", marker = "extra == 'ci'", specifier = ">=8.34.0" },
