@@ -90,8 +90,8 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 
 `PESCalculator.load_universal()` — aliased as `matcalc.load_fp()` and `matcalc.load_up()` — supports these models out of the box:
 
-Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`.
-Braces in the table list available variants.
+Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`; braces list variants.
+Names are case-insensitive, and previous names (including MatGL PES names) still work as aliases.
 
 | Canonical name | Common aliases |
 |---|---|
@@ -127,14 +127,9 @@ Braces in the table list available variants.
 | `PET-MAD-1.0.2` | `petmad` |
 | `DPA3-LAM-2025.3.14` | `deepmd` |
 
-Canonical names and aliases are case-insensitive in Python and the CLI. Renamed models retain their previous canonical names as aliases.
-`load_fp()` also accepts pretrained MatGL PES names discovered when MatGL is installed.
-Models not in the registry can be loaded by passing a provider alias with an override, e.g. `load_fp("grace", model="GRACE-2L-SMAX-OMAT-large")`, or by passing any ASE calculator directly.
-
-For example, fairchem 1.x models such as eSEN-30M-OAM and EquiformerV2 are not in the registry, but their
-ASE calculator can be passed to any `PropCalc`. This requires `fairchem-core==1.10` (Python < 3.13, SciPy < 1.17),
-`torch_scatter`/`torch_sparse` wheels from https://data.pyg.org/whl/, and access to the gated
-[facebook/OMAT24](https://huggingface.co/facebook/OMAT24) checkpoints (`hf auth login`):
+Models not in the registry can be loaded with a provider override, e.g.
+`load_fp("grace", model="GRACE-2L-SMAX-OMAT-large")`, or by passing any ASE calculator directly,
+e.g. a fairchem 1.x model (`fairchem-core==1.10`):
 
 ```python
 import matcalc as mtc
@@ -143,28 +138,6 @@ from fairchem.core import OCPCalculator
 calc = OCPCalculator(model_name="eSEN-30M-OAM", local_cache="fairchem_checkpoints", cpu=False)
 results = mtc.RelaxCalc(calc, relax_cell=True).calc(structure)
 ```
-
-`GRACE-MPtrj-2L` loads upstream `GRACE-2L-MP-r6`, which was removed in tensorpotential 0.5.8; it requires `tensorpotential<0.5.8` (Python < 3.13).
-
-| Dataset label | Data sources | Model-specific details |
-|---|---|---|
-| `MPtrj` | Materials Project relaxation trajectories | Used by MACE-MPtrj, SevenNet-MPtrj, and GRACE-MPtrj. |
-| `MPA` | MPtrj + Alexandria-family data | [MACE-MPA-0](https://github.com/ACEsuit/mace-foundations#latest-recommended-foundation-models) uses sAlex; [ORB-v2](https://github.com/orbital-materials/orb-models/blob/v0.5.5/MODELS.md#v2-models) uses Alexandria. |
-| `OMat24` | Open Materials 2024 | Used by MACE-OMat24, GRACE-OMat24, and SevenNet-OMat24. |
-| `OAM` | OMat24 + sAlex + MPtrj | [GRACE](https://huggingface.co/AMS-ICAMS-RUB/grace-foundation-models#oam-models) pretrains on OMat24, then fine-tunes on sAlex + MPtrj; [SevenNet](https://github.com/MDIL-SNU/SevenNet/blob/v0.11.2/README.md#sevennet-mf-ompa-17mar2025) uses joint multifidelity training. |
-| `MatPES-PBE` / `MatPES-r2SCAN` | MatPES | The suffix identifies the density functional. |
-
-[sAlex](https://huggingface.co/datasets/facebook/OMAT24#salex-dataset) is an Alexandria subset with WBM matches
-removed and relaxation trajectories subsampled. `ORB-MPA-v2` loads the upstream `orb-v2` model.
-ORB models require Python 3.12 or later (orb-models 0.6 or later).
-
-`SevenNet-OAM-MF` (upstream `SevenNet-MF-ompa`) uses `modal="mpa"`, the MPtrj/sAlex DFT setting used for Matbench Discovery;
-pass `modal="omat24"` for the OMat24 setting; see the [SevenNet model documentation](https://sevennet.readthedocs.io/en/latest/user_guide/pretrained.html#sevennet-mf-ompa).
-
-UMA retains `<Architecture>-<Size>-<Version>` names and uses the `omat` task. MatterSim names prefix the
-[upstream model name](https://github.com/microsoft/mattersim#reference) with its M3GNet architecture. SevenNet's OAM/OMat24 names omit a version,
-and CHGNet's 1M models retain their upstream size-before-version order.
-PET models load through [upet](https://github.com/lab-cosmo/upet) (`pip install matcalc[upet]`); `PET-MAD-1.0.2` is upstream `pet-mad-s` version 1.0.2.
 
 The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).
 

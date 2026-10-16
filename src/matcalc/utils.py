@@ -44,7 +44,17 @@ if TYPE_CHECKING:
 # GRACE OAM pretrains on OMat24, then fine-tunes on sAlex + MPtrj. SevenNet OAM
 # uses joint multifidelity training; modal="mpa" selects the MPtrj/sAlex DFT setting.
 # sAlex is an Alexandria subset with WBM matches removed and trajectories subsampled.
-# See the README dataset table for upstream sources.
+#
+# Exceptions to the convention, where upstream names lack a field:
+#   - UMA uses ``<Architecture>-<Size>-<Version>`` and the ``omat`` task (no dataset field).
+#   - SevenNet OAM/OMat24 and GRACE names omit a version.
+#   - CHGNet 1M models keep MatGL's size-before-version order, e.g. ``CHGNet-MatPES-PBE-1M-2026.9``.
+#   - MatterSim names prefix the upstream model name with its M3GNet architecture.
+#
+# Other provider notes:
+#   - ``ORB-MPA-v2`` loads upstream ``orb-v2``; ORB models need Python >= 3.12 (orb-models >= 0.6).
+#   - ``PET-MAD-1.0.2`` is upstream ``pet-mad-s`` version 1.0.2, loaded through upet.
+#   - ``GRACE-MPtrj-2L`` loads ``GRACE-2L-MP-r6``, which needs tensorpotential < 0.5.8 (Python < 3.13).
 #
 # To add a new model, append an entry here. The ``provider`` key picks the loader
 # branch in ``PESCalculator.load_universal``; remaining keys are forwarded to that
