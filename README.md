@@ -40,6 +40,8 @@ pip install matcalc[matgl]
 
 M3GNet MatPES 2025.2 models require MatGL 4.1.0 or newer.
 
+The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).
+
 For MAML classical potential support (MTP, GAP, NNP, SNAP):
 
 ```bash
@@ -138,8 +140,6 @@ from fairchem.core import OCPCalculator
 calc = OCPCalculator(model_name="eSEN-30M-OAM", local_cache="fairchem_checkpoints", cpu=False)
 results = mtc.RelaxCalc(calc, relax_cell=True).calc(structure)
 ```
-
-The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).
 
 ## Basic Usage
 
