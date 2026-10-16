@@ -79,7 +79,7 @@ upet = [
     "upet>=0.3.0",
 ]
 deepmd = [
-    "deepmd-kit>=3.2.0",
+    "deepmd-kit[torch]>=3.2.0",
 ]
 ci = [
     "setuptools<82",  # Required by maml which uses pkg_resources
@@ -178,7 +178,7 @@ conflicts = [
 # Does not affect the published requires-python.
 environments = [
     "sys_platform == 'linux' and python_version < '3.14'",
-    "sys_platform == 'darwin' and python_version < '3.14'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64' and python_version < '3.14'",
     "sys_platform == 'win32' and python_version < '3.14'",
 ]
 required-environments = [
