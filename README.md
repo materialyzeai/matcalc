@@ -119,8 +119,8 @@ Braces in the table list available variants.
 | `GRACE-MPtrj-2L` | — |
 | `ORB-MPA-v2` | `orb` |
 | `ORB-MPA-v2-D3`, `ORB-MPA-v2-D3-{sm,xs}` | — |
-| `MatterSim-v1.0.0-1M` | `mattersim` |
-| `MatterSim-v1.0.0-5M` | — |
+| `M3GNet-MatterSim-v1.0.0-1M` | `mattersim` |
+| `M3GNet-MatterSim-v1.0.0-5M` | — |
 | `UMA-S-1.2` | `uma`, `fairchem` |
 | `UMA-S-{1.1,1.2.1}`, `UMA-M-1.1` | — |
 | `PET-MAD-1.0.2` | `petmad` |
@@ -146,8 +146,8 @@ ORB models require Python 3.12 or later (orb-models 0.6 or later).
 `SevenNet-OAM-MF` (upstream `SevenNet-MF-ompa`) uses `modal="mpa"`, the MPtrj/sAlex DFT setting used for Matbench Discovery;
 pass `modal="omat24"` for the OMat24 setting; see the [SevenNet model documentation](https://sevennet.readthedocs.io/en/latest/user_guide/pretrained.html#sevennet-mf-ompa).
 
-UMA retains `<Architecture>-<Size>-<Version>` names and uses the `omat` task. MatterSim retains its
-[upstream model names](https://github.com/microsoft/mattersim#reference). SevenNet's OAM/OMat24 names omit a version,
+UMA retains `<Architecture>-<Size>-<Version>` names and uses the `omat` task. MatterSim names prefix the
+[upstream model name](https://github.com/microsoft/mattersim#reference) with its M3GNet architecture. SevenNet's OAM/OMat24 names omit a version,
 and CHGNet's 1M models retain their upstream size-before-version order.
 PET models load through [upet](https://github.com/lab-cosmo/upet) (`pip install matcalc[upet]`); `PET-MAD-1.0.2` is upstream `pet-mad-s` version 1.0.2.
 
