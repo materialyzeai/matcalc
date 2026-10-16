@@ -5,7 +5,6 @@ from __future__ import annotations
 import difflib
 import warnings
 from enum import Enum
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from ase import Atoms
@@ -17,6 +16,7 @@ from .units import eVA3ToGPa
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from maml.apps.pes import LMPStaticCalculator
     from pyace.basis import ACEBBasisSet, ACECTildeBasisSet, BBasisConfiguration
@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 # OMat24                     | OMat24                | Open Materials 2024.
 # OAM                        | OMat24 + sAlex + MPtrj | GRACE and SevenNet use different training procedures.
 # MatPES-PBE / MatPES-r2SCAN  | MatPES                | The suffix identifies the functional.
+# OpenLAM                    | OpenLAM               | Multi-task DPA3 pretraining; the registry uses the Omat24 head.
 #
 # GRACE OAM pretrains on OMat24, then fine-tunes on sAlex + MPtrj. SevenNet OAM
 # uses joint multifidelity training; modal="mpa" selects the MPtrj/sAlex DFT setting.
@@ -113,7 +114,11 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     # UPET
     "PET-MAD-1.0.2": {"provider": "upet", "model": "pet-mad-s", "version": "1.0.2"},
     # DPA (DPA4 checkpoints are CC-BY-NC-4.0)
-    "DPA3-LAM-2025.3.14": {"provider": "deepmd"},
+    # DPA-2.4-7M targets deepmd-kit 3.1 (upstream model card).
+    "DPA2-OpenLAM-2.4-7M": {"provider": "deepmd", "model": "DPA-2.4-7M", "head": "Omat24"},
+    "DPA3-OpenLAM-3.1-3M": {"provider": "deepmd", "model": "DPA-3.1-3M", "head": "Omat24"},
+    "DPA3-OpenLAM-3.2-5M": {"provider": "deepmd", "model": "DPA-3.2-5M", "head": "Omat24"},
+    "DPA3-OpenLAM-3.3-1M": {"provider": "deepmd", "model": "DPA-3.3-1M", "head": "Omat24"},
     "DPA4-OMat24-2026.8.5-Nano": {"provider": "deepmd", "model": "DPA4-Nano-OMat24-v20260805"},
     "DPA4-OMat24-2026.8.5-Mini": {"provider": "deepmd", "model": "DPA4-Mini-OMat24-v20260805"},
     "DPA4-OMat24-2026.8.5-Neo": {"provider": "deepmd", "model": "DPA4-Neo-OMat24-v20260805"},
@@ -139,7 +144,8 @@ MODEL_ALIASES: dict[str, str] = {
     "fairchem": "UMA-S-1.2",
     "uma": "UMA-S-1.2",
     "petmad": "PET-MAD-1.0.2",
-    "deepmd": "DPA3-LAM-2025.3.14",
+    "deepmd": "DPA3-OpenLAM-3.2-5M",
+    "dpa": "DPA3-OpenLAM-3.2-5M",
     # Previous canonical names.
     "mace-mp-0-small": "MACE-MPtrj-0a-small",
     "mace-mp-0-medium": "MACE-MPtrj-0a-medium",
@@ -652,25 +658,7 @@ def _load_upet(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
     return UPETCalculator(**kwargs)
 
 
-# Bundled DPA3 checkpoint under tests/ (only present in editable installs).
-# When matcalc is installed from a wheel the user must pass ``model=<path>``
-# explicitly.
-_DPA3_BUNDLED_PATH = (
-    Path(__file__).parent.absolute() / "../../tests/pes/DPA3-LAM-2025.3.14-PES" / "2025-03-14-dpa3-openlam.pth"
-).resolve()
-
-
 def _load_deepmd(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
-    if "model" not in kwargs:
-        if _DPA3_BUNDLED_PATH.exists():
-            kwargs["model"] = _DPA3_BUNDLED_PATH
-        else:
-            raise FileNotFoundError(
-                "DeePMD model path not found. Pass model=<path-to-.pth> explicitly to "
-                "load_universal(..., model=...), or download the DPA3-LAM checkpoint and "
-                "supply its path. (Bundled fallback is only available from an editable "
-                "checkout.)"
-            )
     from deepmd.calculator import DP
 
     return DP(**kwargs)
