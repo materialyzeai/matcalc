@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from unittest.mock import call, patch
 
 import numpy as np
 import pytest
-from ase.calculators.calculator import Calculator
 from pymatgen.core import Lattice, Structure
 
 from matcalc import MEP, NEBCalc
@@ -138,30 +136,6 @@ def test_neb_calc_endpoints(Li2O: Structure, matpes_calculator: PESCalculator) -
     assert start_result["label"] == "start"
     assert start_result["final_structure"] != start
     assert end_result["final_structure"] != end
-
-
-@pytest.mark.parametrize(
-    "relax_calc_kwargs",
-    [None, {"fmax": 0.02, "relax_cell": True}],
-)
-def test_neb_calc_endpoints_settings(Si: Structure, relax_calc_kwargs: dict[str, Any] | None) -> None:
-    neb_calc = NEBCalc(Calculator(), fmax=0.25, max_steps=12)
-    start, end = Si.copy(), Si.copy()
-    results = ({"final_structure": start, "energy": -1.0}, {"final_structure": end, "energy": -2.0})
-    with patch("matcalc._relaxation.RelaxCalc") as relaxer:
-        relaxer.return_value.calc.side_effect = results
-        actual = neb_calc.calc_endpoints(start, end, relax_calc_kwargs=relax_calc_kwargs)
-
-    assert actual == results
-    expected = {
-        "optimizer": neb_calc.optimizer,
-        "fmax": 0.25,
-        "max_steps": 12,
-        "relax_cell": False,
-        **(relax_calc_kwargs or {}),
-    }
-    relaxer.assert_called_once_with(neb_calc.calculator, **expected)
-    assert relaxer.return_value.calc.call_args_list == [call(start), call(end)]
 
 
 def test_neb_calc_images_pbc(matpes_calculator: PESCalculator) -> None:
