@@ -244,6 +244,8 @@ def test_install_hint() -> None:
     assert "pip install" in hint
     assert "matcalc[totally-unmapped-xyz]" in hint
     assert "totally-unmapped-xyz" in hint
+
+
 @pytest.mark.parametrize(
     ("old_name", "canonical"),
     [

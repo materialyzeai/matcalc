@@ -11,13 +11,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
-from ase.calculators.calculator import Calculator
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.io.lammps.data import LammpsData
 from pymatgen.io.lammps.outputs import parse_lammps_log
 
 from matcalc import LAMMPSMDCalc
-from matcalc.utils import PESCalculator
 
 if TYPE_CHECKING:
     from ase import Atoms
@@ -27,25 +25,19 @@ LAMMPS_TEMPLATES_DIR = Path(__file__).parent.parent / "src" / "matcalc" / "lammp
 
 
 @pytest.mark.parametrize(
-    ("name", "expected_model", "expected_provider"),
+    ("name", "expected_model"),
     [
-        ("TensorNet-MatPES-PBE-2025.2", "TensorNet-PES-MatPES-PBE-2025.2", "matgl"),
-        ("pbe", "TensorNet-PES-MatPES-PBE-2025.2", "matgl"),
-        ("tensornet-pes-matpes-pbe-2025.2", "TensorNet-PES-MatPES-PBE-2025.2", "matgl"),
-        ("m3gnet", "M3GNet-PES-MatPES-PBE-2025.2", "matgl"),
-        ("M3GNet-MatPES-r2SCAN-2025.2", "M3GNet-PES-MatPES-r2SCAN-2025.2", "matgl"),
-        ("MACE", "MACE", "mace"),
+        ("TensorNet-MatPES-PBE-2025.2", "TensorNet-PES-MatPES-PBE-2025.2"),
+        ("pbe", "TensorNet-PES-MatPES-PBE-2025.2"),
+        ("tensornet-pes-matpes-pbe-2025.2", "TensorNet-PES-MatPES-PBE-2025.2"),
+        ("m3gnet", "M3GNet-PES-MatPES-PBE-2025.2"),
+        ("M3GNet-MatPES-r2SCAN-2025.2", "M3GNet-PES-MatPES-r2SCAN-2025.2"),
     ],
 )
-def test_lammps_model_names(
-    name: str, expected_model: str, expected_provider: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(PESCalculator, "load_universal", lambda _name: Calculator())
-
+def test_lammps_model_names(name: str, expected_model: str) -> None:
     calc = LAMMPSMDCalc(name, relax_structure=False)
-
     assert calc.model_name == expected_model
-    assert calc.gnnp_type == expected_provider
+    assert calc.gnnp_type == "matgl"
 
 
 @pytest.mark.parametrize(

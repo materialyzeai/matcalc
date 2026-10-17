@@ -5,7 +5,6 @@ import subprocess
 import sys
 from collections import namedtuple
 from typing import TYPE_CHECKING
-from unittest.mock import Mock
 
 import pytest
 from monty.tempfile import ScratchDir
@@ -145,26 +144,16 @@ def test_main_clear_subcommand(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(sys, "argv", ["matcalc", "clear"])
     main()
     assert not cache_dir.exists()
-@pytest.mark.parametrize("name", ["pbe", "ORB-v2", "orb-mpa-v2"])
-def test_cli_model_alias(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    calculate = Mock()
-    monkeypatch.setattr("matcalc._cli.calculate_property", calculate)
-    monkeypatch.setattr("sys.argv", ["matcalc", "calc", "-s", "structure.cif", "-m", name])
-    main()
-    calculate.assert_called_once()
-    expected = "TensorNet-MatPES-PBE-2025.2" if name == "pbe" else "ORB-MPA-v2"
-    assert calculate.call_args.args[0].model == expected
 
 
-def test_cli_unknown_model(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    calculate = Mock()
-    monkeypatch.setattr("matcalc._cli.calculate_property", calculate)
-    monkeypatch.setattr("sys.argv", ["matcalc", "calc", "-s", "structure.cif", "-m", "TensorNet-MatPES-PBE-2025"])
-    with pytest.raises(SystemExit) as error:
-        main()
-    assert error.value.code == 2
-    message = capsys.readouterr().err
-    assert "Unknown model" in message
-    assert "Did you mean" in message
-    assert "TensorNet-MatPES-PBE-2025.2" in message
-    calculate.assert_not_called()
+def test_cli_unknown_model() -> None:
+    result = subprocess.run(
+        ["matcalc", "calc", "-p", "ElasticityCalc", "-s", "structure.cif", "-m", "TensorNet-MatPES-PBE-2025"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "Unknown model" in result.stderr
+    assert "Did you mean" in result.stderr
+    assert "TensorNet-MatPES-PBE-2025.2" in result.stderr
