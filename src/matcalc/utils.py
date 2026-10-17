@@ -52,6 +52,7 @@ if TYPE_CHECKING:
 #
 # Exceptions to the convention, where upstream names lack a field:
 #   - UMA uses ``<Architecture>-<Size>-<Version>`` and the ``omat`` task (no dataset field).
+#   - MACE-MH-0/1 keep the upstream names (multi-head models; the registry uses the ``omat_pbe`` head).
 #   - SevenNet OAM/OMat24/Omni, GRACE and QET-MatQ names omit a version.
 #   - MatterSim keeps its upstream names (``MatterSim-v1.0.0-1M``/``-5M``), omitting the M3GNet architecture.
 #
@@ -89,6 +90,8 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "MACE-OMat24-0-medium": {"provider": "mace_mp", "model": "medium-omat-0"},
     "MACE-MatPES-PBE-0": {"provider": "mace_mp", "model": "mace-matpes-pbe-0"},
     "MACE-MatPES-r2SCAN-0": {"provider": "mace_mp", "model": "mace-matpes-r2scan-0"},
+    "MACE-MH-0": {"provider": "mace_mp", "model": "mh-0", "head": "omat_pbe"},
+    "MACE-MH-1": {"provider": "mace_mp", "model": "mh-1", "head": "omat_pbe"},
     # NOTE: MACE multi-head checkpoints (mh-0, mh-1) require a mandatory ``head=...``
     # kwarg per use; they are not registered as default-loadable canonical names.
     # SevenNet (provider arguments use upstream SevenNetCalculator names)

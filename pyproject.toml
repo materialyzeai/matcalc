@@ -57,7 +57,7 @@ matgl = [
     "matgl>=4.1.0",
 ]
 mace = [
-    "mace-torch>=0.3.12",
+    "mace-torch>=0.3.15",
 ]
 sevennet = [
     "sevenn>=0.13.0",

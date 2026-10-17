@@ -4853,7 +4853,7 @@ requires-dist = [
     { name = "ipython", marker = "extra == 'ci'", specifier = ">=8.34.0" },
     { name = "joblib", specifier = ">=1.4.2" },
     { name = "jupyter", marker = "extra == 'ci'", specifier = ">=1.1.1" },
-    { name = "mace-torch", marker = "extra == 'mace'", specifier = ">=0.3.12" },
+    { name = "mace-torch", marker = "extra == 'mace'", specifier = ">=0.3.15" },
     { name = "maml", marker = "extra == 'ci'", specifier = ">=2025.4.3" },
     { name = "maml", marker = "extra == 'maml'", specifier = ">=2025.4.3" },
     { name = "matgl", marker = "extra == 'ci'", specifier = ">=4.1.0" },
