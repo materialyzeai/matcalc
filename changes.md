@@ -12,7 +12,7 @@ nav_order: 2
    - Supports early stopping (`patience`), multiple parallel chains (`n_init`, `n_jobs`), and returning the `n_lowest` distinct orderings (`lowest_structures` / `lowest_energies`).
    - `OrderCalc` now handles `Element` and `DummySpecies` sites in addition to `Species` (@rul048).
 2. **PR #267 Default CHGNet switched to the 1M MatPES models** by @YiqingChen524
-   - Registered `CHGNet-MatPES-PBE-2026.9-1M` and `CHGNet-MatPES-r2SCAN-2026.9-1M`; the `chgnet` alias and LAMMPS alias now point to them. The 2.7M `2025.2.10` names still resolve.
+   - Registered `CHGNet-MatPES-PBE-1M-2026.9` and `CHGNet-MatPES-r2SCAN-1M-2026.9`; the `chgnet` alias and LAMMPS alias now point to them. The 2.7M `2025.2.10` names still resolve.
 3. **PR #263 Added `UMA-S-1.2.1` to the model registry** by @Andrew-S-Rosen
 4. **PR #233 Switch from deprecated phonopy dictionaries to attributes; `phono3py` now optional** by @Andrew-S-Rosen, @rul048
    - Install via the `phonon3` extra (`pip install matcalc[phonon3]`). Minimum versions bumped to `phonopy>=4.2.0` and `phono3py>=4.2.0`.
