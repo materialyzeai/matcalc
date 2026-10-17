@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
-from pymatgen.core import Lattice, Structure
 
 from matcalc import MEP, NEBCalc
 
@@ -12,6 +11,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from matgl.ext.ase import PESCalculator
+    from pymatgen.core import Structure
 
 
 def test_neb_calc(LiFePO4: Structure, matpes_calculator: PESCalculator, tmp_path: Path) -> None:
@@ -138,8 +138,8 @@ def test_neb_calc_endpoints(Li2O: Structure, matpes_calculator: PESCalculator) -
     assert end_result["final_structure"] != end
 
 
-def test_neb_calc_images_pbc(matpes_calculator: PESCalculator) -> None:
-    bulk = Structure.from_spacegroup("Fm-3m", Lattice.cubic(3.6), ["Cu"], [[0, 0, 0]]).make_supercell(2)
+def test_neb_calc_images_pbc(Cu: Structure, matpes_calculator: PESCalculator) -> None:
+    bulk = Cu.make_supercell(2, in_place=False)
     # The nearest neighbor at (0.75, 0.75, 0) hops across the cell boundary into the vacancy at the origin.
     hop = int(np.argmin(np.linalg.norm(bulk.frac_coords - [0.75, 0.75, 0], axis=1)))
     start = bulk.copy()
