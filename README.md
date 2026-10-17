@@ -88,50 +88,30 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 
 `PESCalculator.load_universal()` — aliased as `matcalc.load_fp()` and `matcalc.load_up()` — supports these models out of the box:
 
-| Canonical name | Common aliases | Package |
+| Canonical name | Alias | Package |
 |---|---|---|
 | `TensorNet-MatPES-PBE-2025.2` | `tensornet`, `pbe` | matgl |
 | `TensorNet-MatPES-r2SCAN-2025.2` | `r2scan` | matgl |
 | `M3GNet-MatPES-PBE-2025.2` | `m3gnet` | matgl |
-| `M3GNet-MatPES-r2SCAN-2025.2` | — | matgl |
-| `QET-MatPES-{PBE,r2SCAN}-2025.2` | `qet` | matgl |
-| `QET-MatQ` | — | matgl |
 | `CHGNet-MatPES-PBE-2026.9-1M` | `chgnet` | matgl |
-| `CHGNet-MatPES-r2SCAN-2026.9-1M` | — | matgl |
-| `CHGNet-MatPES-{PBE,r2SCAN}-2025.2.10` | — | matgl |
-| `MACE-MPtrj-0a-{small,medium,large}` | — | mace-torch |
-| `MACE-MPtrj-0b-{small,medium}` | — | mace-torch |
-| `MACE-MPtrj-0b2-{small,medium,large}` | — | mace-torch |
-| `MACE-MPtrj-0b3-medium` | — | mace-torch |
+| `QET-MatPES-PBE-2025.2` | `qet` | matgl |
 | `MACE-MPA-0-medium` | `mace` | mace-torch |
-| `MACE-OMat24-0-{small,medium}` | — | mace-torch |
-| `MACE-MatPES-{PBE,r2SCAN}-0` | — | mace-torch |
-| `SevenNet-MPtrj-0` | `sevennet` | sevenn |
-| `SevenNet-MPtrj-l3i5` | — | sevenn |
-| `SevenNet-OAM-MF` | — | sevenn |
-| `SevenNet-OMat24` | — | sevenn |
+| `SevenNet-Omni` | `sevennet` | sevenn |
 | `GRACE-SMAX-OMat24-2L-medium` | `grace`, `tensorpotential` | tensorpotential |
-| `GRACE-SMAX-OMat24-{1L-large,2L-large}`, `GRACE-SMAX-{1L-large,2L-medium,2L-large}` | — | tensorpotential |
-| `GRACE-OAM-{1L,2L}-{small,medium,large}`, `GRACE-OAM-3L-large` | — | tensorpotential |
-| `GRACE-OMat24-{1L,2L}-{medium,large}-{base,ft-E}`, `GRACE-OMat24-2L-small`, `GRACE-OMat24-3L-large` | — | tensorpotential |
-| `GRACE-MPtrj-{1L-r6,2L-r5,2L-r6}` | — | tensorpotential |
-| `ORB-MPA-v2` | `orb` | orb-models |
-| `ORB-MPA-v2-D3`, `ORB-MPA-v2-D3-{sm,xs}` | — | orb-models |
+| `ORB-OMat24-v3-conservative-inf` | `orb` | orb-models |
 | `MatterSim-v1.0.0-1M` | `mattersim` | mattersim |
-| `MatterSim-v1.0.0-5M` | — | mattersim |
-| `UMA-S-1.2` | `uma`, `fairchem` | fairchem-core |
-| `UMA-S-{1.1,1.2.1}`, `UMA-M-1.1` | — | fairchem-core |
-| `PET-MAD-1.0.2` | `petmad` | upet |
-| `DPA2-OpenLAM-2.4-7M` | — | deepmd-kit |
-| `DPA3-OpenLAM-{3.1-3M,3.2-5M,3.3-1M}` | — | deepmd-kit |
-| `DPA4-OMat24-2026.8.5-{Nano,Mini,Neo,Air,Plus}` | `deepmd`, `dpa` | deepmd-kit |
+| `UMA-S-1.2.1` | `uma`, `fairchem` | fairchem-core |
+| `PET-MAD-r2SCAN-1.6.0-S` | `pet` | upet |
+| `DPA4-OMat24-2026.8.5-Mini` | `deepmd`, `dpa` | deepmd-kit |
 
-Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`; braces list variants.
+The table lists the model each alias loads; `matcalc.UNIVERSAL_CALCULATOR_NAMES` lists all registered models.
+Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]` where the upstream release provides these fields.
 Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovered if MatGL is installed.
+Pretrained weights have their own licenses, and some are for non-commercial use only; check the upstream model card before use.
 
 The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).
 
-The table is not exhaustive. Other models from these packages can be loaded with a provider override,
+Unregistered models from these packages can be loaded with a provider override,
 e.g. `load_fp("grace", model="GRACE-2L-SMAX-OMAT-large-fp64")`, or by passing any ASE calculator directly,
 e.g. a fairchem 1.x model (`fairchem-core==1.10`):
 
