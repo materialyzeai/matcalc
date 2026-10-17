@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 # Omni                       | SevenNet-Omni data    | Multi-domain; the registry uses modal="mpa".
 # OpenLAM                    | OpenLAM               | Multi-task DPA3 pretraining; the registry uses the Omat24 head.
 #
-# GRACE OAM pretrains on OMat24, then fine-tunes on sAlex + MPtrj. SevenNet OAM
+# GRACE and PET OAM pretrain on OMat24, then fine-tune on sAlex + MPtrj. SevenNet OAM
 # uses joint multifidelity training; modal="mpa" selects the MPtrj/sAlex DFT setting.
 # sAlex is an Alexandria subset with WBM matches removed and trajectories subsampled.
 #
@@ -94,8 +94,6 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "MACE-MatPES-r2SCAN-0": {"provider": "mace_mp", "model": "mace-matpes-r2scan-0"},
     "MACE-MH-0": {"provider": "mace_mp", "model": "mh-0", "head": "omat_pbe"},
     "MACE-MH-1": {"provider": "mace_mp", "model": "mh-1", "head": "omat_pbe"},
-    # NOTE: MACE multi-head checkpoints (mh-0, mh-1) require a mandatory ``head=...``
-    # kwarg per use; they are not registered as default-loadable canonical names.
     # SevenNet (provider arguments use upstream SevenNetCalculator names)
     "SevenNet-MPtrj-0": {"provider": "sevennet", "model": "7net-0"},
     "SevenNet-MPtrj-l3i5": {"provider": "sevennet", "model": "7net-l3i5"},
