@@ -7,7 +7,6 @@ authors:
     family-names: Liu
     affiliation: University of California, San Diego
     email: rul048@ucsd.edu
-    orcid: https://orcid.org/0000-0002-1214-9908
     github: https://github.com/rul048
   - given-names: Elliott
     family-names: Liu
@@ -31,18 +30,18 @@ authors:
     email: j1qi@ucsd.edu
     affiliation: University of California, San Diego
     github: https://github.com/JiQi535
-  - given-names: Shyue Ping
-    family-names: Ong
-    email: ongsp@ucsd.edu
-    affiliation: University of California, San Diego
-    orcid: https://orcid.org/0000-0001-5726-2587
-    github: https://github.com/shyuep
   - given-names: Tsz Wai
     family-names: Ko
     affiliation: University of California, San Diego
     email: t1ko@ucsd.edu
     orcid: https://orcid.org/0000-0002-0802-9559
     github: https://github.com/kenko911
+  - given-names: Shyue Ping
+    family-names: Ong
+    email: ongsp@ucsd.edu
+    affiliation: University of California, San Diego
+    orcid: https://orcid.org/0000-0001-5726-2587
+    github: https://github.com/shyuep
 license: BSD-3-Clause
 license-url: https://github.com/materialyzeai/matcalc/blob/-/LICENSE"
 repository-code: https://github.com/materialyzeai/matcalc
