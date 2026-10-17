@@ -285,7 +285,7 @@ def test_renamed_models(old_name: str, canonical: str) -> None:
         ("grace", "GRACE-SMAX-OMat24-2L-medium"),
         ("tensorpotential", "GRACE-SMAX-OMat24-2L-medium"),
         ("orb", "ORB-MPA-v2"),
-        ("sevennet", "SevenNet-MPtrj-0"),
+        ("sevennet", "SevenNet-Omni"),
         ("petmad", "PET-MAD-PBEsol-1.0.2-S"),
     ],
 )

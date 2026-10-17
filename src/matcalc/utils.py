@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 # SMAX                       | SMAX                  | GRACE max-entropy structures; element-dependent 5.0-7.5 A cutoff.
 # SMAX-OMat24                | SMAX + OMat24         | GRACE's general-purpose recommendation.
 # MAD                        | MAD                   | PET-MAD; MAD-1.0 is PBEsol, MAD-1.5/1.6 are r2SCAN.
+# Omni                       | SevenNet-Omni data    | Multi-domain; the registry uses modal="mpa".
 # OpenLAM                    | OpenLAM               | Multi-task DPA3 pretraining; the registry uses the Omat24 head.
 #
 # GRACE OAM pretrains on OMat24, then fine-tunes on sAlex + MPtrj. SevenNet OAM
@@ -51,7 +52,7 @@ if TYPE_CHECKING:
 #
 # Exceptions to the convention, where upstream names lack a field:
 #   - UMA uses ``<Architecture>-<Size>-<Version>`` and the ``omat`` task (no dataset field).
-#   - SevenNet OAM/OMat24, GRACE and QET-MatQ names omit a version.
+#   - SevenNet OAM/OMat24/Omni, GRACE and QET-MatQ names omit a version.
 #   - MatterSim keeps its upstream names (``MatterSim-v1.0.0-1M``/``-5M``), omitting the M3GNet architecture.
 #
 # To add a new model, append an entry here. The ``provider`` key picks the loader
@@ -95,6 +96,9 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "SevenNet-MPtrj-l3i5": {"provider": "sevennet", "model": "7net-l3i5"},
     "SevenNet-OAM-MF": {"provider": "sevennet", "model": "7net-mf-ompa", "modal": "mpa"},
     "SevenNet-OMat24": {"provider": "sevennet", "model": "7net-omat"},
+    "SevenNet-Omni": {"provider": "sevennet", "model": "7net-omni", "modal": "mpa"},
+    "SevenNet-Omni-i8": {"provider": "sevennet", "model": "7net-omni-i8", "modal": "mpa"},
+    "SevenNet-Omni-i12": {"provider": "sevennet", "model": "7net-omni-i12", "modal": "mpa"},
     # GRACE / TensorPotential
     "GRACE-SMAX-OMat24-1L-large": {"provider": "grace", "model": "GRACE-1L-SMAX-OMAT-large"},
     "GRACE-SMAX-OMat24-2L-medium": {"provider": "grace", "model": "GRACE-2L-SMAX-OMAT-medium"},
@@ -174,7 +178,7 @@ MODEL_ALIASES: dict[str, str] = {
     "pbe": "TensorNet-MatPES-PBE-2025.2",
     "r2scan": "TensorNet-MatPES-r2SCAN-2025.2",
     "mace": "MACE-MPA-0-medium",
-    "sevennet": "SevenNet-MPtrj-0",
+    "sevennet": "SevenNet-Omni",
     "grace": "GRACE-SMAX-OMat24-2L-medium",
     "tensorpotential": "GRACE-SMAX-OMat24-2L-medium",
     "orb": "ORB-MPA-v2",
