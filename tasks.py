@@ -56,6 +56,57 @@ def make_tutorials(ctx: Context):
 
 
 @task
+def make_model_list(ctx: Context):  # noqa: ARG001
+    """Write docs/models.md, the list of all registered foundation potentials."""
+    from matcalc.utils import _PROVIDER_INSTALL_EXTRA, MODEL_ALIASES, MODEL_REGISTRY
+
+    titles = {
+        "matgl": "MatGL",
+        "mace_mp": "MACE",
+        "sevennet": "SevenNet",
+        "grace": "GRACE",
+        "orb": "ORB",
+        "mattersim": "MatterSim",
+        "fairchem": "FAIRChem",
+        "upet": "UPET",
+        "deepmd": "DeePMD",
+    }
+    aliases: dict[str, list[str]] = {}
+    for alias, name in MODEL_ALIASES.items():
+        aliases.setdefault(name, []).append(f"`{alias}`")
+    lines = [
+        "---",
+        "layout: default",
+        "title: Foundation Potentials",
+        "nav_order: 3",
+        "---",
+        "",
+        "# Foundation Potentials",
+        "",
+        (
+            f"`matcalc.load_fp()` loads each of the {len(MODEL_REGISTRY)} models below by its canonical name or any of "
+            "its aliases (case-insensitive). This page is generated from `matcalc.utils.MODEL_REGISTRY`."
+        ),
+    ]
+    for provider in dict.fromkeys(spec["provider"] for spec in MODEL_REGISTRY.values()):
+        lines += [
+            "",
+            f"## {titles.get(provider, provider)}",
+            "",
+            f"Install with `pip install matcalc[{_PROVIDER_INSTALL_EXTRA[provider]}]`.",
+            "",
+            "| Canonical name | Aliases | Upstream model |",
+            "|---|---|---|",
+        ]
+        for name, spec in MODEL_REGISTRY.items():
+            if spec["provider"] == provider:
+                upstream = ", ".join(f'{k}="{v}"' for k, v in spec.items() if k != "provider")
+                lines.append(f"| `{name}` | {', '.join(aliases.get(name, [])) or '—'} | `{upstream}` |")
+    with open("docs/models.md", "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+@task
 def make_docs(ctx: Context):
     """
     This new version requires markdown builder.
@@ -73,6 +124,7 @@ def make_docs(ctx: Context):
         sphinx-build -M markdown ./ build
     """
     make_tutorials(ctx)
+    make_model_list(ctx)
 
     with cd("docs"):
         ctx.run("touch apidoc/index.rst", warn=True)

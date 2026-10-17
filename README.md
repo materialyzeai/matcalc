@@ -104,7 +104,8 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 | `PET-MAD-r2SCAN-1.6.0-S` | `pet` | upet |
 | `DPA4-OMat24-2026.8.5-Mini` | `deepmd`, `dpa` | deepmd-kit |
 
-The table lists the model each alias loads; `matcalc.UNIVERSAL_CALCULATOR_NAMES` lists all registered models.
+The table lists the model each alias loads; all registered models are listed in `matcalc.UNIVERSAL_CALCULATOR_NAMES`
+and on the [Foundation Potentials](https://matcalc.ai/models.html) page.
 Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]` where the upstream release provides these fields.
 Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovered if MatGL is installed.
 Pretrained weights have their own licenses, and some are for non-commercial use only; check the upstream model card before use.
