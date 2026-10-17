@@ -2,10 +2,10 @@
 name = "matcalc"
 authors = [
     { name = "Runze Liu", email = "rul048@ucsd.edu" },
-    { name = "Eliott Liu", email = "elliottliu17@gmail.com" },
+    { name = "Elliott Liu", email = "elliottliu17@gmail.com" },
     { name = "Ji Qi", email = "j1qi@ucsd.edu" },
-    { name = "Shyue Ping Ong", email = "shyue@nus.edu.sg" },
     { name = "Tsz Wai Ko", email = "t1ko@ucsd.edu" },
+    { name = "Shyue Ping Ong", email = "shyue@nus.edu.sg" },
 ]
 description = "Calculators for materials properties from the potential energy surface."
 readme = "README.md"
