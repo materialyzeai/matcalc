@@ -91,7 +91,7 @@ def make_model_list(ctx: Context):  # noqa: ARG001
     for provider in dict.fromkeys(spec["provider"] for spec in MODEL_REGISTRY.values()):
         lines += [
             "",
-            f"## {titles.get(provider, provider)}",
+            f"## {titles[provider]}",
             "",
             f"Install with `pip install matcalc[{_PROVIDER_INSTALL_EXTRA[provider]}]`.",
             "",

@@ -40,11 +40,11 @@ if TYPE_CHECKING:
 # OMat24                     | OMat24                | Open Materials 2024.
 # OAM                        | OMat24 + sAlex + MPtrj | GRACE and SevenNet use different training procedures.
 # MatPES-PBE / MatPES-r2SCAN  | MatPES                | The suffix identifies the functional.
-# SMAX                       | SMAX                  | GRACE max-entropy structures; element-dependent 5.0-7.5 A cutoff.
-# SMAX-OMat24                | SMAX + OMat24         | GRACE's general-purpose recommendation.
+# SMAX                       | SMAX                  | GRACE maximum-entropy structures.
+# SMAX-OMat24                | SMAX + OMat24         |
 # MAD                        | MAD                   | PET-MAD; MAD-1.0 is PBEsol, MAD-1.5/1.6 are r2SCAN.
-# Omni                       | SevenNet-Omni data    | Multi-domain; the registry uses modal="mpa".
-# OpenLAM                    | OpenLAM               | Multi-task DPA3 pretraining; the registry uses the Omat24 head.
+# Omni                       | SevenNet-Omni data    | Multi-domain.
+# OpenLAM                    | OpenLAM               | Multi-task DeePMD pretraining.
 #
 # GRACE and PET OAM pretrain on OMat24, then fine-tune on sAlex + MPtrj. SevenNet OAM
 # uses joint multifidelity training; modal="mpa" selects the MPtrj/sAlex DFT setting.
@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 #
 # Exceptions to the convention, where upstream names lack a field:
 #   - UMA uses ``<Architecture>-<Size>-<Version>`` and the ``omat`` task (no dataset field).
-#   - MACE-MH-0/1 keep the upstream names (multi-head models; the registry uses the ``omat_pbe`` head).
+#   - MACE-MH-0/1 keep the upstream names.
 #   - SevenNet OAM/OMat24/Omni, GRACE and QET-MatQ names omit a version.
 #   - MatterSim keeps its upstream names (``MatterSim-v1.0.0-1M``/``-5M``), omitting the M3GNet architecture.
 #
@@ -144,7 +144,7 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "ORB-OMat24-v3-conservative-inf": {"provider": "orb", "model": "orb-v3-conservative-inf-omat"},
     "ORB-OMat24-v3-direct-20": {"provider": "orb", "model": "orb-v3-direct-20-omat"},
     "ORB-OMat24-v3-direct-inf": {"provider": "orb", "model": "orb-v3-direct-inf-omat"},
-    # MatterSim (M3GNet architecture)
+    # MatterSim
     "MatterSim-v1.0.0-1M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-1M.pth"},
     "MatterSim-v1.0.0-5M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-5M.pth"},
     # FAIRChem (UMA family) — upstream uses ``uma-s-1p2`` style; we expose them
@@ -166,8 +166,8 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "PET-MAD-r2SCAN-1.6.0-S": {"provider": "upet", "model": "pet-mad-s", "version": "1.6.0"},
     "PET-MAD-r2SCAN-1.6.0-M": {"provider": "upet", "model": "pet-mad-m", "version": "1.6.0"},
     "PET-MAD-PBEsol-1.0.2-S": {"provider": "upet", "model": "pet-mad-s", "version": "1.0.2"},
-    # DPA (DPA4 checkpoints are CC-BY-NC-4.0)
-    # DPA-2.4-7M targets deepmd-kit 3.1 (upstream model card).
+    # DPA
+    # DPA-2.4-7M targets deepmd-kit 3.1.
     "DPA2-OpenLAM-2.4-7M": {"provider": "deepmd", "model": "DPA-2.4-7M", "head": "Omat24"},
     "DPA3-OpenLAM-3.1-3M": {"provider": "deepmd", "model": "DPA-3.1-3M", "head": "Omat24"},
     "DPA3-OpenLAM-3.2-5M": {"provider": "deepmd", "model": "DPA-3.2-5M", "head": "Omat24"},
