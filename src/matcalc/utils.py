@@ -63,6 +63,8 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     # MatGL — TensorNet on MatPES
     "TensorNet-MatPES-PBE-2025.2": {"provider": "matgl", "path": "TensorNet-PES-MatPES-PBE-2025.2"},
     "TensorNet-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "TensorNet-PES-MatPES-r2SCAN-2025.2"},
+    "TensorNet-MatPES-PBE-2025.2-m": {"provider": "matgl", "path": "TensorNet-PES-MatPES-PBE-2025.2-m"},
+    "TensorNet-MatPES-r2SCAN-2025.2-m": {"provider": "matgl", "path": "TensorNet-PES-MatPES-r2SCAN-2025.2-m"},
     # MatGL — M3GNet
     "M3GNet-MatPES-PBE-2025.2": {"provider": "matgl", "path": "M3GNet-PES-MatPES-PBE-2025.2"},
     "M3GNet-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "M3GNet-PES-MatPES-r2SCAN-2025.2"},
@@ -228,6 +230,8 @@ MODEL_ALIASES: dict[str, str] = {
     # legacy MatGL spellings — keep working so existing code/notebooks don't break
     "tensornet-pes-matpes-pbe-2025.2": "TensorNet-MatPES-PBE-2025.2",
     "tensornet-pes-matpes-r2scan-2025.2": "TensorNet-MatPES-r2SCAN-2025.2",
+    "tensornet-pes-matpes-pbe-2025.2-m": "TensorNet-MatPES-PBE-2025.2-m",
+    "tensornet-pes-matpes-r2scan-2025.2-m": "TensorNet-MatPES-r2SCAN-2025.2-m",
     "m3gnet-pes-matpes-pbe-2025.2": "M3GNet-MatPES-PBE-2025.2",
     "m3gnet-pes-matpes-r2scan-2025.2": "M3GNet-MatPES-r2SCAN-2025.2",
     "qet-pes-matpes-pbe-2025.2": "QET-MatPES-PBE-2025.2",
