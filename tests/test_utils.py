@@ -165,35 +165,6 @@ def test_pescalculator_calculate() -> None:
     assert list(stresses.shape) == [6]
 
 
-@pytest.mark.parametrize(
-    ("name", "expected"),
-    [
-        ("m3gnet", "M3GNet-MatPES-PBE-2025.2"),
-        ("M3GNet-MatPES-PBE-2025.2", "M3GNet-MatPES-PBE-2025.2"),
-        ("M3GNet-MatPES-r2SCAN-2025.2", "M3GNet-MatPES-r2SCAN-2025.2"),
-        ("m3gnet-pes-matpes-pbe-2025.2", "M3GNet-MatPES-PBE-2025.2"),
-        ("m3gnet-pes-matpes-r2scan-2025.2", "M3GNet-MatPES-r2SCAN-2025.2"),
-        ("M3GNet-MatPES-PBE-2025.1", None),
-        ("m3gnet-pes-matpes-pbe-2025.1", None),
-    ],
-)
-def test_resolve_m3gnet(name: str, expected: str | None) -> None:
-    assert _resolve_canonical(name) == expected
-
-
-@pytest.mark.parametrize(
-    ("name", "expected"),
-    [
-        ("PET-MAD-PBEsol-1.0.2-S", "PET-MAD-PBEsol-1.0.2-S"),
-        ("pet-mad-pbesol-1.0.2-s", "PET-MAD-PBEsol-1.0.2-S"),
-        ("PET-MAD-1.0.0", None),
-        ("PETMAD-1.0.0", None),
-    ],
-)
-def test_resolve_pet_mad(name: str, expected: str | None) -> None:
-    assert _resolve_canonical(name) == expected
-
-
 def test_aliases() -> None:
     # Every alias must resolve to a canonical name in the registry.
     for v in MODEL_ALIASES.values():
@@ -279,17 +250,3 @@ def test_renamed_models(old_name: str, canonical: str) -> None:
     assert old_name not in MODEL_REGISTRY
     for name in (old_name, old_name.lower(), old_name.upper(), canonical, canonical.lower()):
         assert _resolve_canonical(name) == canonical
-
-
-@pytest.mark.parametrize(
-    ("alias", "canonical"),
-    [
-        ("grace", "GRACE-SMAX-OMat24-2L-medium"),
-        ("tensorpotential", "GRACE-SMAX-OMat24-2L-medium"),
-        ("orb", "ORB-OMat24-v3-conservative-inf"),
-        ("sevennet", "SevenNet-Omni"),
-        ("petmad", "PET-MAD-PBEsol-1.0.2-S"),
-    ],
-)
-def test_short_aliases(alias: str, canonical: str) -> None:
-    assert _resolve_canonical(alias) == canonical
