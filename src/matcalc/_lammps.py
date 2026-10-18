@@ -14,7 +14,7 @@ from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
 
 from ._base import PropCalc
 from ._relaxation import RelaxCalc
-from .utils import MODEL_REGISTRY, _resolve_canonical, to_pmg_structure
+from .utils import _MATGL_AVAILABLE, MODEL_REGISTRY, _resolve_canonical, to_pmg_structure
 
 if TYPE_CHECKING:
     from typing import Any, Literal
@@ -102,6 +102,8 @@ class LAMMPSMDCalc(PropCalc):
         canonical = _resolve_canonical(self.model_name)
         if canonical is not None and MODEL_REGISTRY[canonical]["provider"] == "matgl":
             self.model_name = MODEL_REGISTRY[canonical]["path"]
+            self.gnnp_type = "matgl"
+        elif self.model_name in _MATGL_AVAILABLE:
             self.gnnp_type = "matgl"
         else:
             self.gnnp_type = self.model_name.lower()

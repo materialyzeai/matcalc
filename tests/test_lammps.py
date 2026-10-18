@@ -32,6 +32,7 @@ LAMMPS_TEMPLATES_DIR = Path(__file__).parent.parent / "src" / "matcalc" / "lammp
         ("tensornet-pes-matpes-pbe-2025.2", "TensorNet-PES-MatPES-PBE-2025.2"),
         ("m3gnet", "M3GNet-PES-MatPES-PBE-2025.2"),
         ("M3GNet-MatPES-r2SCAN-2025.2", "M3GNet-PES-MatPES-r2SCAN-2025.2"),
+        ("TensorNet-PES-ANI-1x-Subset", "TensorNet-PES-ANI-1x-Subset"),
     ],
 )
 def test_lammps_model_names(name: str, expected_model: str) -> None:
