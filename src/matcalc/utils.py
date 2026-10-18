@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import sys
 import warnings
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
@@ -285,9 +286,19 @@ _PROVIDER_INSTALL_EXTRA: dict[str, str] = {
     "deepmd": "deepmd",
 }
 
+# Removed model names (lower case), with the reason and replacement reported instead of close matches.
+_REMOVED_MODELS: dict[str, str] = {
+    "m3gnet-matpes-pbe-2025.1": "MatGL no longer distributes it; use the retrained M3GNet-MatPES-PBE-2025.2.",
+    "m3gnet-pes-matpes-pbe-2025.1": "MatGL no longer distributes it; use the retrained M3GNet-MatPES-PBE-2025.2.",
+    "petmad-1.0.0": "it loaded the latest pet-mad model, not version 1.0.0; use PET-MAD-PBEsol-1.0.2-S.",
+    "dpa3-lam-2025.3.14": "its checkpoint is not distributed and fails with deepmd-kit 3.2; use a DPA3-OpenLAM model.",
+}
+
 
 def _install_hint(provider: str) -> str:
     """Return a human-friendly install hint for a missing provider dependency."""
+    if provider == "orb" and sys.version_info < (3, 12):
+        return "Provider 'orb' requires orb-models >= 0.6, which needs Python >= 3.12."
     extra = _PROVIDER_INSTALL_EXTRA.get(provider, provider)
     return (
         f"Provider {provider!r} requires an optional dependency that is not installed. "
@@ -631,6 +642,8 @@ class PESCalculator(Calculator):
             # registry) so users on the bleeding edge are not blocked.
             if name in _MATGL_AVAILABLE:
                 return PESCalculator.load_matgl(name, **kwargs)
+            if (reason := _REMOVED_MODELS.get(name.lower())) is not None:
+                raise ValueError(f"{name!r} was removed: {reason}")
             suggestions = _suggest_models(name)
             hint = f" Did you mean: {suggestions}?" if suggestions else ""
             raise ValueError(

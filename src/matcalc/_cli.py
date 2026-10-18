@@ -12,7 +12,7 @@ from monty.serialization import dumpfn
 from pymatgen.core import Structure
 
 import matcalc as mtc
-from matcalc.utils import _resolve_canonical, _suggest_models
+from matcalc.utils import _REMOVED_MODELS, _resolve_canonical, _suggest_models
 
 if typing.TYPE_CHECKING:
     from typing import Any
@@ -147,6 +147,8 @@ def main() -> None:
     if args.func is calculate_property:
         canonical = _resolve_canonical(args.model)
         if canonical is None:
+            if (reason := _REMOVED_MODELS.get(args.model.lower())) is not None:
+                p_calc.error(f"{args.model!r} was removed: {reason}")
             message = f"Unknown model {args.model!r}."
             suggestions = _suggest_models(args.model)
             if suggestions:
