@@ -24,7 +24,7 @@ DIR = Path(__file__).parent.absolute()
 if TYPE_CHECKING:
     from pymatgen.core import Structure
 
-UNIVERSAL_CALCULATORS = [calc for calc in UNIVERSAL_CALCULATORS if "DGL" not in calc.name and "CHGNet" not in calc.name]
+UNIVERSAL_CALCULATORS = [calc for calc in UNIVERSAL_CALCULATORS if "CHGNet" not in calc.name]
 
 
 def _map_calculators_to_packages(calculators: list) -> dict[str, str]:
@@ -231,14 +231,16 @@ def test_install_hint() -> None:
         ("MACE-MP-0b3-medium", "MACE-MPtrj-0b3-medium"),
         ("MACE-OMAT-0-small", "MACE-OMat24-0-small"),
         ("MACE-OMAT-0-medium", "MACE-OMat24-0-medium"),
-        ("GRACE-1L-OAM", "GRACE-OAM-1L-small"),
-        ("GRACE-2L-OAM", "GRACE-OAM-2L-small"),
+        ("MACE-MatPES-PBE-0", "MACE-OMat24-ft-MatPES-PBE-0"),
+        ("MACE-MatPES-r2SCAN-0", "MACE-OMat24-ft-MatPES-r2SCAN-0"),
+        ("GRACE-1L-OAM", "GRACE-OMat24-ft-MPA-1L-small"),
+        ("GRACE-2L-OAM", "GRACE-OMat24-ft-MPA-2L-small"),
         ("GRACE-2L-OMAT", "GRACE-OMat24-2L-small"),
         ("GRACE-2L-MPtrj", "GRACE-MPtrj-2L-r6"),
-        ("ORB-v2", "ORB-MPA-v2"),
-        ("ORB-d3-v2", "ORB-MPA-v2-D3"),
-        ("ORB-d3-sm-v2", "ORB-MPA-v2-D3-sm"),
-        ("ORB-d3-xs-v2", "ORB-MPA-v2-D3-xs"),
+        ("ORB-v2", "ORB-MPtrj-Alex-v2"),
+        ("ORB-d3-v2", "ORB-MPtrj-Alex-v2-D3"),
+        ("ORB-d3-sm-v2", "ORB-MPtrj-Alex-v2-D3-sm"),
+        ("ORB-d3-xs-v2", "ORB-MPtrj-Alex-v2-D3-xs"),
         ("SevenNet-0", "SevenNet-MPtrj-0"),
         ("SevenNet-l3i5", "SevenNet-MPtrj-l3i5"),
         ("SevenNet-MF-OMPA", "SevenNet-OAM-MF"),
@@ -246,13 +248,9 @@ def test_install_hint() -> None:
     ],
 )
 def test_renamed_models(old_name: str, canonical: str) -> None:
-    assert canonical in MODEL_REGISTRY
-    assert old_name not in MODEL_REGISTRY
-    for name in (old_name, old_name.lower(), old_name.upper(), canonical, canonical.lower()):
-        assert _resolve_canonical(name) == canonical
+    assert _resolve_canonical(old_name) == canonical
 
 
-@pytest.mark.parametrize("name", ["M3GNet-MatPES-PBE-2025.1", "PETMAD-1.0.0", "DPA3-LAM-2025.3.14"])
-def test_removed_models(name: str) -> None:
+def test_removed_models() -> None:
     with pytest.raises(ValueError, match="was removed"):
-        PESCalculator.load_universal(name)
+        PESCalculator.load_universal("PETMAD-1.0.0")

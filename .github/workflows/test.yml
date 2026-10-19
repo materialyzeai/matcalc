@@ -68,7 +68,7 @@ jobs:
             models: '["TensorNet-MatPES-PBE-2025.2", "TensorNet-MatPES-r2SCAN-2025.2", "M3GNet-MatPES-PBE-2025.2"]'
           - name: mace
             extras: mace
-            models: '["MACE-MPtrj-0a-small", "MACE-MPA-0-medium", "MACE-MatPES-PBE-0"]'
+            models: '["MACE-MPtrj-0a-small", "MACE-MPA-0-medium", "MACE-OMat24-ft-MatPES-PBE-0"]'
           - name: grace
             extras: grace
             models: '["GRACE-SMAX-OMat24-2L-medium"]'
@@ -81,7 +81,7 @@ jobs:
             models: '["ORB-OMat24-v3-conservative-inf"]'
           - name: upet
             extras: upet
-            models: '["PET-MAD-r2SCAN-1.6.0-S"]'
+            models: '["PET-OMat24-ft-MAD-r2SCAN-1.6.0-S"]'
           - name: deepmd
             extras: deepmd
             models: '["DPA4-OMat24-2026.8.5-Mini"]'

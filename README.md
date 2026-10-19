@@ -101,7 +101,7 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 | `ORB-OMat24-v3-conservative-inf` | `orb` | orb-models |
 | `MatterSim-v1.0.0-1M` | `mattersim` | mattersim |
 | `UMA-S-1.2.1` | `uma`, `fairchem` | fairchem-core |
-| `PET-OAM-1.0.0-XL` | `pet` | upet |
+| `PET-OMat24-ft-MPA-1.0.0-XL` | `pet` | upet |
 | `DPA4-OMat24-2026.8.5-Mini` | `deepmd`, `dpa` | deepmd-kit |
 
 The table lists the model each alias loads; all registered models are listed in `matcalc.UNIVERSAL_CALCULATOR_NAMES`
