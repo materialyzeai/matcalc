@@ -198,7 +198,7 @@ MODEL_ALIASES: dict[str, str] = {
     "mattersim": "MatterSim-v1.0.0-1M",
     "fairchem": "UMA-S-1.2.1",
     "uma": "UMA-S-1.2.1",
-    "pet": "PET-MAD-r2SCAN-1.6.0-S",
+    "pet": "PET-OAM-1.0.0-XL",
     "petmad": "PET-MAD-PBEsol-1.0.2-S",
     "deepmd": "DPA4-OMat24-2026.8.5-Mini",
     "dpa": "DPA4-OMat24-2026.8.5-Mini",
