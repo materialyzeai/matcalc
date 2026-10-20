@@ -7,13 +7,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 from monty.serialization import loadfn
+from pymatgen.core import Lattice, Structure
 
 from matcalc import DefectCalc, RelaxCalc
 from matcalc._stability import ELEMENTAL_REFS_DIR
 
 if TYPE_CHECKING:
-    from pymatgen.core import Structure
-
     from matcalc.utils import PESCalculator
 
 
@@ -144,8 +143,15 @@ def test_calc_defects_supercell(Si: Structure, matpes_calculator: PESCalculator)
     # A single element symbol is one element, not a sequence of characters.
     assert [r["defect_name"] for r in calc.calc_defects(Si, supercell_matrix=1, vacancies="Si")] == ["v_Si"]
 
+    # The widths of an oblique cell set the repeats: a sin(60°) = 2.6 A needs four for 9 A, not three.
+    mg = Structure(Lattice.hexagonal(3.0, 5.0), ["Mg", "Mg"], [[1 / 3, 2 / 3, 0.25], [2 / 3, 1 / 3, 0.75]])
+    [result] = calc.calc_defects(mg, min_length=9)
+    np.testing.assert_array_equal(result["supercell_matrix"], np.diag([4, 4, 2]))
 
-def test_defect_calc_invalid_inputs(Si: Structure, Cu: Structure, matpes_calculator: PESCalculator) -> None:
+
+def test_defect_calc_invalid_inputs(
+    Si: Structure, Cu: Structure, Li2O: Structure, matpes_calculator: PESCalculator
+) -> None:
     calc = DefectCalc(matpes_calculator, elemental_refs={})
     with pytest.raises(ValueError, match="must be a dict"):
         calc.calc(Si)
@@ -155,6 +161,9 @@ def test_defect_calc_invalid_inputs(Si: Structure, Cu: Structure, matpes_calcula
         calc.calc_defects(Cu, substitutions={"Ag": "Cu"})
     with pytest.raises(ValueError, match="No elemental reference for Ni"):
         calc.calc_defects(Cu, supercell_matrix=1, vacancies=False, substitutions={"Cu": "Ni"})
+    calc = DefectCalc(matpes_calculator, relax_bulk=False, relax_defect=False, chemical_potentials={"O": -4.9})
+    with pytest.raises(ValueError, match="chemical potential of Li in Li2O"):
+        calc.calc_defects(Li2O, supercell_matrix=1, vacancies="Li")
 
 
 def test_defect_calc_si(Si: Structure, matpes_calculator: PESCalculator) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import math
 from collections import Counter
 from collections.abc import Mapping
@@ -37,8 +38,9 @@ class DefectCalc(PropCalc):
 
     where ``e_bulk`` is the bulk energy per atom and ``dn_i`` the number of atoms of element i added
     (positive) or removed (negative). Unless given in ``chemical_potentials``, ``mu_i`` is the bulk
-    energy per atom for the host of an elemental crystal, and otherwise the lowest energy per atom of
-    the relaxed elemental references (the element-rich limit).
+    energy per atom for the host of an elemental crystal, and the lowest energy per atom of the relaxed
+    elemental references for an element not in the host (the element-rich limit). The chemical potentials
+    of the host elements of a compound depend on the growth conditions and must be given.
     """
 
     def __init__(
@@ -65,7 +67,8 @@ class DefectCalc(PropCalc):
             optimizer: ASE optimizer name or class.
             max_steps: Maximum relaxation steps.
             chemical_potentials: Chemical potentials (eV/atom) by element symbol, overriding the
-                defaults described in the class docstring.
+                defaults described in the class docstring. Required for the host elements of a compound,
+                and they should satisfy ``sum_i n_i mu_i`` = bulk energy per formula unit.
             elemental_refs: ``"MP-PBE"``, ``"MatPES-PBE"``, ``"MatPES-r2SCAN"`` or a custom dict
                 mapping element symbols to ``{"structure": ...}``. The reference structures are
                 relaxed with this calculator when a chemical potential is needed.
@@ -103,14 +106,15 @@ class DefectCalc(PropCalc):
         Args:
             structure: Ordered bulk structure, converted to the conventional cell.
             supercell_matrix: Scaling of the relaxed conventional cell. None repeats each lattice
-                vector until it is at least ``min_length`` long.
-            min_length: Minimum supercell lattice length (A) when ``supercell_matrix`` is None.
+                vector until the distance between the corresponding opposite faces is at least ``min_length``.
+            min_length: Minimum supercell width (A) when ``supercell_matrix`` is None.
             vacancies: True for vacancies of every element, False for none, or element symbols.
             substitutions: Dopants by host element, e.g. ``{"Cu": ["Ni", "Zn"]}``.
             antisites: Place every other host element on each host site.
             interstitials: Element symbols for interstitial sites found by Voronoi analysis
-                (requires the ``defects`` extra), or fractional coordinates in the relaxed
-                conventional cell by element, e.g. ``{"H": [[0.5, 0.5, 0.5]]}``.
+                (requires the ``defects`` extra), or fractional coordinates by element in the
+                conventional cell of ``structure`` (``structure.to_conventional()``, returned relaxed
+                as ``final_bulk``), e.g. ``{"H": [[0.5, 0.5, 0.5]]}``.
             symprec: Symmetry tolerance for finding inequivalent sites.
             **kwargs: Forwarded to ``calc_many``.
 
@@ -125,7 +129,9 @@ class DefectCalc(PropCalc):
         bulk_opt = self._relaxer(relax_cell=self.relax_bulk, relax_atoms=self.relax_bulk).calc(bulk)
         final_bulk = bulk_opt["final_structure"]
         if supercell_matrix is None:
-            supercell_matrix = [math.ceil(min_length / length) for length in final_bulk.lattice.abc]
+            vectors = final_bulk.lattice.matrix
+            widths = final_bulk.volume / np.linalg.norm(np.cross(vectors[[1, 2, 0]], vectors[[2, 0, 1]]), axis=1)
+            supercell_matrix = [math.ceil(min_length / width) for width in widths]
         matrix = np.array(supercell_matrix, dtype=int)
         if matrix.ndim < 2:  # noqa: PLR2004
             matrix = np.eye(3, dtype=int) * matrix
@@ -240,12 +246,17 @@ class DefectCalc(PropCalc):
     def _chemical_potential(self, symbol: str, host: Composition, bulk_energy_per_atom: float) -> float:
         if self.chemical_potentials and symbol in self.chemical_potentials:
             return self.chemical_potentials[symbol]
-        if host.is_element and host.elements[0].symbol == symbol:
-            return bulk_energy_per_atom
+        if symbol in {el.symbol for el in host.elements}:
+            if host.is_element:
+                return bulk_energy_per_atom
+            raise ValueError(
+                f"The chemical potential of {symbol} in {host.reduced_formula} depends on the growth conditions; "
+                "pass it in chemical_potentials."
+            )
         if symbol not in self._reference_energies:
             refs = self.elemental_refs
             if isinstance(refs, str):
-                refs = self.elemental_refs = loadfn(ELEMENTAL_REFS_DIR / f"{refs}-Element-Refs.json.gz")
+                refs = _load_elemental_refs(refs)
             if symbol not in refs:
                 raise ValueError(f"No elemental reference for {symbol}; pass it in chemical_potentials.")
             structures = refs[symbol]["structure"]
@@ -255,6 +266,12 @@ class DefectCalc(PropCalc):
                 for ref in (structures if isinstance(structures, list) else [structures])
             )
         return self._reference_energies[symbol]
+
+
+@functools.cache
+def _load_elemental_refs(name: str) -> dict:
+    """Elemental reference structures shipped with matcalc."""
+    return loadfn(ELEMENTAL_REFS_DIR / f"{name}-Element-Refs.json.gz")
 
 
 def _site_defects(
