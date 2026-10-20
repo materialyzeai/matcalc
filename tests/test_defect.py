@@ -122,10 +122,8 @@ def test_calc_defects_voronoi_interstitials(Cu: Structure, matpes_calculator: PE
     calc = DefectCalc(matpes_calculator, relax_bulk=False, relax_defect=False, chemical_potentials={"H": -1.0})
     results = calc.calc_defects(Cu, supercell_matrix=1, vacancies=False, interstitials="H")
 
-    # Tetrahedral and octahedral sites of fcc Cu.
-    distances = sorted(
-        min(np.linalg.norm(r["defect"][-1].coords - site.coords) for site in r["defect"][:-1]) for r in results
-    )
+    # Tetrahedral and octahedral sites of fcc Cu; the generator may return coordinates outside the cell.
+    distances = sorted(min(r["defect"][-1].distance(site) for site in r["defect"][:-1]) for r in results)
     assert distances == pytest.approx([3.6 * np.sqrt(3) / 4, 3.6 / 2], abs=0.05)
     assert [r["defect_name"] for r in results] == ["H_i_1", "H_i_2"]
 
