@@ -284,7 +284,7 @@ class NEBCalc(PropCalc):
                 dict:
                     - "barrier" (float): The energy barrier of the reaction pathway.
                     - "reaction_energy" (float): Energy of the final image minus the initial image (eV).
-                    - "force" (np.ndarray): Final NEB forces on the moving images (eV/Å).
+                    - "forces" (np.ndarray): Final NEB forces on the moving images (eV/Å).
                     - "mep" (MEP): An MEP dataclass containing the images and their respective energies.
         """
         if not isinstance(structure, dict):
@@ -322,7 +322,7 @@ class NEBCalc(PropCalc):
             "barrier": data[0],
             "reaction_energy": data[1],
             "converged": converged,
-            "force": self.neb.get_forces(),
+            "forces": self.neb.get_forces(),
         }
 
         energies = fit_images(self.neb.images).energies
@@ -332,5 +332,5 @@ class NEBCalc(PropCalc):
         # Create MEP instance from structures and energies
         mep = MEP(structures, list(energies))
         result["mep"] = mep
-        result["_units"] = self._merge_units(None, {"barrier": "eV", "reaction_energy": "eV", "force": "eV/Å"})
+        result["_units"] = self._merge_units(None, {"barrier": "eV", "reaction_energy": "eV", "forces": "eV/Å"})
         return result
