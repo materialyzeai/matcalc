@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ase.calculators.calculator import Calculator
     from ase.optimize.optimize import Optimizer
     from numpy.typing import ArrayLike
+    from pymatgen.analysis.phase_diagram import PhaseDiagram
     from pymatgen.core import Structure
 
 
@@ -40,7 +41,8 @@ class DefectCalc(PropCalc):
     (positive) or removed (negative). Unless given in ``chemical_potentials``, ``mu_i`` is the bulk
     energy per atom for the host of an elemental crystal, and the lowest energy per atom of the relaxed
     elemental references for an element not in the host (the element-rich limit). The chemical potentials
-    of the host elements of a compound depend on the growth conditions and must be given.
+    of the host elements of a compound depend on the growth conditions and must be given, e.g. one of the
+    limits from ``calc_chemical_potential_limits``.
     """
 
     def __init__(
@@ -123,10 +125,7 @@ class DefectCalc(PropCalc):
             ``H_i``; numbered when several sites share a name), ``element_changes``,
             ``defect_frac_coords`` (defect position in the supercell) and ``supercell_matrix``.
         """
-        bulk = to_pmg_structure(structure).to_conventional()
-        bulk.remove_oxidation_states()
-
-        bulk_opt = self._relaxer(relax_cell=self.relax_bulk, relax_atoms=self.relax_bulk).calc(bulk)
+        bulk_opt = self._relax_bulk(structure)
         final_bulk = bulk_opt["final_structure"]
         if supercell_matrix is None:
             vectors = final_bulk.lattice.matrix
@@ -168,6 +167,58 @@ class DefectCalc(PropCalc):
                 }
             )
         return list(self.calc_many(entries, **kwargs))  # type: ignore[arg-type]
+
+    def calc_chemical_potential_limits(
+        self, structure: Structure | Atoms, phase_diagram: PhaseDiagram, *, stabilize_bulk: bool = False
+    ) -> dict[str, dict[str, float]]:
+        """Chemical potentials at the limits of the bulk's stability region.
+
+        Following ``FormationEnergyDiagram.with_atomic_entries`` in pymatgen-analysis-defects, the
+        formation energies of the competing phases are taken from ``phase_diagram`` (e.g. built from
+        Materials Project entries) and referenced to the relaxed elemental references of this calculator.
+        The bulk is relaxed as in ``calc_defects`` and replaces the entries of its composition, so each
+        limit satisfies ``sum_i n_i mu_i`` = bulk energy per formula unit.
+
+        Args:
+            structure: Ordered bulk structure.
+            phase_diagram: Phase diagram of the host's chemical system. Phases with other elements, e.g.
+                dopants, give their chemical potentials at each limit as well.
+            stabilize_bulk: If the bulk is above the hull, lower its energy to 1 meV/atom below the hull
+                instead of raising an error. The chemical potentials then satisfy the lowered energy,
+                not the bulk energy used for the defects.
+
+        Returns:
+            Chemical potentials (eV/atom) by element at each limit, keyed by the coexisting phases,
+            e.g. ``{"Li-Li2O": {...}, "Li2O-Li2O2": {...}}``.
+        """
+        from pymatgen.analysis.phase_diagram import PDEntry, PhaseDiagram
+
+        bulk_opt = self._relax_bulk(structure)
+        host = bulk_opt["final_structure"].composition
+        elements = {el.symbol for el in phase_diagram.elements} | {el.symbol for el in host.elements}
+        mu0 = {el: self._elemental_energy(el) for el in elements}
+        entries = [PDEntry(el, mu0[el]) for el in elements]
+        entries += [
+            PDEntry(
+                entry.composition,
+                phase_diagram.get_form_energy(entry) + sum(n * mu0[el.symbol] for el, n in entry.composition.items()),
+            )
+            for entry in phase_diagram.stable_entries
+            if not entry.composition.is_element and entry.composition.reduced_formula != host.reduced_formula
+        ]
+        bulk = PDEntry(host, bulk_opt["energy"])
+        e_above_hull = PhaseDiagram([*entries, bulk]).get_e_above_hull(bulk)
+        if e_above_hull:
+            if not stabilize_bulk:
+                raise ValueError(
+                    f"{host.reduced_formula} is {e_above_hull:.3f} eV/atom above the hull of the phase diagram."
+                )
+            bulk = PDEntry(host, bulk_opt["energy"] - (e_above_hull + 0.001) * host.num_atoms)
+        limits = PhaseDiagram([*entries, bulk]).get_all_chempots(host)
+        return {
+            "-".join(sorted(name.split("-"))): {el.symbol: float(mu) for el, mu in chempots.items()}
+            for name, chempots in limits.items()
+        }
 
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict[str, Any]:
         """Compute the formation energy of one defect structure.
@@ -238,6 +289,11 @@ class DefectCalc(PropCalc):
             ),
         }
 
+    def _relax_bulk(self, structure: Structure | Atoms) -> dict[str, Any]:
+        bulk = to_pmg_structure(structure).to_conventional()
+        bulk.remove_oxidation_states()
+        return self._relaxer(relax_cell=self.relax_bulk, relax_atoms=self.relax_bulk).calc(bulk)
+
     def _relaxer(self, *, relax_cell: bool, relax_atoms: bool) -> RelaxCalc:
         kwargs: dict[str, Any] = {"fmax": self.fmax, "optimizer": self.optimizer, "max_steps": self.max_steps}
         kwargs |= (self.relax_calc_kwargs or {}) | {"relax_cell": relax_cell, "relax_atoms": relax_atoms}
@@ -253,6 +309,9 @@ class DefectCalc(PropCalc):
                 f"The chemical potential of {symbol} in {host.reduced_formula} depends on the growth conditions; "
                 "pass it in chemical_potentials."
             )
+        return self._elemental_energy(symbol)
+
+    def _elemental_energy(self, symbol: str) -> float:
         if symbol not in self._reference_energies:
             refs = self.elemental_refs
             if isinstance(refs, str):

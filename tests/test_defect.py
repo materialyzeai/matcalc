@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 from monty.serialization import loadfn
+from pymatgen.analysis.phase_diagram import PDEntry, PhaseDiagram
 from pymatgen.core import Lattice, Structure
 
 from matcalc import DefectCalc, RelaxCalc
@@ -99,6 +100,53 @@ def test_calc_defects_compound(Li2O: Structure, matpes_calculator: PESCalculator
 
     with pytest.raises(ValueError, match="element_changes"):
         calc.calc({"defect": results[0]["defect"], "element_changes": {"O": -1}, "bulk": Li2O})
+
+
+def test_chemical_potential_limits(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    # Formation energies come from this phase diagram; its Li2O entry is replaced by the relaxed bulk.
+    def phase_diagram(li2o2_formation_energy: float) -> PhaseDiagram:
+        li, o = -1.9, -4.9
+        return PhaseDiagram(
+            [
+                PDEntry("Li", li),
+                PDEntry("O", o),
+                PDEntry("Li2O", 2 * li + o - 6.2),
+                PDEntry("Li2O2", 2 * li + 2 * o + li2o2_formation_energy),
+            ]
+        )
+
+    calc = DefectCalc(matpes_calculator, max_steps=50)
+    limits = calc.calc_chemical_potential_limits(Li2O, phase_diagram(-6.57))
+
+    # Independent protocol: relaxed conventional bulk and lowest-energy relaxed elemental references.
+    relaxer = RelaxCalc(matpes_calculator, max_steps=50, optimizer="BFGS")
+    bulk = Li2O.to_conventional()
+    bulk.remove_oxidation_states()
+    bulk = relaxer.calc(bulk)
+    e_fu = 3 * bulk["energy"] / len(bulk["final_structure"])
+    refs = loadfn(ELEMENTAL_REFS_DIR / "MatPES-PBE-Element-Refs.json.gz")
+    mu0 = {}
+    for el in ("Li", "O"):
+        structures = refs[el]["structure"]
+        mu0[el] = min(
+            (opt := relaxer.calc(ref))["energy"] / len(opt["final_structure"])
+            for ref in (structures if isinstance(structures, list) else [structures])
+        )
+    li2o2 = 2 * mu0["Li"] + 2 * mu0["O"] - 6.57
+    mu_o = li2o2 - e_fu
+
+    assert limits == {
+        "Li-Li2O": {"Li": pytest.approx(mu0["Li"]), "O": pytest.approx(e_fu - 2 * mu0["Li"])},
+        "Li2O-Li2O2": {"Li": pytest.approx((e_fu - mu_o) / 2), "O": pytest.approx(mu_o)},
+    }
+
+    # A very stable Li2O2 puts Li2O above the hull of Li and Li2O2.
+    with pytest.raises(ValueError, match="above the hull"):
+        calc.calc_chemical_potential_limits(Li2O, phase_diagram(-20))
+    limits = calc.calc_chemical_potential_limits(Li2O, phase_diagram(-20), stabilize_bulk=True)
+    hull = mu0["Li"] + (2 * mu0["Li"] + 2 * mu0["O"] - 20) / 2
+    for mu in limits.values():
+        assert 2 * mu["Li"] + mu["O"] == pytest.approx(hull - 0.003)
 
 
 def test_calc_defects_interstitials(Cu: Structure, matpes_calculator: PESCalculator) -> None:
