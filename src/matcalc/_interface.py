@@ -9,6 +9,7 @@ from pymatgen.analysis.interfaces.coherent_interfaces import CoherentInterfaceBu
 from pymatgen.core.structure_matcher import StructureMatcher
 
 from ._base import PropCalc
+from ._relaxation import RelaxCalc
 
 if TYPE_CHECKING:
     from ase import Atoms
@@ -59,6 +60,32 @@ class InterfaceCalc(PropCalc):
         self.optimizer = optimizer
         self.max_steps = max_steps
         self.relax_calc_kwargs = relax_calc_kwargs
+
+    def calc_bulk(self, bulk: Structure | Atoms) -> dict[str, Any]:
+        """Relax a bulk structure if relax_bulk, and compute its energy.
+
+        Parameters:
+            bulk (Structure | Atoms): The bulk structure.
+
+        Returns:
+            dict: "bulk", "bulk_energy" (eV), "bulk_energy_per_atom" (eV/atom) and "final_bulk".
+        """
+        relaxer = RelaxCalc(
+            calculator=self.calculator,
+            fmax=self.fmax,
+            max_steps=self.max_steps,
+            relax_cell=self.relax_bulk,
+            relax_atoms=self.relax_bulk,
+            optimizer=self.optimizer,
+            **(self.relax_calc_kwargs or {}),
+        )
+        bulk_opt = relaxer.calc(bulk)
+        return {
+            "bulk": bulk,
+            "bulk_energy": bulk_opt["energy"],
+            "bulk_energy_per_atom": bulk_opt["energy"] / len(bulk),
+            "final_bulk": bulk_opt["final_structure"],
+        }
 
     def calc_interfaces(
         self,
@@ -125,24 +152,17 @@ class InterfaceCalc(PropCalc):
         film_bulk = film_bulk.to_conventional()
         substrate_bulk = substrate_bulk.to_conventional()
 
-        relaxer_bulk = self._relaxer(
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            relax_cell=self.relax_bulk,
-            relax_atoms=self.relax_bulk,
-            optimizer=self.optimizer,
-        )
-        film_opt = relaxer_bulk.calc(film_bulk)
-        substrate_opt = relaxer_bulk.calc(substrate_bulk)
+        film = self.calc_bulk(film_bulk)
+        substrate = self.calc_bulk(substrate_bulk)
 
         interfaces = [
             {
                 "interface": interface,
                 "num_atoms": len(interface),
-                "film_energy_per_atom": film_opt["energy"] / len(film_bulk),
-                "final_film": film_opt["final_structure"],
-                "substrate_energy_per_atom": substrate_opt["energy"] / len(substrate_bulk),
-                "final_substrate": substrate_opt["final_structure"],
+                "film_energy_per_atom": film["bulk_energy_per_atom"],
+                "final_film": film["final_bulk"],
+                "substrate_energy_per_atom": substrate["bulk_energy_per_atom"],
+                "final_substrate": substrate["final_bulk"],
             }
             for interface in unique_interfaces
         ]
@@ -183,27 +203,22 @@ class InterfaceCalc(PropCalc):
             film_structure = structure["final_film"]
             substrate_structure = structure["final_substrate"]
         else:
-            relaxer = self._relaxer(
-                fmax=self.fmax,
-                max_steps=self.max_steps,
-                relax_cell=self.relax_bulk,
-                relax_atoms=self.relax_bulk,
-                optimizer=self.optimizer,
-            )
-            film_opt = relaxer.calc(structure["film_bulk"])
-            film_energy_per_atom = film_opt["energy"] / len(film_opt["final_structure"])
-            film_structure = film_opt["final_structure"]
-            substrate_opt = relaxer.calc(structure["substrate_bulk"])
-            substrate_energy_per_atom = substrate_opt["energy"] / len(substrate_opt["final_structure"])
-            substrate_structure = substrate_opt["final_structure"]
+            film = self.calc_bulk(structure["film_bulk"])
+            substrate = self.calc_bulk(structure["substrate_bulk"])
+            film_energy_per_atom = film["bulk_energy_per_atom"]
+            film_structure = film["final_bulk"]
+            substrate_energy_per_atom = substrate["bulk_energy_per_atom"]
+            substrate_structure = substrate["final_bulk"]
 
         interface = structure["interface"]
-        relaxer = self._relaxer(
+        relaxer = RelaxCalc(
+            calculator=self.calculator,
             fmax=self.fmax,
             max_steps=self.max_steps,
             relax_cell=False,
             relax_atoms=self.relax_interface,
             optimizer=self.optimizer,
+            **(self.relax_calc_kwargs or {}),
         )
         interface_opt = relaxer.calc(interface)
         final_interface = interface_opt["final_structure"]
