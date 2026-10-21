@@ -80,7 +80,7 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 | `EnergeticsCalc` | Formation and cohesive energies | `formation_energy_per_atom`, `cohesive_energy_per_atom` |
 | `SurfaceCalc` | Surface energy calculation | `surface_energy`, `slab_energy`, `final_slab` |
 | `AdsorptionCalc` | Adsorption energy on surfaces | `adsorption_energy` |
-| `InterfaceCalc` | Coherent interface energy between two bulk structures | `interface_energy` |
+| `InterfaceCalc` | Interfacial and adhesion energies of coherent interfaces | `interfacial_energy`, `adhesion_energy` |
 | `LAMMPSMDCalc` | LAMMPS-based molecular dynamics | `md_structures`, `md_energies` |
 | `ChainedCalc` | Chain multiple PropCalcs in sequence | Combined outputs of all constituent calculators |
 
