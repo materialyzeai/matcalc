@@ -22,15 +22,18 @@ if TYPE_CHECKING:
 class InterfaceCalc(PropCalc):
     """
     This class generates all possible coherent interfaces between two bulk structures
-    given their miller indices, relaxes them, and computes their interfacial energies.
+    given their miller indices, relaxes them, and computes their interfacial and/or adhesion energies.
     """
 
     def __init__(
         self,
         calculator: Calculator | str,
         *,
+        interfacial_energy: bool = True,
+        adhesion_energy: bool = False,
         relax_bulk: bool = True,
         relax_interface: bool = True,
+        relax_slab: bool = True,
         fmax: float = 0.1,
         optimizer: str | Optimizer = "BFGS",
         max_steps: int = 500,
@@ -41,21 +44,28 @@ class InterfaceCalc(PropCalc):
         Parameters:
             calculator (Calculator | str): An ASE calculator object used to perform energy and force
                 calculations. If string is provided, the corresponding universal calculator is loaded.
+            interfacial_energy (bool, optional): Whether to compute the interfacial energy. Defaults to True.
+            adhesion_energy (bool, optional): Whether to compute the adhesion energy. Defaults to False.
             relax_bulk (bool, optional): Whether to relax the bulk structures before interface
                 calculations. Defaults to True.
             relax_interface (bool, optional): Whether to relax the interface structures. Defaults to True.
+            relax_slab (bool, optional): Whether to relax the atoms of the film and substrate slabs at fixed
+                cell. Defaults to True. For fixed geometries, set relax_interface and relax_slab to False.
             fmax (float, optional): The maximum force tolerance for convergence. Defaults to 0.1.
             optimizer (str | Optimizer, optional): The optimization algorithm to use. Defaults to "BFGS".
             max_steps (int, optional): The maximum number of optimization steps. Defaults to 500.
             relax_calc_kwargs: Additional keyword arguments passed to the
-                :class:`RelaxCalc` constructor for both bulk and interface. Default is None.
+                :class:`RelaxCalc` constructor for the bulk, interface and slab relaxations. Default is None.
 
         Returns:
             None
         """
         self.calculator = calculator
+        self.interfacial_energy = interfacial_energy
+        self.adhesion_energy = adhesion_energy
         self.relax_bulk = relax_bulk
         self.relax_interface = relax_interface
+        self.relax_slab = relax_slab
         self.fmax = fmax
         self.optimizer = optimizer
         self.max_steps = max_steps
@@ -85,6 +95,32 @@ class InterfaceCalc(PropCalc):
             "bulk_energy": bulk_opt["energy"],
             "bulk_energy_per_atom": bulk_opt["energy"] / len(bulk),
             "final_bulk": bulk_opt["final_structure"],
+        }
+
+    def calc_slab(self, slab: Structure | Atoms) -> dict[str, Any]:
+        """Relax the atoms of a slab at fixed cell if relax_slab, and compute its energy.
+
+        Parameters:
+            slab (Structure | Atoms): The slab structure.
+
+        Returns:
+            dict: "slab", "slab_energy" (eV), "slab_energy_per_atom" (eV/atom) and "final_slab".
+        """
+        relaxer = RelaxCalc(
+            calculator=self.calculator,
+            fmax=self.fmax,
+            max_steps=self.max_steps,
+            relax_cell=False,
+            relax_atoms=self.relax_slab,
+            optimizer=self.optimizer,
+            **(self.relax_calc_kwargs or {}),
+        )
+        slab_opt = relaxer.calc(slab)
+        return {
+            "slab": slab,
+            "slab_energy": slab_opt["energy"],
+            "slab_energy_per_atom": slab_opt["energy"] / len(slab),
+            "final_slab": slab_opt["final_structure"],
         }
 
     def calc_interfaces(
@@ -173,10 +209,26 @@ class InterfaceCalc(PropCalc):
         self,
         structure: Structure | Atoms | dict[str, Any],
     ) -> dict[str, Any]:
-        """Calculate the interfacial energy of the given interface structures and sort by the energy.
+        """Calculate the interfacial energy and/or the adhesion energy of the given interface structure.
+
+        Both energies are in eV/A^2, with E_interface the energy of the final interface, N_film and N_substrate its
+        numbers of film and substrate atoms, e_film and e_substrate the bulk energies per atom, and A = |a x b| of the
+        interface cell:
+
+            interfacial_energy = (E_interface - N_film * e_film - N_substrate * e_substrate) / (2 * A)
+            adhesion_energy = (E_film_slab + E_substrate_slab - E_interface) / A
+
+        The adhesion energy is positive for a bound interface and assumes one film/substrate contact per cell, as in
+        the interfaces from calc_interfaces. The slabs are "film_slab" and "substrate_slab" if given, otherwise the
+        film and substrate sites of the final interface in the same cell. With relax_slab, their atoms are relaxed at
+        fixed cell; otherwise, slabs cut from the interface give the rigid work of separation.
 
         Parameters:
-            structure : A dictionary containing the film, substrate, interface structures
+            structure : A dictionary with the "interface" structure. For the interfacial energy, it also contains
+                "film_energy_per_atom", "substrate_energy_per_atom", "final_film" and "final_substrate" (from
+                calc_interfaces), or "film_bulk" and "substrate_bulk". For the adhesion energy, it may contain
+                "film_slab" and "substrate_slab" with the film and substrate atoms in the interface cell; otherwise,
+                the interface needs the "interface_label" site property of a pymatgen Interface.
 
         Returns:
             dict:
@@ -184,33 +236,44 @@ class InterfaceCalc(PropCalc):
                 - "final_interface" (Structure): The relaxed interface structure.
                 - "interface_energy_per_atom" (float): The final energy of the relaxed interface structure.
                 - "num_atoms" (int): The number of atoms in the interface structure.
-                - "interfacial_energy" (float): The calculated interfacial energy
+                - "interfacial_energy" (float): The calculated interfacial energy, if interfacial_energy.
+                - "final_film_slab", "final_substrate_slab" (Structure), "film_slab_energy",
+                  "substrate_slab_energy" (float, eV) and "adhesion_energy" (float), if adhesion_energy.
         """
         if not isinstance(structure, dict):
             msg = (
                 "For interface calculations, structure must be a dict in one of the following formats: "
                 "{'interface': interface_struct, 'film_energy_per_atom': energy, ...} from calc_interfaces or "
-                "{'interface': interface_struct, 'film_bulk': film_struct, 'substrate_bulk': substrate_struct}."
+                "{'interface': interface_struct, 'film_bulk': film_struct, 'substrate_bulk': substrate_struct}, "
+                "optionally with 'film_slab' and 'substrate_slab' for the adhesion energy."
             )
             raise TypeError(msg)
 
         # Type narrowing: at this point, structure is guaranteed to be dict[str, Any]
         result_dict = structure.copy()
 
-        if "film_energy_per_atom" in structure and "substrate_energy_per_atom" in structure:
-            film_energy_per_atom = structure["film_energy_per_atom"]
-            substrate_energy_per_atom = structure["substrate_energy_per_atom"]
-            film_structure = structure["final_film"]
-            substrate_structure = structure["final_substrate"]
-        else:
-            film = self.calc_bulk(structure["film_bulk"])
-            substrate = self.calc_bulk(structure["substrate_bulk"])
-            film_energy_per_atom = film["bulk_energy_per_atom"]
-            film_structure = film["final_bulk"]
-            substrate_energy_per_atom = substrate["bulk_energy_per_atom"]
-            substrate_structure = substrate["final_bulk"]
-
         interface = structure["interface"]
+        bulk_energy: float | None = None
+        if self.interfacial_energy:
+            if "film_energy_per_atom" in structure and "substrate_energy_per_atom" in structure:
+                film = {
+                    "bulk_energy_per_atom": structure["film_energy_per_atom"],
+                    "final_bulk": structure["final_film"],
+                }
+                substrate = {
+                    "bulk_energy_per_atom": structure["substrate_energy_per_atom"],
+                    "final_bulk": structure["final_substrate"],
+                }
+            else:
+                film = self.calc_bulk(structure["film_bulk"])
+                substrate = self.calc_bulk(structure["substrate_bulk"])
+            film_in_interface, substrate_in_interface = self._count_atoms(
+                interface, film["final_bulk"], substrate["final_bulk"]
+            )
+            bulk_energy = (
+                film_in_interface * film["bulk_energy_per_atom"]
+                + substrate_in_interface * substrate["bulk_energy_per_atom"]
+            )
         relaxer = RelaxCalc(
             calculator=self.calculator,
             fmax=self.fmax,
@@ -230,6 +293,37 @@ class InterfaceCalc(PropCalc):
         matrix = interface.lattice.matrix
         area = float(np.linalg.norm(np.cross(matrix[0], matrix[1])))
 
+        result_dict |= {
+            "interface": interface,
+            "final_interface": final_interface,
+            "interface_energy_per_atom": interface_energy / len(interface),
+            "num_atoms": len(interface),
+        }
+        if bulk_energy is not None:
+            result_dict["interfacial_energy"] = (interface_energy - bulk_energy) / (2 * area)
+        if self.adhesion_energy:
+            if "film_slab" in structure or "substrate_slab" in structure:
+                film_slab, substrate_slab = structure["film_slab"], structure["substrate_slab"]
+            else:
+                labels = final_interface.site_properties["interface_label"]
+                film_slab = final_interface.copy().remove_sites([i for i, t in enumerate(labels) if "substrate" in t])
+                substrate_slab = final_interface.copy().remove_sites([i for i, t in enumerate(labels) if "film" in t])
+            film = self.calc_slab(film_slab)
+            substrate = self.calc_slab(substrate_slab)
+            result_dict |= {
+                "final_film_slab": film["final_slab"],
+                "film_slab_energy": film["slab_energy"],
+                "final_substrate_slab": substrate["final_slab"],
+                "substrate_slab_energy": substrate["slab_energy"],
+                "adhesion_energy": (film["slab_energy"] + substrate["slab_energy"] - interface_energy) / area,
+            }
+        return result_dict
+
+    @staticmethod
+    def _count_atoms(
+        interface: Structure, film_structure: Structure, substrate_structure: Structure
+    ) -> tuple[float, float]:
+        """Count the film and substrate atoms in the interface."""
         # Prefer pymatgen's per-site film/substrate indices when available
         # (this is the only reliable signal for alloys / shared compositions).
         film_indices = getattr(interface, "film_indices", None)
@@ -261,15 +355,4 @@ class InterfaceCalc(PropCalc):
                 )
                 raise ValueError(msg)
 
-        gamma = (
-            interface_energy
-            - (film_in_interface * film_energy_per_atom + substrate_in_interface * substrate_energy_per_atom)
-        ) / (2 * area)
-
-        return result_dict | {
-            "interface": interface,
-            "final_interface": final_interface,
-            "interface_energy_per_atom": interface_energy / len(interface),
-            "num_atoms": len(interface),
-            "interfacial_energy": gamma,
-        }
+        return film_in_interface, substrate_in_interface

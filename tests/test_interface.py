@@ -5,13 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from pymatgen.analysis.interfaces.coherent_interfaces import CoherentInterfaceBuilder
 from pymatgen.analysis.interfaces.zsl import ZSLGenerator
+from pymatgen.core import Structure
 
 from matcalc import InterfaceCalc
 
 if TYPE_CHECKING:
     from matgl.ext.ase import PESCalculator
-    from pymatgen.core import Structure
 
 
 def test_interface_calc_basic(Si: Structure, SiO2: Structure, matpes_calculator: PESCalculator) -> None:
@@ -137,3 +138,56 @@ def test_interface_calc_shared_element_set(
     }
     with pytest.raises(ValueError, match="Could not determine"):
         interface_calc.calc(structure)
+
+
+def test_interface_calc_adhesion(Si: Structure, SiO2: Structure, matpes_calculator: PESCalculator) -> None:
+    """
+    Test the adhesion energy of one SiO2/Si interface:
+      1) rigid slabs cut from the relaxed interface, together with the interfacial energy
+      2) the same slabs relaxed at fixed cell
+      3) single points on the as-built interface and slabs given as plain structures
+    """
+    cib = CoherentInterfaceBuilder(
+        film_structure=SiO2, substrate_structure=Si, film_miller=(1, 0, 0), substrate_miller=(1, 1, 1)
+    )
+    interface = next(cib.get_interfaces(termination=cib.terminations[0]))
+
+    interface_calc = InterfaceCalc(calculator=matpes_calculator, adhesion_energy=True, relax_slab=False, max_steps=100)
+    rigid = interface_calc.calc({"interface": interface, "film_bulk": SiO2, "substrate_bulk": Si})
+    assert rigid["interfacial_energy"] == pytest.approx(0.18566234844440643, rel=1e-1)
+    assert rigid["adhesion_energy"] == pytest.approx(0.11768947155971884, rel=1e-1)
+    assert rigid["final_film_slab"].cart_coords == pytest.approx(
+        rigid["final_interface"].cart_coords[interface.film_indices]
+    )
+
+    interface_calc = InterfaceCalc(
+        calculator=matpes_calculator,
+        interfacial_energy=False,
+        adhesion_energy=True,
+        relax_interface=False,
+        max_steps=100,
+    )
+    relaxed = interface_calc.calc(
+        {
+            "interface": rigid["final_interface"],
+            "film_slab": rigid["final_film_slab"],
+            "substrate_slab": rigid["final_substrate_slab"],
+        }
+    )
+    assert relaxed["adhesion_energy"] == pytest.approx(0.08359310413363714, rel=1e-1)
+
+    interface_calc = InterfaceCalc(
+        calculator=matpes_calculator,
+        interfacial_energy=False,
+        adhesion_energy=True,
+        relax_interface=False,
+        relax_slab=False,
+    )
+    frozen = interface_calc.calc(
+        {
+            "interface": Structure(interface.lattice, interface.species, interface.frac_coords),
+            "film_slab": interface.film,
+            "substrate_slab": interface.substrate,
+        }
+    )
+    assert frozen["adhesion_energy"] == pytest.approx(0.04016843476908885, rel=1e-1)
