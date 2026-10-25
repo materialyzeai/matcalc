@@ -182,3 +182,28 @@ def test_aliases() -> None:
 
     for v in MODEL_ALIASES.values():
         assert v in MODEL_REGISTRY, f"Alias target {v!r} is not a canonical model name."
+
+
+def test_resolve_canonical_variants() -> None:
+    """``_resolve_canonical`` recovers canonical names via direct, alias, and case-folded lookups."""
+    from matcalc.utils import MODEL_ALIASES, MODEL_REGISTRY, _resolve_canonical
+
+    canonical = next(iter(MODEL_REGISTRY))
+    # 1. Direct canonical hit preserves the original casing.
+    assert _resolve_canonical(canonical) == canonical
+    # 2. Alias resolution returns the canonical target.
+    alias_key = next(iter(MODEL_ALIASES))
+    assert _resolve_canonical(alias_key) == MODEL_ALIASES[alias_key]
+    # 3. Case-folded canonical lookup recovers a mixed-case typo.
+    assert _resolve_canonical(canonical.lower()) == canonical
+    # Unknown names resolve to None.
+    assert _resolve_canonical("not-a-real-model-xyz") is None
+
+
+def test_install_hint() -> None:
+    """``_install_hint`` builds a friendly "pip install matcalc[<extra>]" message."""
+    from matcalc.utils import _install_hint
+
+    msg = _install_hint("mace")
+    assert "pip install" in msg
+    assert "matcalc[" in msg
