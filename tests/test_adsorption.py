@@ -155,3 +155,142 @@ def test_adsorption_calc_adslabs(
     assert results[0]["adsorbate_energy"] == pytest.approx(1.0, rel=1e-1)
     if relax_slab:
         assert results[0]["slab_energy_per_atom"] == pytest.approx(-6.016221, rel=1.0e-1)
+
+
+def test_adsorption_calc_adslabs_all_sites(
+    Pt_bulk: Structure,
+    CO2: Molecule,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """``adsorption_sites='all'`` expands the site dict (minus the 'all' key itself)."""
+    ad_calc = AdsorptionCalc(
+        calculator=matpes_calculator,
+        relax_slab=False,
+        relax_bulk=False,
+        relax_adsorbate=False,
+    )
+    results = ad_calc.calc_adslabs(
+        adsorbate=CO2,
+        bulk=Pt_bulk,
+        miller_index=(1, 1, 1),
+        min_slab_size=10.0,
+        min_vacuum_size=10.0,
+        adsorption_sites="all",
+        fixed_height=4.0,
+        dry_run=True,
+    )
+    assert len(results) >= 1
+    # The synthetic 'all' key is popped before building adslabs.
+    assert all(r["adsorption_site"] != "all" for r in results)
+
+
+def test_adsorption_calc_adslabs_invalid_site(
+    Pt_bulk: Structure,
+    CO2: Molecule,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """An unknown named site raises KeyError with a helpful message."""
+    ad_calc = AdsorptionCalc(
+        calculator=matpes_calculator,
+        relax_slab=False,
+        relax_bulk=False,
+        relax_adsorbate=False,
+    )
+    with pytest.raises(KeyError, match="must be one"):
+        ad_calc.calc_adslabs(
+            adsorbate=CO2,
+            bulk=Pt_bulk,
+            miller_index=(1, 1, 1),
+            min_slab_size=10.0,
+            min_vacuum_size=10.0,
+            adsorption_sites="nonexistent",
+            fixed_height=4.0,
+            dry_run=True,
+        )
+
+
+def test_adsorption_calc_adslabs_runs_calc_many(
+    Pt_bulk: Structure,
+    CO2: Molecule,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """With ``dry_run=False``, ``calc_adslabs`` runs the underlying relaxations."""
+    ad_calc = AdsorptionCalc(
+        calculator=matpes_calculator,
+        relax_slab=False,
+        relax_bulk=False,
+        relax_adsorbate=False,
+        fmax=0.1,
+        max_steps=50,
+    )
+    results = ad_calc.calc_adslabs(
+        adsorbate=CO2,
+        adsorbate_energy=1.0,
+        bulk=Pt_bulk,
+        miller_index=(1, 1, 1),
+        min_slab_size=10.0,
+        min_vacuum_size=10.0,
+        adsorption_sites="hollow",
+        fixed_height=4.0,
+        slab_gen_kwargs={"center_slab": True},
+    )
+    assert len(results) == 2
+    assert results[0]["adsorption_site"] == "hollow"
+    assert "adsorption_energy" in results[0]
+
+
+def test_adsorption_calc_requires_dict(
+    matpes_calculator: PESCalculator,
+) -> None:
+    """``calc`` on a non-dict input raises TypeError."""
+    ad_calc = AdsorptionCalc(calculator=matpes_calculator)
+    with pytest.raises(TypeError):
+        ad_calc.calc("not a dict")  # type: ignore[arg-type]
+
+
+def test_adsorption_calc_requires_adslab(
+    Pt_slab: Slab,
+    CO2: Molecule,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """``calc`` on a dict missing the 'adslab' key raises ValueError."""
+    ad_calc = AdsorptionCalc(
+        calculator=matpes_calculator,
+        relax_slab=False,
+        relax_bulk=False,
+        relax_adsorbate=False,
+    )
+    with pytest.raises(ValueError, match="must be dict"):
+        ad_calc.calc({"slab": Pt_slab, "adsorbate": CO2})
+
+
+def test_adsorption_calc_adslabs_custom_site_dict(
+    Pt_bulk: Structure,
+    CO2: Molecule,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """``adsorption_sites`` as a custom dict (neither 'all' nor a known name)."""
+    asf = AdsorbateSiteFinder(
+        SlabGenerator(Pt_bulk, (1, 1, 1), 10, 10).get_slab(), height=0.9
+    )
+    coords = asf.find_adsorption_sites()["all"][0]
+    ad_calc = AdsorptionCalc(
+        calculator=matpes_calculator,
+        relax_slab=False,
+        relax_bulk=False,
+        relax_adsorbate=False,
+        fmax=0.1,
+        max_steps=5,
+    )
+    results = ad_calc.calc_adslabs(
+        adsorbate=CO2,
+        bulk=Pt_bulk,
+        miller_index=(1, 1, 1),
+        min_slab_size=10.0,
+        min_vacuum_size=10.0,
+        adsorption_sites={"hollow": [coords]},
+        fixed_height=4.0,
+        dry_run=True,
+    )
+    assert len(results) == 1
+    assert results[0]["adsorption_site"] == "hollow"
