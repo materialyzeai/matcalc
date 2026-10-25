@@ -194,16 +194,37 @@ def test_resolve_canonical_variants() -> None:
     # 2. Alias resolution returns the canonical target.
     alias_key = next(iter(MODEL_ALIASES))
     assert _resolve_canonical(alias_key) == MODEL_ALIASES[alias_key]
-    # 3. Case-folded canonical lookup recovers a mixed-case typo.
-    assert _resolve_canonical(canonical.lower()) == canonical
+    # 2b. Mixed-case alias: the alias lookup lower-cases its input, so a mixed-case
+    #     spelling of a real alias must resolve to the same canonical target.
+    mixed_case_alias = "TensorNet"
+    assert mixed_case_alias.lower() in MODEL_ALIASES
+    assert _resolve_canonical(mixed_case_alias) == MODEL_ALIASES[mixed_case_alias.lower()]
+    assert MODEL_ALIASES[mixed_case_alias.lower()] in MODEL_REGISTRY
+    # 3. Case-folded canonical lookup recovers a mixed-case typo. Use an explicit
+    #     literal (not ``next(iter(...)).lower()``) so a future registry reordering
+    #     cannot silently route this onto the alias branch, and guard that the literal
+    #     is not itself an alias key.
+    case_folded_name = "tensornet-matpes-pbe-2025.2"
+    assert case_folded_name not in MODEL_ALIASES
+    assert _resolve_canonical(case_folded_name) == "TensorNet-MatPES-PBE-2025.2"
     # Unknown names resolve to None.
     assert _resolve_canonical("not-a-real-model-xyz") is None
 
 
 def test_install_hint() -> None:
     """``_install_hint`` builds a friendly "pip install matcalc[<extra>]" message."""
-    from matcalc.utils import _install_hint
+    from matcalc.utils import _PROVIDER_INSTALL_EXTRA, _install_hint
 
-    msg = _install_hint("mace")
+    # MACE is reached through the 'mace_mp' provider key (mapping 'mace_mp' -> 'mace');
+    # 'mace' itself is NOT a key, so this exercises the real mapping, not the fallback.
+    msg = _install_hint("mace_mp")
     assert "pip install" in msg
-    assert "matcalc[" in msg
+    assert "matcalc[mace]" in msg
+
+    # Unmapped provider: the .get fallback inserts the provider name itself.
+    unmapped = "totally-unmapped-xyz"
+    assert unmapped not in _PROVIDER_INSTALL_EXTRA
+    hint = _install_hint(unmapped)
+    assert "pip install" in hint
+    assert "matcalc[totally-unmapped-xyz]" in hint
+    assert "totally-unmapped-xyz" in hint
