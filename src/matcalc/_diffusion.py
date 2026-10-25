@@ -78,7 +78,10 @@ class DiffusionCalc(PropCalc):
             ensemble: Ensemble supported by the selected MD engine. Use NVT or NVE: the analysis unwraps
                 displacements on each frame's cell, which is only approximate when the cell fluctuates.
             steps: Total number of MD steps.
-            equilibration_frames: Leading saved frames discarded by the internal MD run.
+            equilibration_frames: Leading saved frames discarded by the internal MD run. The default of 0
+                keeps the thermostat transient from the Maxwell-Boltzmann start in the MSD, which biases
+                the linear fit for short runs. Set it to cover at least the equilibration period, e.g.
+                a few ps (``equilibration_frames * loginterval * timestep`` fs).
             taut: Thermostat time constant in femtoseconds.
             seed: Seed for initial velocities on each MD run; must be positive for LAMMPS.
                 None uses a random seed.
