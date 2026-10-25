@@ -169,7 +169,8 @@ def test_diffusion_lammps_protocol(Li2O: Structure, tmp_path: Path, frames: int 
         set_zero_rotation=False,
         **kwargs,
     )
-    md_calc = calc._build_md_calc()  # noqa: SLF001
+    with pytest.warns(UserWarning, match="fixed lattice"):
+        md_calc = calc._build_md_calc()  # noqa: SLF001
     md_calc.write_inputs(Li2O, directory=tmp_path)
     script = (tmp_path / "in.md").read_text()
     commands = {
@@ -222,3 +223,17 @@ def test_diffusion_lammps_md(Li2O: Structure) -> None:
         assert np.isfinite(result["total_energy"])
         assert result["final_structure"].volume == pytest.approx(structure.volume)
         np.testing.assert_allclose(result["final_structure"].cart_coords, result["trajectory"][-1].positions)
+
+
+@pytest.mark.parametrize("ensemble", ["npt", "npt_nose_hoover", "NPT_berendsen"])
+def test_diffusion_npt_warning(matpes_calculator: PESCalculator, ensemble: str) -> None:
+    calc = DiffusionCalc(
+        matpes_calculator,
+        specie="Li",
+        temperature=1000,
+        timestep=1.0,
+        loginterval=10,
+        ensemble=ensemble,  # type: ignore[arg-type]
+    )
+    with pytest.warns(UserWarning, match="fixed lattice"):
+        calc._build_md_calc()  # noqa: SLF001

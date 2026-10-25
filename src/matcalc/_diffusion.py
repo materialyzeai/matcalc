@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -122,6 +123,13 @@ class DiffusionCalc(PropCalc):
 
     def _build_md_calc(self) -> MDCalc | LAMMPSMDCalc:
         """Build the MD calculator with a fresh initial-velocity generator."""
+        if self.ensemble.lower().startswith("npt"):
+            warnings.warn(
+                f"Ensemble {self.ensemble!r} varies the cell, but DiffusionAnalyzer unwraps displacements "
+                "assuming a fixed lattice, so the MSD is only approximate. Use an NVT or NVE ensemble.",
+                UserWarning,
+                stacklevel=3,
+            )
         if self.backend == "lammps":
             if not isinstance(self._calculator_arg, str):
                 raise TypeError("LAMMPS requires a model name string.")
