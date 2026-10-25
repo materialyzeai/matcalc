@@ -162,9 +162,7 @@ class LAMMPSMDCalc(PropCalc):
                 self.calculator,
                 fmax=self.fmax,
                 optimizer=self.optimizer,
-                relax_atoms=True,
-                relax_cell=False,
-                **(self.relax_calc_kwargs or {}),
+                **{"relax_atoms": True, "relax_cell": False, **(self.relax_calc_kwargs or {})},
             )
             # Run the relaxation calculation and update the result dictionary.
             result |= relaxer.calc(structure_in)

@@ -58,6 +58,7 @@ class DiffusionCalc(PropCalc):
         taut: float = 100.0,
         seed: int | None = None,
         relax_structure: bool = True,
+        relax_atoms_only: bool = True,
         set_com_stationary: bool = True,
         set_zero_rotation: bool = False,
         relax_calc_kwargs: dict | None = None,
@@ -86,9 +87,13 @@ class DiffusionCalc(PropCalc):
             seed: Seed for initial velocities on each MD run; must be positive for LAMMPS.
                 None uses a random seed.
             relax_structure: Whether to relax the structure before MD.
+            relax_atoms_only: Relax atomic positions only, keeping the input cell. Set False to also
+                relax the cell; this gives the 0 K volume, which excludes thermal expansion and
+                typically lowers D at the elevated temperatures used for Arrhenius fits.
             set_com_stationary: Remove initial center-of-mass momentum.
             set_zero_rotation: Remove initial angular momentum.
-            relax_calc_kwargs: Extra arguments for RelaxCalc when relaxation is enabled.
+            relax_calc_kwargs: Extra arguments for RelaxCalc when relaxation is enabled. A
+                ``relax_cell`` entry here takes precedence over ``relax_atoms_only``.
             analyzer_kwargs: Extra arguments for DiffusionAnalyzer, e.g. ``smoothed``.
             **md_kwargs: Additional arguments forwarded to the selected MD calculator in its native units.
                 Relative LAMMPS file paths are temporary; absolute paths retain explicit outputs.
@@ -108,9 +113,10 @@ class DiffusionCalc(PropCalc):
         self.taut = taut
         self.seed = seed
         self.relax_structure = relax_structure
+        self.relax_atoms_only = relax_atoms_only
         self.set_com_stationary = set_com_stationary
         self.set_zero_rotation = set_zero_rotation
-        self.relax_calc_kwargs = relax_calc_kwargs
+        self.relax_calc_kwargs = {"relax_cell": not relax_atoms_only, **(relax_calc_kwargs or {})}
         self.analyzer_kwargs = analyzer_kwargs or {}
         self.md_kwargs = md_kwargs
 

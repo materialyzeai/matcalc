@@ -81,6 +81,37 @@ def test_diffusion_defaults(matpes_calculator: PESCalculator) -> None:
     assert md_calc.relax_structure
     assert md_calc.set_com_stationary
     assert not md_calc.set_zero_rotation
+    assert md_calc.relax_calc_kwargs == {"relax_cell": False}
+
+
+@pytest.mark.parametrize(
+    ("relax_atoms_only", "relax_calc_kwargs", "relax_cell"),
+    [(True, None, False), (False, None, True), (True, {"relax_cell": True, "fmax": 0.05}, True)],
+)
+def test_diffusion_relax_atoms_only(
+    Li2O: Structure,
+    matpes_calculator: PESCalculator,
+    relax_atoms_only: bool,
+    relax_calc_kwargs: dict | None,
+    relax_cell: bool,
+) -> None:
+    calc = DiffusionCalc(
+        matpes_calculator,
+        specie="Li",
+        temperature=1000,
+        timestep=1.0,
+        loginterval=10,
+        relax_atoms_only=relax_atoms_only,
+        relax_calc_kwargs=relax_calc_kwargs,
+    )
+    assert calc._build_md_calc().relax_calc_kwargs["relax_cell"] is relax_cell  # noqa: SLF001
+
+    strained = Li2O.copy()
+    strained.scale_lattice(Li2O.volume * 1.1)
+    md_calc = calc._build_md_calc()  # noqa: SLF001
+    md_calc.steps = 10
+    result = md_calc.calc(strained)
+    assert (abs(result["final_structure"].volume - strained.volume) > 1e-3) is relax_cell
 
 
 def test_diffusion_md(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
