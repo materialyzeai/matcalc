@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from collections import namedtuple
 from typing import TYPE_CHECKING
 
@@ -9,7 +10,7 @@ import pytest
 from monty.tempfile import ScratchDir
 
 import matcalc
-from matcalc._cli import calculate_property, clear_cache
+from matcalc._cli import calculate_property, clear_cache, main
 
 if TYPE_CHECKING:
     from pymatgen.core import Structure
@@ -76,3 +77,58 @@ def test_calculate_property(LiFePO4: Structure) -> None:
 
         assert os.path.exists("cli_results.json")
         assert os.path.exists("cli_results.yaml")
+
+
+def test_main_calc_subcommand(LiFePO4: Structure, monkeypatch) -> None:
+    """main() dispatches through 'calc' to a non-JSON outfile (yaml branch) with verbose on."""
+    with ScratchDir(".") as _:
+        cif_file = "cli_main_test.cif"
+        LiFePO4.to(filename=cif_file)
+        outfile = "cli_main_out.yaml"
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "matcalc",
+                "calc",
+                "-m",
+                "TensorNet-MatPES-PBE-2025.2",
+                "-p",
+                "RelaxCalc",
+                "-s",
+                cif_file,
+                "-o",
+                outfile,
+                "-v",
+            ],
+        )
+        main()
+        assert os.path.exists(outfile)
+
+
+def test_main_calc_stdout(LiFePO4: Structure, monkeypatch) -> None:
+    """main() 'calc' with no --outfile prints results to stdout (pprint branch)."""
+    with ScratchDir(".") as _:
+        cif_file = "cli_main_stdout.cif"
+        LiFePO4.to(filename=cif_file)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "matcalc",
+                "calc",
+                "-m",
+                "TensorNet-MatPES-PBE-2025.2",
+                "-p",
+                "RelaxCalc",
+                "-s",
+                cif_file,
+            ],
+        )
+        main()
+
+
+def test_main_clear_subcommand(monkeypatch) -> None:
+    """main() dispatches through the 'clear' subcommand (no confirmation prompt)."""
+    monkeypatch.setattr(sys, "argv", ["matcalc", "clear"])
+    main()
