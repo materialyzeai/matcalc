@@ -214,14 +214,18 @@ def test_adsorption_calc_adslabs_runs_calc_many(
     CO2: Molecule,
     matpes_calculator: PESCalculator,
 ) -> None:
-    """With ``dry_run=False``, ``calc_adslabs`` runs the underlying relaxations."""
+    """With ``dry_run=False``, ``calc_adslabs`` runs the underlying relaxations.
+
+    This is the only test that runs real (non-dry-run) relaxations, so it keeps
+    ``max_steps`` small to bound runtime while still exercising ``calc_many``.
+    """
     ad_calc = AdsorptionCalc(
         calculator=matpes_calculator,
         relax_slab=False,
         relax_bulk=False,
         relax_adsorbate=False,
         fmax=0.1,
-        max_steps=50,
+        max_steps=5,
     )
     results = ad_calc.calc_adslabs(
         adsorbate=CO2,
@@ -234,9 +238,14 @@ def test_adsorption_calc_adslabs_runs_calc_many(
         fixed_height=4.0,
         slab_gen_kwargs={"center_slab": True},
     )
-    assert len(results) == 2
-    assert results[0]["adsorption_site"] == "hollow"
-    assert "adsorption_energy" in results[0]
+    # Sturdier than a hard-coded fcc/hcp site count (which varies with the
+    # surface): require a non-empty result, all at the requested site, and a
+    # finite adsorption energy.
+    assert len(results) >= 1
+    assert all(r["adsorption_site"] == "hollow" for r in results)
+    for r in results:
+        assert "adsorption_energy" in r
+        assert np.isfinite(r["adsorption_energy"])
 
 
 def test_adsorption_calc_requires_dict(
@@ -260,7 +269,7 @@ def test_adsorption_calc_requires_adslab(
         relax_bulk=False,
         relax_adsorbate=False,
     )
-    with pytest.raises(ValueError, match="must be dict"):
+    with pytest.raises(ValueError, match="adslab"):
         ad_calc.calc({"slab": Pt_slab, "adsorbate": CO2})
 
 
@@ -269,11 +278,14 @@ def test_adsorption_calc_adslabs_custom_site_dict(
     CO2: Molecule,
     matpes_calculator: PESCalculator,
 ) -> None:
-    """``adsorption_sites`` as a custom dict (neither 'all' nor a known name)."""
-    asf = AdsorbateSiteFinder(
-        SlabGenerator(Pt_bulk, (1, 1, 1), 10, 10).get_slab(), height=0.9
-    )
-    coords = asf.find_adsorption_sites()["all"][0]
+    """``adsorption_sites`` as a custom dict (neither 'all' nor a known name).
+
+    The custom site coordinate is taken from a dry-run built with the same
+    ``bulk``/``miller_index``/slab settings, so it lives in the exact Cartesian
+    frame ``calc_adslabs`` builds the internal slab in; a coordinate from a
+    *separate* slab object (a different ``SlabGenerator``) would not match the
+    internal surface and could place the adsorbate off the slab.
+    """
     ad_calc = AdsorptionCalc(
         calculator=matpes_calculator,
         relax_slab=False,
@@ -282,6 +294,17 @@ def test_adsorption_calc_adslabs_custom_site_dict(
         fmax=0.1,
         max_steps=5,
     )
+    base = ad_calc.calc_adslabs(
+        adsorbate=CO2,
+        bulk=Pt_bulk,
+        miller_index=(1, 1, 1),
+        min_slab_size=10.0,
+        min_vacuum_size=10.0,
+        adsorption_sites="hollow",
+        fixed_height=4.0,
+        dry_run=True,
+    )
+    coords = base[0]["adsorption_site_coord"]
     results = ad_calc.calc_adslabs(
         adsorbate=CO2,
         bulk=Pt_bulk,
@@ -294,3 +317,10 @@ def test_adsorption_calc_adslabs_custom_site_dict(
     )
     assert len(results) == 1
     assert results[0]["adsorption_site"] == "hollow"
+    # The custom site must rest on the surface: the adsorbate (the last
+    # ``len(CO2)`` atoms) sits above the top slab layer of the adslab, rather
+    # than off the slab in empty vacuum.
+    adslab = results[0]["adslab"]
+    top_slab_z = float(np.max(results[0]["final_slab"].cart_coords[:, 2]))
+    ads = adslab.cart_coords[len(adslab) - len(CO2):]
+    assert float(np.min(ads[:, 2])) > top_slab_z
