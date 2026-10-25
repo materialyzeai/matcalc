@@ -44,3 +44,84 @@ def test_interface_calc_basic(Si: Structure, SiO2: Structure, matpes_calculator:
     assert interface_res["film_energy_per_atom"] == pytest.approx(-7.881573994954427, rel=1e-1)
     assert interface_res["substrate_energy_per_atom"] == pytest.approx(-5.419038772583008, rel=1e-1)
     assert interface_res["interfacial_energy"] == pytest.approx(0.19152603543013672, rel=1e-1)
+
+
+def test_interface_calc_requires_dict(
+    matpes_calculator: PESCalculator,
+) -> None:
+    """``calc`` on a non-dict input raises TypeError."""
+    interface_calc = InterfaceCalc(calculator=matpes_calculator)
+    with pytest.raises(TypeError):
+        interface_calc.calc("not a dict")  # type: ignore[arg-type]
+
+
+def test_interface_calc_from_bulk_film_specific(
+    Si: Structure,
+    SiO2: Structure,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """``calc`` with bulk inputs (no precomputed energies) derives counts via the
+    film-specific element branch of the composition fallback."""
+    interface_calc = InterfaceCalc(
+        calculator=matpes_calculator,
+        relax_bulk=False,
+        relax_interface=False,
+        fmax=100.0,
+        max_steps=1,
+    )
+    # Si (film) has no element unique to it; SiO2 (film_bulk) contributes O.
+    structure = {
+        "interface": Si.copy(),
+        "film_bulk": SiO2,
+        "substrate_bulk": Si,
+    }
+    out = interface_calc.calc(structure)
+    assert "interfacial_energy" in out
+    assert "final_interface" in out
+    assert out["num_atoms"] == len(Si)
+
+
+def test_interface_calc_from_bulk_substrate_specific(
+    Si: Structure,
+    SiO2: Structure,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """Composition fallback via the substrate-specific element branch."""
+    interface_calc = InterfaceCalc(
+        calculator=matpes_calculator,
+        relax_bulk=False,
+        relax_interface=False,
+        fmax=100.0,
+        max_steps=1,
+    )
+    # substrate (SiO2) contributes the unique element O.
+    structure = {
+        "interface": Si.copy(),
+        "film_bulk": Si,
+        "substrate_bulk": SiO2,
+    }
+    out = interface_calc.calc(structure)
+    assert "interfacial_energy" in out
+    assert "final_interface" in out
+
+
+def test_interface_calc_shared_element_set(
+    Si: Structure,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """When film and substrate share the full elemental set and the interface exposes
+    no film/substrate indices, ``calc`` cannot split the atoms and raises ValueError."""
+    interface_calc = InterfaceCalc(
+        calculator=matpes_calculator,
+        relax_bulk=False,
+        relax_interface=False,
+        fmax=100.0,
+        max_steps=1,
+    )
+    structure = {
+        "interface": Si.copy(),
+        "film_bulk": Si,
+        "substrate_bulk": Si,
+    }
+    with pytest.raises(ValueError, match="Could not determine"):
+        interface_calc.calc(structure)
