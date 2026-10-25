@@ -100,7 +100,7 @@ class DiffusionCalc(PropCalc):
         self.backend = backend
         self.specie = specie
         self.temperature = temperature
-        self.ensemble = ensemble
+        self.ensemble: _ASE_ENSEMBLES = ensemble
         self.timestep = timestep
         self.steps = steps
         self.loginterval = loginterval
