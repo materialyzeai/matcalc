@@ -57,3 +57,40 @@ def test_energetics_calc_element_atoms(
         assert key in result, f"{key=} not in result"
     # This is an element. The formation energy should be close to 0.
     assert result["formation_energy_per_atom"] == pytest.approx(0, abs=1e-2)
+
+
+def test_energetics_cohesive_missing_ref(
+    Li2O: Structure,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """When the elemental refs lack ``energy_atomic``, cohesive energy is returned as None."""
+    elemental_refs = {
+        "Li": {"energy_per_atom": -4.5},
+        "O": {"energy_per_atom": -0.5},
+    }
+    result = EnergeticsCalc(
+        matpes_calculator,
+        elemental_refs=elemental_refs,
+        use_gs_reference=True,
+        relax_structure=False,
+    ).calc(Li2O)
+
+    assert result["cohesive_energy_per_atom"] is None
+    assert "formation_energy_per_atom" in result
+    assert result["_units"]["cohesive_energy_per_atom"] == "eV/atom"
+
+
+def test_energetics_all_references_fail(
+    Si_atoms: Atoms,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """When every elemental reference relaxation yields nothing, calc raises RuntimeError."""
+    # An empty reference structure list produces no energies per atom.
+    elemental_refs = {"Si": {"structure": []}}
+    with pytest.raises(RuntimeError, match="All elemental reference relaxations failed"):
+        EnergeticsCalc(
+            matpes_calculator,
+            elemental_refs=elemental_refs,
+            use_gs_reference=False,
+            relax_structure=False,
+        ).calc(Si_atoms)
