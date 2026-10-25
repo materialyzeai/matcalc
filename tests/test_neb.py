@@ -73,7 +73,7 @@ def test_neb_calc(LiFePO4: Structure, matpes_calculator: PESCalculator, tmp_path
     recon_lattices_list = mep_reconstructed.get_lattices_list()
     assert len(orig_lattices_list) == len(recon_lattices_list), "Reconstructed MEP should have same number of lattices"
     for orig_lat, recon_lat in zip(orig_lattices_list, recon_lattices_list, strict=False):
-        assert orig_lat.shape == recon_lat.shape, "Reconstructed lattices should have same shape"
+        assert orig_lat.shape == recon_lat.shape, "Reconstructed lattices should match in shape"
         assert orig_lat == pytest.approx(recon_lat), "Reconstructed lattices should match"
 
     # Test get_structures method
@@ -82,3 +82,40 @@ def test_neb_calc(LiFePO4: Structure, matpes_calculator: PESCalculator, tmp_path
 
     with pytest.raises(ValueError, match="Unknown optimizer='invalid', must be one of "):
         NEBCalc(matpes_calculator, optimizer="invalid")
+
+
+def test_mep_structure_energy_length_mismatch() -> None:
+    """MEP must raise when the number of structures and energies disagree."""
+    from pymatgen.core import Lattice, Structure
+
+    a = Structure(Lattice.from_parameters(5, 5, 5, 90, 90, 90), ["Si"], [[0.0, 0.0, 0.0]])
+    b = Structure(Lattice.from_parameters(5, 5, 5, 90, 90, 90), ["Si"], [[0.5, 0.5, 0.5]])
+    with pytest.raises(ValueError, match="Number of structures"):
+        MEP([a, b], [1.0])
+
+
+def test_mep_per_image_lattice_roundtrip() -> None:
+    """When images carry different lattices, as_dict/from_dict keep a per-image lattice."""
+    from pymatgen.core import Lattice, Structure
+
+    struct_a = Structure(Lattice.from_parameters(5.0, 5.0, 5.0, 90, 90, 90), ["Si"], [[0.0, 0.0, 0.0]])
+    struct_b = Structure(Lattice.from_parameters(5.1, 5.1, 5.1, 90, 90, 90), ["Si"], [[0.5, 0.5, 0.5]])
+    mep = MEP([struct_a, struct_b], [1.0, 2.0])
+    # Lattices differ, so stored as a list.
+    assert isinstance(mep.lattices, list)
+    assert len(mep.get_lattices_list()) == 2
+
+    mep_dict = mep.as_dict()
+    assert "lattice" not in mep_dict, "per-image lattices should not be hoisted to top level"
+    for img in mep_dict["images"]:
+        assert "lattice" in img, "each image should carry its own lattice"
+
+    recon = MEP.from_dict(mep_dict)
+    assert len(recon.get_structures()) == 2
+    assert recon.energies == pytest.approx([1.0, 2.0])
+
+
+def test_neb_calc_requires_dict(matpes_calculator: PESCalculator) -> None:
+    """NEBCalc.calc must raise ValueError when structure is not a dict of images."""
+    with pytest.raises(ValueError, match="For NEB calculations, structure must be a dict"):
+        NEBCalc(matpes_calculator).calc("not-a-dict")
