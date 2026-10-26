@@ -9,6 +9,7 @@ authors = [
 ]
 description = "Calculators for materials properties from the potential energy surface."
 readme = "README.md"
+dynamic = ["version"]
 requires-python = ">=3.11"
 keywords = [
     "AI",
@@ -43,7 +44,6 @@ dependencies = [
     "joblib>=1.4.2",
     "phonopy>=4.2.0",
 ]
-version = "0.6.0"
 
 [project.optional-dependencies]
 phonon = ["seekpath"]
@@ -119,8 +119,12 @@ include = ["matcalc", "matcalc.*"]
 ]
 
 [build-system]
-requires = ["oldest-supported-numpy", "setuptools>=58.0.3,<82"]
+requires = ["oldest-supported-numpy", "setuptools>=64,<82", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+# Version is derived from git tags (vX.Y.Z). Fallback for checkouts without git metadata.
+fallback_version = "0.0.0"
 
 [dependency-groups]
 dev = [
@@ -165,6 +169,8 @@ lint = [
 # ]
 
 [tool.uv]
+# Rebuild editable installs when the git commit or tags change, so the scm version stays current.
+cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
 conflicts = [
     [
       { extra = "mace" },

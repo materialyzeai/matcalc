@@ -8,18 +8,11 @@ import os
 import re
 import shutil
 import subprocess
-from datetime import UTC, datetime
 from pprint import pprint
 
 import requests
 from invoke import Context, task
 from monty.os import cd
-
-with open("pyproject.toml") as f:
-    for line in f:
-        if line.startswith("version"):
-            NEW_VER = line.split("=")[-1].strip().strip('"')
-            break
 
 
 @task
@@ -168,12 +161,14 @@ def publish(ctx: Context):
 
 @task
 def release(ctx: Context):  # noqa: ARG001
-    desc = get_changelog()
+    """Create a GitHub release for the latest version in changes.md. The package version is derived from this tag."""
+    new_ver = get_last_version()
+    desc = get_changelog(new_ver)
 
     payload = {
-        "tag_name": "v" + NEW_VER,
+        "tag_name": "v" + new_ver,
         "target_commitish": "main",
-        "name": "v" + NEW_VER,
+        "name": "v" + new_ver,
         "body": desc,
         "draft": False,
         "prerelease": False,
@@ -187,10 +182,10 @@ def release(ctx: Context):  # noqa: ARG001
     pprint(response.json())
 
 
-def get_changelog():
+def get_changelog(version: str):
     with open("changes.md") as f:
         contents = f.read()
-        match = re.search(f"## v{NEW_VER}([^#]*)", contents)
+        match = re.search(rf"^## v{re.escape(version)}\n(.*?)(?=^## |\Z)", contents, re.MULTILINE | re.DOTALL)
         if not match:
             raise ValueError("could not parse latest version from changes.md")
         return match.group(1).strip()
@@ -207,17 +202,15 @@ def get_last_version():
 
 
 @task
-def update_changelog(ctx: Context, version: str | None = None, *, dry_run: bool = False) -> None:
+def update_changelog(ctx: Context, version: str, *, dry_run: bool = False) -> None:
     """Create a preliminary change log using the git logs.
 
     Args:
         ctx (invoke.Context): The context object.
-        version (str, optional): The version to use for the change log. If not provided, it will
-            use the current date in the format 'YYYY.M.D'. Defaults to None.
+        version (str): The new semantic version (e.g., '0.7.0') for the change log entry.
         dry_run (bool, optional): If True, the function will only print the changes without
             updating the actual change log file. Defaults to False.
     """
-    version = version or f"{datetime.now(tz=UTC):%Y.%-m.%-d}"
     lastver = get_last_version()
     print(f"Getting all comments since {lastver}")
     output = subprocess.check_output(["git", "log", "--pretty=format:%s", f"v{lastver}..HEAD"])
