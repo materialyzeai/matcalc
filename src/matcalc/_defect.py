@@ -198,8 +198,10 @@ class DefectCalc(PropCalc):
 
         Args:
             structure: Ordered bulk structure.
-            phase_diagram: Phase diagram of the host's chemical system. Phases with other elements, e.g.
-                dopants, give their chemical potentials at each limit as well.
+            phase_diagram: Phase diagram of the host's chemical system, optionally extended with other
+                elements such as dopants. The limits are the facets of the full phase diagram that touch
+                the host, so a dopant's chemical potential at each limit is set by its most stable
+                competing phase there (e.g. a dopant oxide), not by an element-rich condition.
             stabilize_bulk: If the bulk is above the hull, lower its energy to 1 meV/atom below the hull
                 instead of raising an error. The chemical potentials then satisfy the lowered energy,
                 not the bulk energy used for the defects.
