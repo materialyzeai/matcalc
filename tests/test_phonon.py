@@ -12,6 +12,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from matcalc import PhononCalc
+from matcalc._phonon import _mc_rattle, _phonon_rattle
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -244,3 +245,79 @@ def test_phonon_calc_fix_imaginary_attempts(
     with caplog.at_level(logging.INFO, logger="matcalc"), pytest.raises(ValueError, match="modes are imaginary"):
         phonon_calc.calc(distorted_si_atoms)
     assert any("Imaginary mode correction attempt" in r.message for r in caplog.records)
+
+
+@pytest.mark.parametrize(("rattle_method", "stdev_again"), [("random", 0.02), ("mc", 0.01), ("phonon", 0.01)])
+def test_phonon_calc_rattle_seed(
+    Si_atoms: Atoms,
+    matpes_calculator: PESCalculator,
+    monkeypatch: pytest.MonkeyPatch,
+    rattle_method: str,
+    stdev_again: float,
+) -> None:
+    """Each correction attempt rattles differently, a fixed seed reproduces the sequence, and the
+    displacements scale with rattle_stdev."""
+    distorted_si_atoms = Si_atoms.copy()
+    distorted_si_atoms.cell += 0.5
+    rattle = PhononCalc._rattle_structure  # noqa: SLF001
+    displacements: list[np.ndarray] = []
+
+    def recording_rattle(self: PhononCalc, structure_in: Structure, **kwargs: object) -> Structure:
+        rattled = rattle(self, structure_in, **kwargs)  # type: ignore[arg-type]
+        frac_disp = rattled.frac_coords - structure_in.frac_coords
+        frac_disp -= np.round(frac_disp)  # undo wrapping back into the cell
+        displacements.append(structure_in.lattice.get_cartesian_coords(frac_disp))
+        return rattled
+
+    monkeypatch.setattr(PhononCalc, "_rattle_structure", recording_rattle)
+
+    def run(seed: int | None, rattle_stdev: float = 0.01) -> list[np.ndarray]:
+        displacements.clear()
+        PhononCalc(
+            calculator=matpes_calculator,
+            supercell_matrix=((2, 0, 0), (0, 2, 0), (0, 0, 2)),
+            fmax=100.0,
+            imaginary_freq_tol=-0.1,
+            fix_imaginary_attempts=2,
+            rattle_method=rattle_method,  # type: ignore[arg-type]
+            rattle_stdev=rattle_stdev,
+            seed=seed,
+            write_phonon=False,
+        ).calc(distorted_si_atoms)
+        return list(displacements)
+
+    first = run(seed=7, rattle_stdev=0.01)
+    assert len(first) == 2
+    assert not np.allclose(first[0], first[1])
+    for disp, disp_again in zip(first, run(seed=7, rattle_stdev=stdev_again), strict=True):
+        assert_allclose(disp_again, stdev_again / 0.01 * disp, atol=1e-6)
+    assert not np.allclose(first[0], run(seed=8)[0])
+    if rattle_method == "phonon":
+        assert_allclose(np.sqrt(np.mean(np.square(first))), 0.01)
+
+
+def test_phonon_calc_invalid_rattle_method(matpes_calculator: PESCalculator) -> None:
+    with pytest.raises(ValueError, match="rattle_method must be"):
+        PhononCalc(calculator=matpes_calculator, rattle_method="MC")  # type: ignore[arg-type]
+
+
+def test_phonon_calc_rattle_temperature(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    phonon_calc = PhononCalc(calculator=matpes_calculator, supercell_matrix=((2, 0, 0), (0, 2, 0), (0, 0, 2)))
+    phonon, _, _ = phonon_calc._run_phonopy(Si)  # noqa: SLF001
+    disp_300 = _phonon_rattle(phonon, 0.01, np.random.RandomState(0), temperature=300.0)
+    disp_1200 = _phonon_rattle(phonon, 0.5, np.random.RandomState(0), temperature=1200.0)
+    assert_allclose(disp_1200, 2 * disp_300)  # amplitudes scale with sqrt(T), stdev is unused
+    with pytest.raises(ValueError, match="rattle_temperature is only used"):
+        PhononCalc(calculator=matpes_calculator, rattle_temperature=300.0)
+
+
+def test_mc_rattle_min_distance(Si_atoms: Atoms) -> None:
+    atoms = Si_atoms * (2, 2, 2)
+    triu = np.triu_indices(len(atoms), 1)
+    d_min = 0.8 * atoms.get_all_distances(mic=True)[triu].min()
+    mc_atoms, random_atoms = atoms.copy(), atoms.copy()
+    mc_atoms.positions += _mc_rattle(atoms, 0.1, d_min, np.random.RandomState(0))
+    # random rattle of the same total size as 10 MC steps of 0.1 Å
+    random_atoms.positions += np.random.RandomState(0).normal(0.0, 0.1 * np.sqrt(10), (len(atoms), 3))
+    assert mc_atoms.get_all_distances(mic=True)[triu].min() > d_min - 0.2  # d_min - 2 * width
+    assert random_atoms.get_all_distances(mic=True)[triu].min() < d_min - 0.2
