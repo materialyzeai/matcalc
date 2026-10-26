@@ -51,12 +51,52 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  # Decide whether to run test-fp-loaders: always for releases (release.yml calls this
+  # workflow, which then sees the caller's event) and manual runs; otherwise only when
+  # the push or PR changes the loaders, their tests, the provider extras or this workflow.
+  fp-loader-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          PATTERN: '^(src/matcalc/utils\.py|tests/test_utils\.py|pyproject\.toml|\.github/workflows/test\.yml)$'
+        run: |
+          case "$EVENT" in
+            pull_request)
+              files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename') ;;
+            push)
+              if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+                files="pyproject.toml"  # new branch: no base to compare, so run
+              else
+                files=$(gh api "repos/$REPO/compare/$BEFORE...$AFTER" --jq '.files[].filename')
+              fi ;;
+            *)
+              files="pyproject.toml" ;;  # release, workflow_dispatch: always run
+          esac
+          if echo "$files" | grep -qE "$PATTERN"; then run=true; else run=false; fi
+          echo "Event: $EVENT; run fp loader tests: $run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   # Per-architecture smoke tests for the unified-name foundation potential
   # registry in matcalc.utils. Each job installs only its own provider stack
   # so the matrix shards stay light and a single broken provider does not
   # block the others. Note that we are testing only the more widely used models.
   # We will rely on the community to maintain the other models in the registry.
   test-fp-loaders:
+    needs: fp-loader-changes
+    if: needs.fp-loader-changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
