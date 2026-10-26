@@ -201,3 +201,10 @@ def test_interface_calc_requires_both_slabs(
     interface_calc = InterfaceCalc(calculator=matpes_calculator, adhesion_energy=True)
     with pytest.raises(ValueError, match=f"'{missing}' is missing"):
         interface_calc.calc({"interface": Si, "film_bulk": Si, "substrate_bulk": Si, given: Si})
+
+
+def test_interface_calc_adhesion_requires_labels(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """Without slabs, a plain Structure (no interface_label site property) raises a ValueError up front."""
+    interface_calc = InterfaceCalc(calculator=matpes_calculator, adhesion_energy=True)
+    with pytest.raises(ValueError, match="pass 'film_slab' and 'substrate_slab'"):
+        interface_calc.calc({"interface": Si, "film_bulk": Si, "substrate_bulk": Si})
