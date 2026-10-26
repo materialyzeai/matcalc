@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from monty.serialization import loadfn
-from pymatgen.core import Composition
+from pymatgen.core import Composition, Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 
 from ._base import PropCalc
@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from ase.optimize.optimize import Optimizer
     from numpy.typing import ArrayLike
     from pymatgen.analysis.phase_diagram import PhaseDiagram
-    from pymatgen.core import Structure
 
 
 class DefectCalc(PropCalc):
@@ -389,5 +388,7 @@ def _interstitial_sites(
             "Automatic interstitial sites require pymatgen-analysis-defects: pip install 'matcalc[defects]'."
         ) from exc
     generator = VoronoiInterstitialGenerator()
+    # The generator misses sites when coordinates lie just outside [0, 1), e.g. -1e-33 after symmetrization.
+    wrapped = Structure(bulk.lattice, bulk.species, bulk.frac_coords, to_unit_cell=True)
     symbols = [interstitials] if isinstance(interstitials, str) else interstitials
-    return {symbol: [d.site.frac_coords for d in generator.generate(bulk, [symbol])] for symbol in symbols}
+    return {symbol: [d.site.frac_coords for d in generator.generate(wrapped, [symbol])] for symbol in symbols}
