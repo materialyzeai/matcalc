@@ -206,9 +206,10 @@ class InterfaceCalc(PropCalc):
     ) -> dict[str, Any]:
         """Calculate the interfacial energy and/or the adhesion energy of the given interface structure.
 
-        Both energies are in eV/A^2, with E_interface the energy of the final interface, N_film and N_substrate its
+        Both energies are in eV/Å², with E_interface the energy of the final interface, N_film and N_substrate its
         numbers of film and substrate atoms, e_film and e_substrate the bulk energies per atom, and A = |a x b| of the
-        interface cell:
+        input interface lattice. The interface is relaxed at fixed cell, so A is also the area of final_interface,
+        to which both energies refer:
 
             interfacial_energy = (E_interface - N_film * e_film - N_substrate * e_substrate) / (2 * A)
             adhesion_energy = (E_film_slab + E_substrate_slab - E_interface) / A
@@ -231,9 +232,9 @@ class InterfaceCalc(PropCalc):
                 - "final_interface" (Structure): The relaxed interface structure.
                 - "interface_energy_per_atom" (float): The final energy of the relaxed interface structure.
                 - "num_atoms" (int): The number of atoms in the interface structure.
-                - "interfacial_energy" (float): The calculated interfacial energy, if interfacial_energy.
+                - "interfacial_energy" (float): The calculated interfacial energy (eV/Å²), if interfacial_energy.
                 - "final_film_slab", "final_substrate_slab" (Structure), "film_slab_energy",
-                  "substrate_slab_energy" (float, eV) and "adhesion_energy" (float), if adhesion_energy.
+                  "substrate_slab_energy" (float, eV) and "adhesion_energy" (float, eV/Å²), if adhesion_energy.
         """
         if not isinstance(structure, dict):
             msg = (
