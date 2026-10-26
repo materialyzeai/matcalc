@@ -8,6 +8,7 @@ import pytest
 
 from matcalc import (
     AdsorptionCalc,
+    DefectCalc,
     ElasticityCalc,
     EnergeticsCalc,
     GBCalc,
@@ -64,6 +65,7 @@ CASES: dict[str, Callable[[Any, Structure], Any]] = {
     ),
     "adsorption_bulk": lambda c, s: AdsorptionCalc(c, relax_calc_kwargs=OVERRIDES).calc_bulk(s),
     "adsorption_slab": lambda c, s: AdsorptionCalc(c, relax_calc_kwargs=OVERRIDES).calc_slab(s),
+    "defect": lambda c, s: DefectCalc(c, relax_calc_kwargs=OVERRIDES).calc_defects(s),
     "energetics": lambda c, s: EnergeticsCalc(c, relax_structure=False, relax_calc_kwargs=OVERRIDES).calc(s),
     "elasticity": lambda c, s: ElasticityCalc(
         c, relax_structure=False, relax_deformed_structures=True, relax_calc_kwargs=OVERRIDES
