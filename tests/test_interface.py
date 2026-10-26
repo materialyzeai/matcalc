@@ -69,16 +69,20 @@ def test_interface_calc_from_bulk_film_specific(
         fmax=100.0,
         max_steps=1,
     )
-    # Si (film) has no element unique to it; SiO2 (film_bulk) contributes O.
+    # Film-specific branch: film_bulk (SiO2) supplies the unique element O that
+    # substrate_bulk (Si) lacks, so film_in_interface = 0 and substrate_in_interface
+    # holds all atoms. NOTE: the interface itself is pure Si -- it is NOT the film --
+    # so this is a degenerate (zero film atoms) input, valid only for branch coverage,
+    # not physically meaningful; do not copy it as a usage example.
     structure = {
         "interface": Si.copy(),
         "film_bulk": SiO2,
         "substrate_bulk": Si,
     }
     out = interface_calc.calc(structure)
-    assert "interfacial_energy" in out
-    assert "final_interface" in out
-    assert out["num_atoms"] == len(Si)
+    # film_in_interface = 0 and, with no relaxation, the interface equals the Si
+    # substrate, so the gamma numerator vanishes -> interfacial_energy ~ 0.
+    assert out["interfacial_energy"] == pytest.approx(0.0, abs=1e-6)
 
 
 def test_interface_calc_from_bulk_substrate_specific(
@@ -94,15 +98,20 @@ def test_interface_calc_from_bulk_substrate_specific(
         fmax=100.0,
         max_steps=1,
     )
-    # substrate (SiO2) contributes the unique element O.
+    # Substrate-specific branch: substrate_bulk (SiO2) supplies the unique element
+    # O that film_bulk (Si) lacks, so substrate_in_interface = 0 and film_in_interface
+    # holds all atoms. NOTE: the interface itself is pure Si -- it is NOT the substrate --
+    # so this is a degenerate (zero substrate atoms) input, valid only for branch
+    # coverage, not physically meaningful; do not copy it as a usage example.
     structure = {
         "interface": Si.copy(),
         "film_bulk": Si,
         "substrate_bulk": SiO2,
     }
     out = interface_calc.calc(structure)
-    assert "interfacial_energy" in out
-    assert "final_interface" in out
+    # substrate_in_interface = 0 and, with no relaxation, the interface equals the Si
+    # film, so the gamma numerator vanishes -> interfacial_energy ~ 0.
+    assert out["interfacial_energy"] == pytest.approx(0.0, abs=1e-6)
 
 
 def test_interface_calc_shared_element_set(
