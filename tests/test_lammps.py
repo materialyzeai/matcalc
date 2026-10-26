@@ -25,6 +25,23 @@ LAMMPS_TEMPLATES_DIR = Path(__file__).parent.parent / "src" / "matcalc" / "lammp
 
 
 @pytest.mark.parametrize(
+    ("name", "expected_model"),
+    [
+        ("TensorNet-MatPES-PBE-2025.2", "TensorNet-PES-MatPES-PBE-2025.2"),
+        ("pbe", "TensorNet-PES-MatPES-PBE-2025.2"),
+        ("tensornet-pes-matpes-pbe-2025.2", "TensorNet-PES-MatPES-PBE-2025.2"),
+        ("m3gnet", "M3GNet-PES-MatPES-PBE-2025.2"),
+        ("M3GNet-MatPES-r2SCAN-2025.2", "M3GNet-PES-MatPES-r2SCAN-2025.2"),
+        ("TensorNet-PES-ANI-1x-Subset", "TensorNet-PES-ANI-1x-Subset"),
+    ],
+)
+def test_lammps_model_names(name: str, expected_model: str) -> None:
+    calc = LAMMPSMDCalc(name, relax_structure=False)
+    assert calc.model_name == expected_model
+    assert calc.gnnp_type == "matgl"
+
+
+@pytest.mark.parametrize(
     ("ensemble", "expected_energy"),
     [
         ("nve", -10.74606),
@@ -170,3 +187,18 @@ def test_lammps_failed_run(Li2O: Structure, tmp_path: Path) -> None:
     calc = LAMMPSMDCalc(calculator="TensorNet", relax_structure=False, settings={"fix_command": "fix 1 all unknown"})
     with pytest.raises(subprocess.CalledProcessError):
         calc.calc(Li2O, directory=tmp_path)
+
+
+def test_lammps_local_matgl_model(tmp_path: Path) -> None:
+    import matgl
+
+    model_dir = tmp_path / "finetuned"
+    matgl.load_model("TensorNet-PES-MatPES-PBE-2025.2").save(model_dir)
+    calc = LAMMPSMDCalc(str(model_dir), relax_structure=False)
+    assert calc.model_name == str(model_dir)
+    assert calc.gnnp_type == "matgl"
+
+
+def test_lammps_removed_model() -> None:
+    with pytest.raises(ValueError, match="was removed"):
+        LAMMPSMDCalc("M3GNet-MatPES-PBE-2025.1", relax_structure=False)

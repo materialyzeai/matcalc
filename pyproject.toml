@@ -2,7 +2,7 @@
 name = "matcalc"
 authors = [
     { name = "Runze Liu", email = "rul048@ucsd.edu" },
-    { name = "Eliott Liu", email = "elliottliu17@gmail.com" },
+    { name = "Elliott Liu", email = "elliottliu17@gmail.com" },
     { name = "Ji Qi", email = "j1qi@ucsd.edu" },
     { name = "Shyue Ping Ong", email = "shyue@nus.edu.sg" },
     { name = "Tsz Wai Ko", email = "t1ko@ucsd.edu" },
@@ -54,32 +54,32 @@ maml = [
     "maml>=2025.4.3",
 ]
 matgl = [
-    "matgl>=4.0.1",
+    "matgl>=4.1.0",
 ]
 mace = [
-    "mace-torch>=0.3.12",
+    "mace-torch>=0.3.15",
 ]
 sevennet = [
-    "sevenn>=0.10.4",
+    "sevenn>=0.13.0",
 ]
 grace = [
     "tensorpotential>=0.5.1",
 ]
 orb = [
-    "orb-models>=0.4.2",
+    "orb-models>=0.6.0; python_version >= '3.12'",
     "pynanoflann>=0.10.0",
 ]
 mattersim = [
     "mattersim",
 ]
 fairchem = [
-    "fairchem-core",
+    "fairchem-core>=2",
 ]
-petmad = [
-    "pet-mad",
+upet = [
+    "upet>=0.3.0",
 ]
 deepmd = [
-    "deepmd-kit>=3.0.2",
+    "deepmd-kit[torch]>=3.2.0",
 ]
 ci = [
     "setuptools<82",  # Required by maml which uses pkg_resources
@@ -89,7 +89,7 @@ ci = [
     "ipython>=8.34.0",
     "jupyter>=1.1.1",
     "maml>=2025.4.3",
-    "matgl>=4.0.1",
+    "matgl>=4.1.0",
     "matminer>=0.10.1",
     "mp-api>=0.45.3",
     "nbmake>=1.5.5",
@@ -131,7 +131,7 @@ dev = [
     "ipython>=8.34.0",
     "jupyter>=1.1.1",
     "maml>=2025.4.3",
-    "matgl>=4.0.1",
+    "matgl>=4.1.0",
     "matminer>=0.10.1",
     "mp-api>=0.45.3",
     "nbmake>=1.5.5",
@@ -170,16 +170,16 @@ conflicts = [
       { extra = "sevennet" },
       { extra = "grace" },
       { extra = "orb" },
-      { extra = "petmad" },
+      { extra = "upet" },
       { extra = "deepmd" },
     ],
 ]
-# Restrict the lock to platforms with torch wheels; Python < 3.15 until torch ships cp315 wheels.
+# Restrict the lock to platforms with torch wheels and Python < 3.14 for TensorFlow 2.20.
 # Does not affect the published requires-python.
 environments = [
-    "sys_platform == 'linux' and python_version < '3.15'",
-    "sys_platform == 'darwin' and python_version < '3.15'",
-    "sys_platform == 'win32' and python_version < '3.15'",
+    "sys_platform == 'linux' and python_version < '3.14'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64' and python_version < '3.14'",
+    "sys_platform == 'win32' and python_version < '3.14'",
 ]
 required-environments = [
     "sys_platform == 'linux'",

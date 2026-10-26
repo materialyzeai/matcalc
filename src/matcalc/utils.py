@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import sys
 import warnings
 from enum import Enum
 from pathlib import Path
@@ -25,10 +26,13 @@ if TYPE_CHECKING:
 
 # Unified naming convention for foundation potentials:
 #
-#     <Architecture>-<Dataset>-<Optional Version>
+#     <Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]
 #
-# e.g. ``TensorNet-MatPES-PBE-2025.2`` or ``MACE-MPA-0-medium``. Each entry in
-# ``MODEL_REGISTRY`` maps a canonical name to a provider and the provider-specific
+# e.g. ``TensorNet-MatPES-PBE-2025.2`` or ``MACE-MPA-0-medium``. Fields the upstream release
+# does not provide are left out. ``<A>-ft-<B>`` means pretrained on A and fine-tuned on B
+# (``ft-E``: fine-tuned on A with more weight on energies);
+# MPA is MPtrj + sAlex, MPtrj-Alex is MPtrj + Alexandria, and OAM is OMat24 + sAlex + MPtrj.
+# Each entry in ``MODEL_REGISTRY`` maps a canonical name to a provider and the provider-specific
 # kwargs used to materialise the calculator. Users select a model by its canonical
 # name; ``MODEL_ALIASES`` provides short / legacy spellings that resolve to a
 # canonical name.
@@ -40,45 +44,89 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     # MatGL — TensorNet on MatPES
     "TensorNet-MatPES-PBE-2025.2": {"provider": "matgl", "path": "TensorNet-PES-MatPES-PBE-2025.2"},
     "TensorNet-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "TensorNet-PES-MatPES-r2SCAN-2025.2"},
+    "TensorNet-MatPES-PBE-2025.2-m": {"provider": "matgl", "path": "TensorNet-PES-MatPES-PBE-2025.2-m"},
+    "TensorNet-MatPES-r2SCAN-2025.2-m": {"provider": "matgl", "path": "TensorNet-PES-MatPES-r2SCAN-2025.2-m"},
     # MatGL — M3GNet
-    "M3GNet-MatPES-PBE-2025.1": {"provider": "matgl", "path": "M3GNet-PES-MatPES-PBE-2025.1"},
+    "M3GNet-MatPES-PBE-2025.2": {"provider": "matgl", "path": "M3GNet-PES-MatPES-PBE-2025.2"},
+    "M3GNet-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "M3GNet-PES-MatPES-r2SCAN-2025.2"},
+    # MatGL — QET
+    "QET-MatPES-PBE-2025.2": {"provider": "matgl", "path": "QET-PES-MatPES-PBE-2025.2"},
+    "QET-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "QET-PES-MatPES-r2SCAN-2025.2"},
+    "QET-MatQ": {"provider": "matgl", "path": "QET-PES-MatQ"},
     # MatGL — CHGNet
-    "CHGNet-MatPES-PBE-1M-2026.9": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-1M-2026.9"},
-    "CHGNet-MatPES-r2SCAN-1M-2026.9": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-1M-2026.9"},
+    "CHGNet-MatPES-PBE-2026.9-1M": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-1M-2026.9"},
+    "CHGNet-MatPES-r2SCAN-2026.9-1M": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-1M-2026.9"},
     "CHGNet-MatPES-PBE-2025.2.10": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-2025.2.10"},
     "CHGNet-MatPES-r2SCAN-2025.2.10": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-2025.2.10"},
     # MACE foundation models (mace-foundations release names)
-    "MACE-MP-0-small": {"provider": "mace_mp", "model": "small"},
-    "MACE-MP-0-medium": {"provider": "mace_mp", "model": "medium"},
-    "MACE-MP-0-large": {"provider": "mace_mp", "model": "large"},
-    "MACE-MP-0b-small": {"provider": "mace_mp", "model": "small-0b"},
-    "MACE-MP-0b-medium": {"provider": "mace_mp", "model": "medium-0b"},
-    "MACE-MP-0b2-small": {"provider": "mace_mp", "model": "small-0b2"},
-    "MACE-MP-0b2-medium": {"provider": "mace_mp", "model": "medium-0b2"},
-    "MACE-MP-0b2-large": {"provider": "mace_mp", "model": "large-0b2"},
-    "MACE-MP-0b3-medium": {"provider": "mace_mp", "model": "medium-0b3"},
+    "MACE-MPtrj-0a-small": {"provider": "mace_mp", "model": "small"},
+    "MACE-MPtrj-0a-medium": {"provider": "mace_mp", "model": "medium"},
+    "MACE-MPtrj-0a-large": {"provider": "mace_mp", "model": "large"},
+    "MACE-MPtrj-0b-small": {"provider": "mace_mp", "model": "small-0b"},
+    "MACE-MPtrj-0b-medium": {"provider": "mace_mp", "model": "medium-0b"},
+    "MACE-MPtrj-0b2-small": {"provider": "mace_mp", "model": "small-0b2"},
+    "MACE-MPtrj-0b2-medium": {"provider": "mace_mp", "model": "medium-0b2"},
+    "MACE-MPtrj-0b2-large": {"provider": "mace_mp", "model": "large-0b2"},
+    "MACE-MPtrj-0b3-medium": {"provider": "mace_mp", "model": "medium-0b3"},
     "MACE-MPA-0-medium": {"provider": "mace_mp", "model": "medium-mpa-0"},
-    "MACE-OMAT-0-small": {"provider": "mace_mp", "model": "small-omat-0"},
-    "MACE-OMAT-0-medium": {"provider": "mace_mp", "model": "medium-omat-0"},
-    "MACE-MatPES-PBE-0": {"provider": "mace_mp", "model": "mace-matpes-pbe-0"},
-    "MACE-MatPES-r2SCAN-0": {"provider": "mace_mp", "model": "mace-matpes-r2scan-0"},
-    # NOTE: MACE multi-head checkpoints (mh-0, mh-1) require a mandatory ``head=...``
-    # kwarg per use; they are not registered as default-loadable canonical names.
+    "MACE-OMat24-0-small": {"provider": "mace_mp", "model": "small-omat-0"},
+    "MACE-OMat24-0-medium": {"provider": "mace_mp", "model": "medium-omat-0"},
+    "MACE-OMat24-ft-MatPES-PBE-0": {"provider": "mace_mp", "model": "mace-matpes-pbe-0"},
+    "MACE-OMat24-ft-MatPES-r2SCAN-0": {"provider": "mace_mp", "model": "mace-matpes-r2scan-0"},
+    "MACE-MH-0": {"provider": "mace_mp", "model": "mh-0", "head": "omat_pbe"},
+    "MACE-MH-1": {"provider": "mace_mp", "model": "mh-1", "head": "omat_pbe"},
     # SevenNet (model names match the upstream HF / SevenNetCalculator strings)
-    "SevenNet-0": {"provider": "sevennet", "model": "7net-0"},
-    "SevenNet-l3i5": {"provider": "sevennet", "model": "7net-l3i5"},
-    "SevenNet-MF-OMPA": {"provider": "sevennet", "model": "7net-mf-ompa"},
-    "SevenNet-OMAT": {"provider": "sevennet", "model": "7net-omat"},
+    "SevenNet-MPtrj-0": {"provider": "sevennet", "model": "7net-0"},
+    "SevenNet-MPtrj-l3i5": {"provider": "sevennet", "model": "7net-l3i5"},
+    # SevenNet OAM is trained jointly on OMat24 and sAlex + MPtrj (multifidelity);
+    # modal="mpa" selects the MPtrj/sAlex DFT setting.
+    "SevenNet-OAM-MF": {"provider": "sevennet", "model": "7net-mf-ompa", "modal": "mpa"},
+    "SevenNet-OMat24": {"provider": "sevennet", "model": "7net-omat"},
+    "SevenNet-Omni": {"provider": "sevennet", "model": "7net-omni", "modal": "mpa"},
+    "SevenNet-Omni-i8": {"provider": "sevennet", "model": "7net-omni-i8", "modal": "mpa"},
+    "SevenNet-Omni-i12": {"provider": "sevennet", "model": "7net-omni-i12", "modal": "mpa"},
     # GRACE / TensorPotential
-    "GRACE-1L-OAM": {"provider": "grace", "model": "GRACE-1L-OAM"},
-    "GRACE-2L-OAM": {"provider": "grace", "model": "GRACE-2L-OAM"},
-    "GRACE-2L-OMAT": {"provider": "grace", "model": "GRACE-2L-OMAT"},
-    "GRACE-2L-MPtrj": {"provider": "grace", "model": "GRACE-2L-MPtrj"},
+    "GRACE-SMAX-OMat24-1L-large": {"provider": "grace", "model": "GRACE-1L-SMAX-OMAT-large"},
+    "GRACE-SMAX-OMat24-2L-medium": {"provider": "grace", "model": "GRACE-2L-SMAX-OMAT-medium"},
+    "GRACE-SMAX-OMat24-2L-large": {"provider": "grace", "model": "GRACE-2L-SMAX-OMAT-large"},
+    "GRACE-SMAX-1L-large": {"provider": "grace", "model": "GRACE-1L-SMAX-large"},
+    "GRACE-SMAX-2L-medium": {"provider": "grace", "model": "GRACE-2L-SMAX-medium"},
+    "GRACE-SMAX-2L-large": {"provider": "grace", "model": "GRACE-2L-SMAX-large"},
+    "GRACE-OMat24-ft-MPA-1L-small": {"provider": "grace", "model": "GRACE-1L-OAM"},
+    "GRACE-OMat24-ft-MPA-1L-medium": {"provider": "grace", "model": "GRACE-1L-OMAT-medium-ft-AM"},
+    "GRACE-OMat24-ft-MPA-1L-large": {"provider": "grace", "model": "GRACE-1L-OMAT-large-ft-AM"},
+    "GRACE-OMat24-ft-MPA-2L-small": {"provider": "grace", "model": "GRACE-2L-OAM"},
+    "GRACE-OMat24-ft-MPA-2L-medium": {"provider": "grace", "model": "GRACE-2L-OMAT-medium-ft-AM"},
+    "GRACE-OMat24-ft-MPA-2L-large": {"provider": "grace", "model": "GRACE-2L-OMAT-large-ft-AM"},
+    "GRACE-OMat24-ft-MPA-3L-large": {"provider": "grace", "model": "GRACE-3L-OMAT-large-ft-AM"},
+    "GRACE-OMat24-1L-medium-base": {"provider": "grace", "model": "GRACE-1L-OMAT-medium-base"},
+    "GRACE-OMat24-ft-E-1L-medium": {"provider": "grace", "model": "GRACE-1L-OMAT-medium-ft-E"},
+    "GRACE-OMat24-1L-large-base": {"provider": "grace", "model": "GRACE-1L-OMAT-large-base"},
+    "GRACE-OMat24-ft-E-1L-large": {"provider": "grace", "model": "GRACE-1L-OMAT-large-ft-E"},
+    "GRACE-OMat24-2L-small": {"provider": "grace", "model": "GRACE-2L-OMAT"},
+    "GRACE-OMat24-2L-medium-base": {"provider": "grace", "model": "GRACE-2L-OMAT-medium-base"},
+    "GRACE-OMat24-ft-E-2L-medium": {"provider": "grace", "model": "GRACE-2L-OMAT-medium-ft-E"},
+    "GRACE-OMat24-2L-large-base": {"provider": "grace", "model": "GRACE-2L-OMAT-large-base"},
+    "GRACE-OMat24-ft-E-2L-large": {"provider": "grace", "model": "GRACE-2L-OMAT-large-ft-E"},
+    "GRACE-OMat24-3L-large": {"provider": "grace", "model": "GRACE-3L-OMAT-large"},
+    # GRACE MP models need tensorpotential<0.5.8.
+    "GRACE-MPtrj-1L-r6": {"provider": "grace", "model": "GRACE-1L-MP-r6"},
+    "GRACE-MPtrj-2L-r5": {"provider": "grace", "model": "GRACE-2L-MP-r5"},
+    "GRACE-MPtrj-2L-r6": {"provider": "grace", "model": "GRACE-2L-MP-r6"},
     # Orb
-    "ORB-v2": {"provider": "orb", "model": "orb-v2"},
-    "ORB-d3-v2": {"provider": "orb", "model": "orb-d3-v2"},
-    "ORB-d3-sm-v2": {"provider": "orb", "model": "orb-d3-sm-v2"},
-    "ORB-d3-xs-v2": {"provider": "orb", "model": "orb-d3-xs-v2"},
+    "ORB-MPtrj-Alex-v2": {"provider": "orb", "model": "orb-v2"},
+    "ORB-MPtrj-Alex-v2-D3": {"provider": "orb", "model": "orb-d3-v2"},
+    "ORB-MPtrj-Alex-v2-D3-sm": {"provider": "orb", "model": "orb-d3-sm-v2"},
+    "ORB-MPtrj-Alex-v2-D3-xs": {"provider": "orb", "model": "orb-d3-xs-v2"},
+    "ORB-MPtrj-v2": {"provider": "orb", "model": "orb-mptraj-only-v2"},
+    "ORB-MPtrj-Alex-v3-conservative-20": {"provider": "orb", "model": "orb-v3-conservative-20-mpa"},
+    "ORB-MPtrj-Alex-v3-conservative-inf": {"provider": "orb", "model": "orb-v3-conservative-inf-mpa"},
+    "ORB-MPtrj-Alex-v3-direct-20": {"provider": "orb", "model": "orb-v3-direct-20-mpa"},
+    "ORB-MPtrj-Alex-v3-direct-inf": {"provider": "orb", "model": "orb-v3-direct-inf-mpa"},
+    "ORB-OMat24-v3-conservative-20": {"provider": "orb", "model": "orb-v3-conservative-20-omat"},
+    "ORB-OMat24-v3-conservative-inf": {"provider": "orb", "model": "orb-v3-conservative-inf-omat"},
+    "ORB-OMat24-v3-direct-20": {"provider": "orb", "model": "orb-v3-direct-20-omat"},
+    "ORB-OMat24-v3-direct-inf": {"provider": "orb", "model": "orb-v3-direct-inf-omat"},
     # MatterSim
     "MatterSim-v1.0.0-1M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-1M.pth"},
     "MatterSim-v1.0.0-5M": {"provider": "mattersim", "load_path": "MatterSim-v1.0.0-5M.pth"},
@@ -88,10 +136,30 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "UMA-S-1.2": {"provider": "fairchem", "model": "uma-s-1p2", "task_name": "omat"},
     "UMA-S-1.1": {"provider": "fairchem", "model": "uma-s-1p1", "task_name": "omat"},
     "UMA-M-1.1": {"provider": "fairchem", "model": "uma-m-1p1", "task_name": "omat"},
-    # PET-MAD
-    "PETMAD-1.0.0": {"provider": "petmad"},
-    # DeePMD-LAM
-    "DPA3-LAM-2025.3.14": {"provider": "deepmd"},
+    # UPET. MAD-1.0 is PBEsol and MAD-1.5/1.6 are r2SCAN. PET-OAM and PET-MAD-1.6 are
+    # pretrained on OMat24 and fine-tuned on sAlex + MPtrj and MAD-1.6, respectively.
+    "PET-OMat24-1.0.0-XS": {"provider": "upet", "model": "pet-omat-xs", "version": "1.0.0"},
+    "PET-OMat24-1.0.0-S": {"provider": "upet", "model": "pet-omat-s", "version": "1.0.0"},
+    "PET-OMat24-1.0.0-M": {"provider": "upet", "model": "pet-omat-m", "version": "1.0.0"},
+    "PET-OMat24-1.0.0-L": {"provider": "upet", "model": "pet-omat-l", "version": "1.0.0"},
+    "PET-OMat24-1.0.0-XL": {"provider": "upet", "model": "pet-omat-xl", "version": "1.0.0"},
+    "PET-OMat24-ft-MPA-0.1.0-L": {"provider": "upet", "model": "pet-oam-l", "version": "0.1.0"},
+    "PET-OMat24-ft-MPA-1.0.0-XL": {"provider": "upet", "model": "pet-oam-xl", "version": "1.0.0"},
+    "PET-OMat24-ft-MatPES-r2SCAN-0.1.0-L": {"provider": "upet", "model": "pet-omatpes-l", "version": "0.1.0"},
+    "PET-OMat24-ft-MAD-r2SCAN-1.6.0-XS": {"provider": "upet", "model": "pet-mad-xs", "version": "1.6.0"},
+    "PET-OMat24-ft-MAD-r2SCAN-1.6.0-S": {"provider": "upet", "model": "pet-mad-s", "version": "1.6.0"},
+    "PET-OMat24-ft-MAD-r2SCAN-1.6.0-M": {"provider": "upet", "model": "pet-mad-m", "version": "1.6.0"},
+    "PET-MAD-PBEsol-1.0.2-S": {"provider": "upet", "model": "pet-mad-s", "version": "1.0.2"},
+    # DPA
+    "DPA2-OpenLAM-2.4-7M": {"provider": "deepmd", "model": "DPA-2.4-7M", "head": "Omat24"},
+    "DPA3-OpenLAM-3.1-3M": {"provider": "deepmd", "model": "DPA-3.1-3M", "head": "Omat24"},
+    "DPA3-OpenLAM-3.2-5M": {"provider": "deepmd", "model": "DPA-3.2-5M", "head": "Omat24"},
+    "DPA3-OpenLAM-3.3-1M": {"provider": "deepmd", "model": "DPA-3.3-1M", "head": "Omat24"},
+    "DPA4-OMat24-2026.8.5-Nano": {"provider": "deepmd", "model": "DPA4-Nano-OMat24-v20260805"},
+    "DPA4-OMat24-2026.8.5-Mini": {"provider": "deepmd", "model": "DPA4-Mini-OMat24-v20260805"},
+    "DPA4-OMat24-2026.8.5-Neo": {"provider": "deepmd", "model": "DPA4-Neo-OMat24-v20260805"},
+    "DPA4-OMat24-2026.8.5-Air": {"provider": "deepmd", "model": "DPA4-Air-OMat24-v20260805"},
+    "DPA4-OMat24-2026.8.5-Plus": {"provider": "deepmd", "model": "DPA4-Plus-OMat24-v20260805"},
 }
 
 # Short / legacy aliases. Keys are matched case-insensitively. Values must be
@@ -99,26 +167,84 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
 MODEL_ALIASES: dict[str, str] = {
     # short architecture / functional aliases — pick a sensible default per family
     "tensornet": "TensorNet-MatPES-PBE-2025.2",
-    "m3gnet": "M3GNet-MatPES-PBE-2025.1",
-    "chgnet": "CHGNet-MatPES-PBE-1M-2026.9",
+    "m3gnet": "M3GNet-MatPES-PBE-2025.2",
+    "chgnet": "CHGNet-MatPES-PBE-2026.9-1M",
+    "qet": "QET-MatPES-PBE-2025.2",
     "pbe": "TensorNet-MatPES-PBE-2025.2",
     "r2scan": "TensorNet-MatPES-r2SCAN-2025.2",
     "mace": "MACE-MPA-0-medium",
-    "sevennet": "SevenNet-0",
-    "grace": "GRACE-2L-OAM",
-    "tensorpotential": "GRACE-2L-OAM",
-    "orb": "ORB-v2",
+    "sevennet": "SevenNet-Omni",
+    "grace": "GRACE-SMAX-OMat24-2L-medium",
+    "tensorpotential": "GRACE-SMAX-OMat24-2L-medium",
+    "orb": "ORB-OMat24-v3-conservative-inf",
     "mattersim": "MatterSim-v1.0.0-1M",
-    "fairchem": "UMA-S-1.2",
-    "uma": "UMA-S-1.2",
-    "petmad": "PETMAD-1.0.0",
-    "deepmd": "DPA3-LAM-2025.3.14",
+    "fairchem": "UMA-S-1.2.1",
+    "uma": "UMA-S-1.2.1",
+    "pet": "PET-OMat24-ft-MAD-r2SCAN-1.6.0-S",
+    "pet-oam": "PET-OMat24-ft-MPA-1.0.0-XL",
+    "petmad": "PET-MAD-PBEsol-1.0.2-S",
+    "deepmd": "DPA4-OMat24-2026.8.5-Mini",
+    "dpa": "DPA4-OMat24-2026.8.5-Mini",
+    # Previous canonical names.
+    "mace-mp-0-small": "MACE-MPtrj-0a-small",
+    "mace-mp-0-medium": "MACE-MPtrj-0a-medium",
+    "mace-mp-0-large": "MACE-MPtrj-0a-large",
+    "mace-mp-0b-small": "MACE-MPtrj-0b-small",
+    "mace-mp-0b-medium": "MACE-MPtrj-0b-medium",
+    "mace-mp-0b2-small": "MACE-MPtrj-0b2-small",
+    "mace-mp-0b2-medium": "MACE-MPtrj-0b2-medium",
+    "mace-mp-0b2-large": "MACE-MPtrj-0b2-large",
+    "mace-mp-0b3-medium": "MACE-MPtrj-0b3-medium",
+    "mace-omat-0-small": "MACE-OMat24-0-small",
+    "mace-omat-0-medium": "MACE-OMat24-0-medium",
+    "grace-1l-oam": "GRACE-OMat24-ft-MPA-1L-small",
+    "grace-2l-oam": "GRACE-OMat24-ft-MPA-2L-small",
+    "grace-2l-omat": "GRACE-OMat24-2L-small",
+    "grace-2l-mptrj": "GRACE-MPtrj-2L-r6",
+    "orb-v2": "ORB-MPtrj-Alex-v2",
+    "orb-d3-v2": "ORB-MPtrj-Alex-v2-D3",
+    "orb-d3-sm-v2": "ORB-MPtrj-Alex-v2-D3-sm",
+    "orb-d3-xs-v2": "ORB-MPtrj-Alex-v2-D3-xs",
+    "sevennet-0": "SevenNet-MPtrj-0",
+    "sevennet-l3i5": "SevenNet-MPtrj-l3i5",
+    "sevennet-mf-ompa": "SevenNet-OAM-MF",
+    "sevennet-omat": "SevenNet-OMat24",
+    "mace-matpes-pbe-0": "MACE-OMat24-ft-MatPES-PBE-0",
+    "mace-matpes-r2scan-0": "MACE-OMat24-ft-MatPES-r2SCAN-0",
+    # upstream model names
+    "grace-1l-omat-medium-ft-am": "GRACE-OMat24-ft-MPA-1L-medium",
+    "grace-1l-omat-large-ft-am": "GRACE-OMat24-ft-MPA-1L-large",
+    "grace-2l-omat-medium-ft-am": "GRACE-OMat24-ft-MPA-2L-medium",
+    "grace-2l-omat-large-ft-am": "GRACE-OMat24-ft-MPA-2L-large",
+    "grace-3l-omat-large-ft-am": "GRACE-OMat24-ft-MPA-3L-large",
+    "grace-1l-omat-medium-ft-e": "GRACE-OMat24-ft-E-1L-medium",
+    "grace-1l-omat-large-ft-e": "GRACE-OMat24-ft-E-1L-large",
+    "grace-2l-omat-medium-ft-e": "GRACE-OMat24-ft-E-2L-medium",
+    "grace-2l-omat-large-ft-e": "GRACE-OMat24-ft-E-2L-large",
+    "orb-v3-conservative-20-mpa": "ORB-MPtrj-Alex-v3-conservative-20",
+    "orb-v3-conservative-inf-mpa": "ORB-MPtrj-Alex-v3-conservative-inf",
+    "orb-v3-direct-20-mpa": "ORB-MPtrj-Alex-v3-direct-20",
+    "orb-v3-direct-inf-mpa": "ORB-MPtrj-Alex-v3-direct-inf",
+    "pet-oam-l": "PET-OMat24-ft-MPA-0.1.0-L",
+    "pet-oam-xl": "PET-OMat24-ft-MPA-1.0.0-XL",
+    "pet-omatpes-l": "PET-OMat24-ft-MatPES-r2SCAN-0.1.0-L",
+    "pet-mad-xs": "PET-OMat24-ft-MAD-r2SCAN-1.6.0-XS",
+    "pet-mad-s": "PET-OMat24-ft-MAD-r2SCAN-1.6.0-S",
+    "pet-mad-m": "PET-OMat24-ft-MAD-r2SCAN-1.6.0-M",
     # legacy MatGL spellings — keep working so existing code/notebooks don't break
     "tensornet-pes-matpes-pbe-2025.2": "TensorNet-MatPES-PBE-2025.2",
     "tensornet-pes-matpes-r2scan-2025.2": "TensorNet-MatPES-r2SCAN-2025.2",
-    "m3gnet-pes-matpes-pbe-2025.1": "M3GNet-MatPES-PBE-2025.1",
-    "chgnet-pes-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-1M-2026.9",
-    "chgnet-pes-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-1M-2026.9",
+    "tensornet-pes-matpes-pbe-2025.2-m": "TensorNet-MatPES-PBE-2025.2-m",
+    "tensornet-pes-matpes-r2scan-2025.2-m": "TensorNet-MatPES-r2SCAN-2025.2-m",
+    "m3gnet-pes-matpes-pbe-2025.2": "M3GNet-MatPES-PBE-2025.2",
+    "m3gnet-pes-matpes-r2scan-2025.2": "M3GNet-MatPES-r2SCAN-2025.2",
+    "qet-pes-matpes-pbe-2025.2": "QET-MatPES-PBE-2025.2",
+    "qet-pes-matpes-r2scan-2025.2": "QET-MatPES-r2SCAN-2025.2",
+    "qet-pes-matq": "QET-MatQ",
+    "chgnet-pes-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-2026.9-1M",
+    "chgnet-pes-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-2026.9-1M",
+    "chgnet-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-2026.9-1M",
+    "chgnet-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-2026.9-1M",
     "chgnet-pes-matpes-pbe-2025.2.10": "CHGNet-MatPES-PBE-2025.2.10",
     "chgnet-pes-matpes-r2scan-2025.2.10": "CHGNet-MatPES-r2SCAN-2025.2.10",
     "chgnet-matpes-pbe-2025.2.10-2.7m-pes": "CHGNet-MatPES-PBE-2025.2.10",
@@ -161,13 +287,23 @@ _PROVIDER_INSTALL_EXTRA: dict[str, str] = {
     "orb": "orb",
     "mattersim": "mattersim",
     "fairchem": "fairchem",
-    "petmad": "petmad",
+    "upet": "upet",
     "deepmd": "deepmd",
+}
+
+# Removed model names (lower case) and what to use instead.
+_REMOVED_MODELS: dict[str, str] = {
+    "m3gnet-matpes-pbe-2025.1": "MatGL no longer distributes it; use the retrained M3GNet-MatPES-PBE-2025.2.",
+    "m3gnet-pes-matpes-pbe-2025.1": "MatGL no longer distributes it; use the retrained M3GNet-MatPES-PBE-2025.2.",
+    "petmad-1.0.0": "it loaded the latest pet-mad model, not version 1.0.0; use PET-MAD-PBEsol-1.0.2-S.",
+    "dpa3-lam-2025.3.14": "its checkpoint is not distributed and fails with deepmd-kit 3.2; use a DPA3-OpenLAM model.",
 }
 
 
 def _install_hint(provider: str) -> str:
     """Return a human-friendly install hint for a missing provider dependency."""
+    if provider == "orb" and sys.version_info < (3, 12):
+        return "Provider 'orb' requires orb-models >= 0.6, which needs Python >= 3.12."
     extra = _PROVIDER_INSTALL_EXTRA.get(provider, provider)
     return (
         f"Provider {provider!r} requires an optional dependency that is not installed. "
@@ -193,6 +329,11 @@ def _resolve_canonical(name: str) -> str | None:
     if case_folded is not None:
         return case_folded
     return None
+
+
+def _is_matgl_model_dir(name: str) -> bool:
+    """Return True if ``name`` is a local directory holding a saved MatGL model."""
+    return (Path(name) / "model.json").is_file()
 
 
 def _suggest_models(name: str, n: int = 3) -> list[str]:
@@ -480,16 +621,19 @@ class PESCalculator(Calculator):
         """
         Load a foundation potential calculator by its canonical name.
 
-        Names follow the unified convention ``<Architecture>-<Dataset>-<Optional Version>``
+        Names follow the unified convention ``<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]``
         (e.g. ``TensorNet-MatPES-PBE-2025.2``, ``MACE-MPA-0-medium``). The full list of
         canonical names is the keys of :data:`MODEL_REGISTRY`; short / legacy spellings
         in :data:`MODEL_ALIASES` resolve to a canonical name. Lookups are
         case-insensitive.
 
-        If ``name`` is already a :class:`Calculator`, it is returned unchanged.
+        If ``name`` is already a :class:`Calculator`, it is returned unchanged. A raw MatGL
+        pretrained model name or a local directory with a saved MatGL model (e.g. a
+        fine-tuned potential) is loaded with MatGL.
 
         Args:
-            name: Canonical model name, alias, or an existing ASE calculator instance.
+            name: Canonical model name, alias, raw MatGL model name or directory, or an
+                existing ASE calculator instance.
             **kwargs: Provider-specific options. These override the defaults stored
                 in the registry entry (e.g. ``device="cuda"`` for ORB / FAIRChem).
 
@@ -508,9 +652,12 @@ class PESCalculator(Calculator):
         if canonical is None:
             # Backward-compat fallback: a raw MatGL pretrained model name passed
             # straight through (covers any newly released models not yet in the
-            # registry) so users on the bleeding edge are not blocked.
-            if name in _MATGL_AVAILABLE:
+            # registry) so users on the bleeding edge are not blocked, or a local
+            # MatGL model directory such as a fine-tuned potential.
+            if name in _MATGL_AVAILABLE or _is_matgl_model_dir(name):
                 return PESCalculator.load_matgl(name, **kwargs)
+            if (reason := _REMOVED_MODELS.get(name.lower())) is not None:
+                raise ValueError(f"{name!r} was removed: {reason}")
             suggestions = _suggest_models(name)
             hint = f" Did you mean: {suggestions}?" if suggestions else ""
             raise ValueError(
@@ -565,13 +712,13 @@ def _load_grace(kwargs: dict[str, Any]) -> Calculator:
 
 
 def _load_orb(kwargs: dict[str, Any]) -> Calculator:
-    from orb_models.forcefield.calculator import ORBCalculator
+    from orb_models.forcefield.inference.calculator import ORBCalculator
     from orb_models.forcefield.pretrained import ORB_PRETRAINED_MODELS
 
     model = kwargs.pop("model")
     device = kwargs.get("device", "cpu")
-    orbff = ORB_PRETRAINED_MODELS[model](device=device)
-    return ORBCalculator(orbff, **kwargs)
+    orbff, atoms_adapter = ORB_PRETRAINED_MODELS[model](device=device)
+    return ORBCalculator(orbff, atoms_adapter=atoms_adapter, **kwargs)
 
 
 def _load_mattersim(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
@@ -590,31 +737,13 @@ def _load_fairchem(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
     return FAIRChemCalculator(predictor, task_name=task_name, **kwargs)
 
 
-def _load_petmad(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
-    from pet_mad.calculator import PETMADCalculator
+def _load_upet(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
+    from upet.ase import UPETCalculator
 
-    return PETMADCalculator(**kwargs)
-
-
-# Bundled DPA3 checkpoint under tests/ (only present in editable installs).
-# When matcalc is installed from a wheel the user must pass ``model=<path>``
-# explicitly.
-_DPA3_BUNDLED_PATH = (
-    Path(__file__).parent.absolute() / "../../tests/pes/DPA3-LAM-2025.3.14-PES" / "2025-03-14-dpa3-openlam.pth"
-).resolve()
+    return UPETCalculator(**kwargs)
 
 
 def _load_deepmd(kwargs: dict[str, Any]) -> Calculator:  # pragma: no cover
-    if "model" not in kwargs:
-        if _DPA3_BUNDLED_PATH.exists():
-            kwargs["model"] = _DPA3_BUNDLED_PATH
-        else:
-            raise FileNotFoundError(
-                "DeePMD model path not found. Pass model=<path-to-.pth> explicitly to "
-                "load_universal(..., model=...), or download the DPA3-LAM checkpoint and "
-                "supply its path. (Bundled fallback is only available from an editable "
-                "checkout.)"
-            )
     from deepmd.calculator import DP
 
     return DP(**kwargs)
@@ -628,7 +757,7 @@ _PROVIDER_LOADERS: dict[str, Callable[[dict[str, Any]], Calculator]] = {
     "orb": _load_orb,
     "mattersim": _load_mattersim,
     "fairchem": _load_fairchem,
-    "petmad": _load_petmad,
+    "upet": _load_upet,
     "deepmd": _load_deepmd,
 }
 

@@ -78,6 +78,8 @@ def test_calculate_property(LiFePO4: Structure) -> None:
                 cif_file,
                 "-o",
                 "cli_results.yaml",
+                "-m",
+                "pbe",
             ]
         )
 
@@ -142,3 +144,16 @@ def test_main_clear_subcommand(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(sys, "argv", ["matcalc", "clear"])
     main()
     assert not cache_dir.exists()
+
+
+def test_cli_unknown_model() -> None:
+    result = subprocess.run(
+        ["matcalc", "calc", "-p", "ElasticityCalc", "-s", "structure.cif", "-m", "TensorNet-MatPES-PBE-2025"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "Unknown model" in result.stderr
+    assert "Did you mean" in result.stderr
+    assert "TensorNet-MatPES-PBE-2025.2" in result.stderr

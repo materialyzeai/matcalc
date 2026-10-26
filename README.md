@@ -88,30 +88,48 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 
 `PESCalculator.load_universal()` — aliased as `matcalc.load_fp()` and `matcalc.load_up()` — supports these models out of the box:
 
-| Model | String Name / Alias | Package |
+| Canonical name | Alias | Package |
 |---|---|---|
-| TensorNet-MatPES-PBE | `"TensorNet-PES-MatPES-PBE-2025.2"` or `"pbe"` | matgl |
-| TensorNet-MatPES-r²SCAN | `"TensorNet-PES-MatPES-r2SCAN-2025.2"` or `"r2scan"` | matgl |
-| M3GNet-MatPES-PBE | `"M3GNet-PES-MatPES-PBE-v2025.1"` or `"m3gnet"` | matgl |
-| CHGNet-MatPES-PBE | `"CHGNet-PES-MatPES-PBE-1M-2026.9"` or `"chgnet"` | matgl |
-| CHGNet-MatPES-r²SCAN | `"CHGNet-PES-MatPES-r2SCAN-1M-2026.9"` | matgl |
-| MACE-MP | `"MACE"` | mace-torch |
-| SevenNet | `"SevenNet"` | sevenn |
-| GRACE / TensorPotential | `"GRACE"` or `"TensorPotential"` | tensorpotential |
-| ORB | `"ORB"` | orb-models |
-| MatterSim | `"MatterSim"` | mattersim |
-| FAIRChem | `"FAIRChem"` | fairchem-core |
-| PET-MAD | `"PETMAD"` | pet-mad |
-| DeePMD | `"DeePMD"` | deepmd-kit |
+| `TensorNet-MatPES-PBE-2025.2` | `tensornet`, `pbe` | matgl |
+| `TensorNet-MatPES-r2SCAN-2025.2` | `r2scan` | matgl |
+| `M3GNet-MatPES-PBE-2025.2` | `m3gnet` | matgl |
+| `CHGNet-MatPES-PBE-2026.9-1M` | `chgnet` | matgl |
+| `QET-MatPES-PBE-2025.2` | `qet` | matgl |
+| `MACE-MPA-0-medium` | `mace` | mace-torch |
+| `SevenNet-Omni` | `sevennet` | sevenn |
+| `GRACE-SMAX-OMat24-2L-medium` | `grace`, `tensorpotential` | tensorpotential |
+| `ORB-OMat24-v3-conservative-inf` | `orb` | orb-models |
+| `MatterSim-v1.0.0-1M` | `mattersim` | mattersim |
+| `UMA-S-1.2.1` | `uma`, `fairchem` | fairchem-core |
+| `PET-OMat24-ft-MAD-r2SCAN-1.6.0-S` | `pet` | upet |
+| `PET-OMat24-ft-MPA-1.0.0-XL` | `pet-oam` | upet |
+| `DPA4-OMat24-2026.8.5-Mini` | `deepmd`, `dpa` | deepmd-kit |
 
-Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovered if MatGL is installed.
+The table lists the model each alias loads; all registered models are listed in `matcalc.UNIVERSAL_CALCULATOR_NAMES`
+and on the [Foundation Potentials](https://matcalc.ai/models.html) page.
+Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]` where the upstream release provides these fields.
+Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovered if MatGL is installed,
+and a local directory with a saved MatGL model (e.g. a fine-tuned potential) can be passed by path.
+Pretrained weights have their own licenses, and some are for non-commercial use only; check the upstream model card before use.
 
 The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).
+
+Unregistered models from these packages can be loaded with a provider override,
+e.g. `load_fp("grace", model="GRACE-2L-SMAX-OMAT-large-fp64")`, or by passing any ASE calculator directly,
+e.g. a fairchem 1.x model (`fairchem-core==1.10`):
+
+```python
+import matcalc as mtc
+from fairchem.core import OCPCalculator
+
+calc = OCPCalculator(model_name="eSEN-30M-OAM", local_cache="fairchem_checkpoints", cpu=False)
+results = mtc.RelaxCalc(calc, relax_cell=True).calc(structure)
+```
 
 ## Basic Usage
 
 MatCalc provides convenient methods to quickly compute properties with minimal code. The following example
-computes the elastic constants of Si using the `TensorNet-PES-MatPES-PBE-2025.2` universal MLIP.
+computes the elastic constants of Si using the `TensorNet-MatPES-PBE-2025.2` universal MLIP.
 
 ```python
 import matcalc as mtc
@@ -119,7 +137,7 @@ from pymatgen.ext.matproj import MPRester
 
 mpr = MPRester()
 si = mpr.get_structure_by_material_id("mp-149")
-c = mtc.ElasticityCalc("TensorNet-PES-MatPES-PBE-2025.2", relax_structure=True, units_GPa=True)
+c = mtc.ElasticityCalc("TensorNet-MatPES-PBE-2025.2", relax_structure=True, units_GPa=True)
 props = c.calc(si)
 print(f"K_VRH = {props['bulk_modulus_vrh']} GPa")
 ```
@@ -146,7 +164,7 @@ pbe_calculator = mtc.load_fp("pbe")
 r2scan_calculator = mtc.load_fp("r2scan")
 ```
 
-These currently resolve to the `TensorNet-PES-MatPES-*-2025.2` models, but may be updated as better models
+These currently resolve to the `TensorNet-MatPES-*-2025.2` models, but may be updated as better models
 become available.
 
 `matcalc.load_up` is the same as `matcalc.load_fp` (historical alias).
@@ -219,7 +237,7 @@ A command-line interface allows computing properties for any structure file:
 matcalc calc -p ElasticityCalc -s Li2O.cif
 
 # Use a specific model and write output to a JSON file
-matcalc calc -p RelaxCalc -m TensorNet -s structure.cif -o results.json
+matcalc calc -p RelaxCalc -m TensorNet-MatPES-PBE-2025.2 -s structure.cif -o results.json
 
 # Clear the local benchmark data cache
 matcalc clear
@@ -235,7 +253,7 @@ MatCalc includes a benchmarking framework released alongside [MatPES].
 ```python
 import matcalc as mtc
 
-calculator = mtc.load_fp("TensorNet-PES-MatPES-PBE-2025.2")
+calculator = mtc.load_fp("TensorNet-MatPES-PBE-2025.2")
 benchmark = mtc.benchmark.ElasticityBenchmark(fmax=0.05, relax_structure=True)
 results = benchmark.run(calculator, "TensorNet-MatPES")
 ```
@@ -247,8 +265,8 @@ To run multiple benchmarks on multiple models:
 ```python
 import matcalc as mtc
 
-tensornet = mtc.load_fp("TensorNet-PES-MatPES-PBE-2025.2")
-m3gnet = mtc.load_fp("M3GNet-PES-MatPES-PBE-2025.1")
+tensornet = mtc.load_fp("TensorNet-MatPES-PBE-2025.2")
+m3gnet = mtc.load_fp("M3GNet-MatPES-PBE-2025.2")
 
 elasticity_benchmark = mtc.benchmark.ElasticityBenchmark(fmax=0.5, relax_structure=True)
 phonon_benchmark = mtc.benchmark.PhononBenchmark(write_phonon=False)
@@ -280,7 +298,7 @@ architecture. We currently recommend three:
 - **OMat24** for solids where rattled-structure coverage matters (e.g. phonons)
 - **OMol25** for molecules
 
-Most other public models are trained on **MPTrj**, which is noisy and outdated; we don't recommend it. The [MatPES]
+Most other public models are trained on **MPtrj**, which is noisy and outdated; we don't recommend it. The [MatPES]
 website provides head-to-head benchmarks between MatPES and OMat24 to help you choose.
 
 **MatPES** uses the latest pseudopotentials with tight energy and force convergence, and is also available at the

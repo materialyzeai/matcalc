@@ -12,9 +12,12 @@ from ase.calculators.calculator import Calculator
 
 from matcalc import RelaxCalc
 from matcalc.utils import (
+    _REMOVED_MODELS,
     MODEL_ALIASES,
+    MODEL_REGISTRY,
     UNIVERSAL_CALCULATORS,
     PESCalculator,
+    _resolve_canonical,
 )
 
 DIR = Path(__file__).parent.absolute()
@@ -22,37 +25,22 @@ DIR = Path(__file__).parent.absolute()
 if TYPE_CHECKING:
     from pymatgen.core import Structure
 
-UNIVERSAL_CALCULATORS = [
-    calc
-    for calc in UNIVERSAL_CALCULATORS
-    # MatGL DGL backend / M3GNet / CHGNet are intentionally excluded from the
-    # parametrized smoke test (covered separately or skipped due to runtime).
-    if "DGL" not in calc.name and "M3GNet" not in calc.name and "CHGNet" not in calc.name
-]
+UNIVERSAL_CALCULATORS = [calc for calc in UNIVERSAL_CALCULATORS if "CHGNet" not in calc.name]
 
 
 def _map_calculators_to_packages(calculators: list) -> dict[str, str]:
-    prefix_package_map: list[tuple[tuple[str, ...], str]] = [
-        (("tensornet", "m3gnet", "chgnet"), "matgl"),
-        (("mace",), "mace"),
-        (("sevennet",), "sevenn"),
-        (("grace",), "tensorpotential"),
-        (("orb",), "orb_models"),
-        (("mattersim",), "mattersim"),
-        (("uma",), "fairchem"),
-        (("petmad",), "pet_mad"),
-        (("dpa", "deepmd"), "deepmd"),
-    ]
-
-    calculator_to_package: dict[str, str] = {}
-
-    for calc in calculators:
-        lower_calc = calc.name.lower()
-        for prefixes, package in prefix_package_map:
-            if any(lower_calc.startswith(prefix) for prefix in prefixes):
-                calculator_to_package[calc.name] = package
-                break
-    return calculator_to_package
+    provider_package_map = {
+        "matgl": "matgl",
+        "mace_mp": "mace",
+        "sevennet": "sevenn",
+        "grace": "tensorpotential",
+        "orb": "orb_models",
+        "mattersim": "mattersim",
+        "fairchem": "fairchem",
+        "upet": "upet",
+        "deepmd": "deepmd",
+    }
+    return {calc.name: provider_package_map[MODEL_REGISTRY[calc.name]["provider"]] for calc in calculators}
 
 
 UNIVERSAL_TO_PACKAGE = _map_calculators_to_packages(UNIVERSAL_CALCULATORS)
@@ -180,8 +168,6 @@ def test_pescalculator_calculate() -> None:
 
 def test_aliases() -> None:
     # Every alias must resolve to a canonical name in the registry.
-    from matcalc.utils import MODEL_REGISTRY
-
     for v in MODEL_ALIASES.values():
         assert v in MODEL_REGISTRY, f"Alias target {v!r} is not a canonical model name."
 
@@ -230,3 +216,133 @@ def test_install_hint() -> None:
     assert "pip install" in hint
     assert "matcalc[totally-unmapped-xyz]" in hint
     assert "totally-unmapped-xyz" in hint
+
+
+@pytest.mark.parametrize(
+    ("old_name", "canonical"),
+    [
+        ("MACE-MP-0-small", "MACE-MPtrj-0a-small"),
+        ("MACE-MP-0-medium", "MACE-MPtrj-0a-medium"),
+        ("MACE-MP-0-large", "MACE-MPtrj-0a-large"),
+        ("MACE-MP-0b-small", "MACE-MPtrj-0b-small"),
+        ("MACE-MP-0b-medium", "MACE-MPtrj-0b-medium"),
+        ("MACE-MP-0b2-small", "MACE-MPtrj-0b2-small"),
+        ("MACE-MP-0b2-medium", "MACE-MPtrj-0b2-medium"),
+        ("MACE-MP-0b2-large", "MACE-MPtrj-0b2-large"),
+        ("MACE-MP-0b3-medium", "MACE-MPtrj-0b3-medium"),
+        ("MACE-OMAT-0-small", "MACE-OMat24-0-small"),
+        ("MACE-OMAT-0-medium", "MACE-OMat24-0-medium"),
+        ("MACE-MatPES-PBE-0", "MACE-OMat24-ft-MatPES-PBE-0"),
+        ("MACE-MatPES-r2SCAN-0", "MACE-OMat24-ft-MatPES-r2SCAN-0"),
+        ("GRACE-1L-OAM", "GRACE-OMat24-ft-MPA-1L-small"),
+        ("GRACE-2L-OAM", "GRACE-OMat24-ft-MPA-2L-small"),
+        ("GRACE-2L-OMAT", "GRACE-OMat24-2L-small"),
+        ("GRACE-2L-MPtrj", "GRACE-MPtrj-2L-r6"),
+        ("ORB-v2", "ORB-MPtrj-Alex-v2"),
+        ("ORB-d3-v2", "ORB-MPtrj-Alex-v2-D3"),
+        ("ORB-d3-sm-v2", "ORB-MPtrj-Alex-v2-D3-sm"),
+        ("ORB-d3-xs-v2", "ORB-MPtrj-Alex-v2-D3-xs"),
+        ("SevenNet-0", "SevenNet-MPtrj-0"),
+        ("SevenNet-l3i5", "SevenNet-MPtrj-l3i5"),
+        ("SevenNet-MF-OMPA", "SevenNet-OAM-MF"),
+        ("SevenNet-OMAT", "SevenNet-OMat24"),
+    ],
+)
+def test_renamed_models(old_name: str, canonical: str) -> None:
+    assert canonical in MODEL_REGISTRY
+    assert old_name not in MODEL_REGISTRY
+    for name in (old_name, old_name.lower(), old_name.upper(), canonical, canonical.lower()):
+        assert _resolve_canonical(name) == canonical
+
+
+@pytest.mark.parametrize("name", ["M3GNet-MatPES-PBE-2025.1", "PETMAD-1.0.0", "DPA3-LAM-2025.3.14"])
+def test_removed_models(name: str) -> None:
+    with pytest.raises(ValueError, match="was removed"):
+        PESCalculator.load_universal(name)
+
+
+# Every canonical name and alias in the v0.6.0 release.
+V060_MODEL_NAMES = (
+    "TensorNet-MatPES-PBE-2025.2",
+    "TensorNet-MatPES-r2SCAN-2025.2",
+    "M3GNet-MatPES-PBE-2025.1",
+    "CHGNet-MatPES-PBE-1M-2026.9",
+    "CHGNet-MatPES-r2SCAN-1M-2026.9",
+    "CHGNet-MatPES-PBE-2025.2.10",
+    "CHGNet-MatPES-r2SCAN-2025.2.10",
+    "MACE-MP-0-small",
+    "MACE-MP-0-medium",
+    "MACE-MP-0-large",
+    "MACE-MP-0b-small",
+    "MACE-MP-0b-medium",
+    "MACE-MP-0b2-small",
+    "MACE-MP-0b2-medium",
+    "MACE-MP-0b2-large",
+    "MACE-MP-0b3-medium",
+    "MACE-MPA-0-medium",
+    "MACE-OMAT-0-small",
+    "MACE-OMAT-0-medium",
+    "MACE-MatPES-PBE-0",
+    "MACE-MatPES-r2SCAN-0",
+    "SevenNet-0",
+    "SevenNet-l3i5",
+    "SevenNet-MF-OMPA",
+    "SevenNet-OMAT",
+    "GRACE-1L-OAM",
+    "GRACE-2L-OAM",
+    "GRACE-2L-OMAT",
+    "GRACE-2L-MPtrj",
+    "ORB-v2",
+    "ORB-d3-v2",
+    "ORB-d3-sm-v2",
+    "ORB-d3-xs-v2",
+    "MatterSim-v1.0.0-1M",
+    "MatterSim-v1.0.0-5M",
+    "UMA-S-1.2.1",
+    "UMA-S-1.2",
+    "UMA-S-1.1",
+    "UMA-M-1.1",
+    "PETMAD-1.0.0",
+    "DPA3-LAM-2025.3.14",
+    "tensornet",
+    "m3gnet",
+    "chgnet",
+    "pbe",
+    "r2scan",
+    "mace",
+    "sevennet",
+    "grace",
+    "tensorpotential",
+    "orb",
+    "mattersim",
+    "fairchem",
+    "uma",
+    "petmad",
+    "deepmd",
+    "tensornet-pes-matpes-pbe-2025.2",
+    "tensornet-pes-matpes-r2scan-2025.2",
+    "m3gnet-pes-matpes-pbe-2025.1",
+    "chgnet-pes-matpes-pbe-1m-2026.9",
+    "chgnet-pes-matpes-r2scan-1m-2026.9",
+    "chgnet-pes-matpes-pbe-2025.2.10",
+    "chgnet-pes-matpes-r2scan-2025.2.10",
+    "chgnet-matpes-pbe-2025.2.10-2.7m-pes",
+)
+
+
+def test_released_model_names() -> None:
+    """Every v0.6.0 name resolves or is reported as removed."""
+    unresolved = [
+        name for name in V060_MODEL_NAMES if _resolve_canonical(name) is None and name.lower() not in _REMOVED_MODELS
+    ]
+    assert not unresolved
+
+
+def test_load_universal_matgl_model_dir(tmp_path: Path) -> None:
+    import matgl
+
+    model_dir = tmp_path / "finetuned"
+    matgl.load_model("TensorNet-PES-MatPES-PBE-2025.2").save(model_dir)
+    assert isinstance(PESCalculator.load_universal(str(model_dir)), Calculator)
+    with pytest.raises(ValueError, match="Unrecognized"):
+        PESCalculator.load_universal(str(tmp_path))

@@ -14,7 +14,7 @@ from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
 
 from ._base import PropCalc
 from ._relaxation import RelaxCalc
-from .utils import to_pmg_structure
+from .utils import _MATGL_AVAILABLE, MODEL_REGISTRY, _is_matgl_model_dir, _resolve_canonical, to_pmg_structure
 
 if TYPE_CHECKING:
     from typing import Any, Literal
@@ -23,22 +23,15 @@ if TYPE_CHECKING:
 
 LAMMPS_TEMPLATES_DIR = Path(__file__).parent / "lammps_templates"
 
-# Provide simple aliases for some common models. The key in MODEL_ALIASES must be lower case.
-MODEL_ALIASES = {
-    "tensornet": "TensorNet-PES-MatPES-PBE-2025.2",
-    "m3gnet": "M3GNet-MatPES-PBE-v2025.1-PES",
-    "chgnet": "CHGNet-PES-MatPES-PBE-1M-2026.9",
-    "pbe": "TensorNet-PES-MatPES-PBE-2025.2",
-    "r2scan": "TensorNet-PES-MatPES-r2SCAN-2025.2",
-}
-
 
 class LAMMPSMDCalc(PropCalc):
     """
     Class to manage molecular dynamics simulations using LAMMPS.
 
     Attributes:
-        calculator: Universal model name string (resolved for MatGL potentials).
+        calculator: Registered model name or alias, raw MatGL model name, or local MatGL model
+            directory. MatGL models are passed to LAMMPS as ``gnnp`` type ``matgl``; other names
+            are passed through as lower-cased ``gnnp`` types.
         temperature: Target temperature (K).
         ensemble: Thermostat/barostat choice.
         timestep: MD timestep (ps).
@@ -108,8 +101,11 @@ class LAMMPSMDCalc(PropCalc):
         self.settings = settings
         self.relax_calc_kwargs = relax_calc_kwargs
 
-        if any(self.model_name.lower().startswith(m) for m in ("m3gnet", "chgnet", "tensornet", "pbe", "r2scan")):
-            self.model_name = MODEL_ALIASES.get(self.model_name.lower(), self.model_name)
+        canonical = _resolve_canonical(self.model_name)
+        if canonical is not None and MODEL_REGISTRY[canonical]["provider"] == "matgl":
+            self.model_name = MODEL_REGISTRY[canonical]["path"]
+            self.gnnp_type = "matgl"
+        elif self.model_name in _MATGL_AVAILABLE or _is_matgl_model_dir(self.model_name):
             self.gnnp_type = "matgl"
         else:
             self.gnnp_type = self.model_name.lower()

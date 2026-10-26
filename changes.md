@@ -129,7 +129,7 @@ nav_order: 2
 
 ## v0.3.1
 - All PropCalc implementations are now private and should be imported from the base package.
-- Added support for Mattersim, Fairchem-Core, PET-MAD, and DeepMD (@atulcthakur)
+- Added support for MatterSim, FAIRChem, PET-MAD, and DeePMD (@atulcthakur)
 
 ## v0.2.2
 - Added ChainedCalc helper class to performed chaining of PropCalcs more easily.
