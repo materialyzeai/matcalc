@@ -78,6 +78,8 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     # SevenNet (model names match the upstream HF / SevenNetCalculator strings)
     "SevenNet-MPtrj-0": {"provider": "sevennet", "model": "7net-0"},
     "SevenNet-MPtrj-l3i5": {"provider": "sevennet", "model": "7net-l3i5"},
+    # SevenNet OAM is trained jointly on OMat24 and sAlex + MPtrj (multifidelity);
+    # modal="mpa" selects the MPtrj/sAlex DFT setting.
     "SevenNet-OAM-MF": {"provider": "sevennet", "model": "7net-mf-ompa", "modal": "mpa"},
     "SevenNet-OMat24": {"provider": "sevennet", "model": "7net-omat"},
     "SevenNet-Omni": {"provider": "sevennet", "model": "7net-omni", "modal": "mpa"},
@@ -134,7 +136,8 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     "UMA-S-1.2": {"provider": "fairchem", "model": "uma-s-1p2", "task_name": "omat"},
     "UMA-S-1.1": {"provider": "fairchem", "model": "uma-s-1p1", "task_name": "omat"},
     "UMA-M-1.1": {"provider": "fairchem", "model": "uma-m-1p1", "task_name": "omat"},
-    # UPET
+    # UPET. MAD-1.0 is PBEsol and MAD-1.5/1.6 are r2SCAN. PET-OAM and PET-MAD-1.6 are
+    # pretrained on OMat24 and fine-tuned on sAlex + MPtrj and MAD-1.6, respectively.
     "PET-OMat24-1.0.0-XS": {"provider": "upet", "model": "pet-omat-xs", "version": "1.0.0"},
     "PET-OMat24-1.0.0-S": {"provider": "upet", "model": "pet-omat-s", "version": "1.0.0"},
     "PET-OMat24-1.0.0-M": {"provider": "upet", "model": "pet-omat-m", "version": "1.0.0"},
