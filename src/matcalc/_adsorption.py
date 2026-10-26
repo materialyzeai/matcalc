@@ -11,7 +11,6 @@ from pymatgen.core.adsorption import AdsorbateSiteFinder
 from pymatgen.core.surface import Slab, SlabGenerator
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 from .backend._ase import get_ase_optimizer
 from .utils import to_ase_atoms, to_pmg_molecule, to_pmg_structure
 
@@ -91,14 +90,12 @@ class AdsorptionCalc(PropCalc):
         initial_bulk = to_pmg_structure(bulk)
 
         if self.relax_bulk:
-            relaxer_bulk = RelaxCalc(
-                calculator=self.calculator,
+            relaxer_bulk = self._relaxer(
                 fmax=self.fmax,
                 max_steps=self.max_steps,
                 relax_cell=self.relax_bulk,
                 relax_atoms=self.relax_bulk,
                 optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
             )
 
             bulk_opt = relaxer_bulk.calc(initial_bulk)
@@ -126,14 +123,12 @@ class AdsorptionCalc(PropCalc):
         initial_adsorbate = to_pmg_molecule(adsorbate)
 
         if self.relax_adsorbate:
-            relaxer = RelaxCalc(
-                calculator=self.calculator,
+            relaxer = self._relaxer(
                 fmax=self.fmax,
                 max_steps=self.max_steps,
                 relax_atoms=self.relax_adsorbate,
                 relax_cell=False,
                 optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
             )
 
             adsorbate = to_ase_atoms(adsorbate)
@@ -176,14 +171,12 @@ class AdsorptionCalc(PropCalc):
             Dict with ``slab``, ``slab_energy``, ``slab_energy_per_atom``, ``final_slab``.
         """
         if self.relax_slab:
-            relaxer = RelaxCalc(
-                calculator=self.calculator,
+            relaxer = self._relaxer(
                 fmax=self.fmax,
                 max_steps=self.max_steps,
                 relax_atoms=self.relax_slab,
                 relax_cell=False,
                 optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
             )
             slab_opt = relaxer.calc(slab)
         else:

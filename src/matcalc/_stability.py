@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Literal
 from monty.serialization import loadfn
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 from .backend import run_pes_calc
 from .utils import to_pmg_structure
 
@@ -89,12 +88,10 @@ class EnergeticsCalc(PropCalc):
             perturb_distance=self.perturb_distance,
         )
         # Reused below for relaxing each elemental reference structure.
-        relaxer = RelaxCalc(
-            self.calculator,
+        relaxer = self._relaxer(
             fmax=self.fmax,
             optimizer=self.optimizer,
             perturb_distance=self.perturb_distance,
-            **(self.relax_calc_kwargs or {}),
         )
         energy = result["energy"] if self.relax_structure else run_pes_calc(structure_in, self.calculator).energy
         nsites = len(structure_in)

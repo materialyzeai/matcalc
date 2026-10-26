@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 from pymatgen.core.surface import SlabGenerator
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 
 if TYPE_CHECKING:
     from ase import Atoms
@@ -104,14 +103,12 @@ class SurfaceCalc(PropCalc):
         """
         bulk = bulk.to_conventional()
 
-        relaxer_bulk = RelaxCalc(
-            calculator=self.calculator,
+        relaxer_bulk = self._relaxer(
             fmax=self.fmax,
             max_steps=self.max_steps,
             relax_cell=self.relax_bulk,
             relax_atoms=self.relax_bulk,
             optimizer=self.optimizer,
-            **(self.relax_calc_kwargs or {}),
         )
         bulk_opt = relaxer_bulk.calc(bulk)
 
@@ -161,14 +158,12 @@ class SurfaceCalc(PropCalc):
         if "bulk_energy_per_atom" in structure:
             bulk_energy_per_atom = structure["bulk_energy_per_atom"]
         else:
-            relaxer = RelaxCalc(
-                calculator=self.calculator,
+            relaxer = self._relaxer(
                 fmax=self.fmax,
                 max_steps=self.max_steps,
                 relax_cell=self.relax_bulk,
                 relax_atoms=self.relax_bulk,
                 optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
             )
             bulk_opt = relaxer.calc(structure["bulk"])
             bulk_energy_per_atom = bulk_opt["energy"] / len(bulk_opt["final_structure"])
@@ -176,14 +171,12 @@ class SurfaceCalc(PropCalc):
             result_dict["final_bulk"] = bulk_opt["final_structure"]
 
         slab = structure["slab"]
-        relaxer = RelaxCalc(
-            calculator=self.calculator,
+        relaxer = self._relaxer(
             fmax=self.fmax,
             max_steps=self.max_steps,
             relax_cell=False,
             relax_atoms=self.relax_slab,
             optimizer=self.optimizer,
-            **(self.relax_calc_kwargs or {}),
         )
         slab_opt = relaxer.calc(slab)
         final_slab = slab_opt["final_structure"]
