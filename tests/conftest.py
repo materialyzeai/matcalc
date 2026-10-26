@@ -11,7 +11,6 @@ of "function".
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -21,15 +20,27 @@ import matcalc
 from matcalc.utils import PESCalculator, to_ase_atoms
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from pathlib import Path
 
     from ase.atoms import Atoms
     from pymatgen.core import Structure
 
 import matgl
 
-matgl.clear_cache(confirm=False)
-matcalc.clear_cache(confirm=False)
+MATPES_MODEL = "TensorNet-MatPES-PBE-2025.2"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Reset caches and pre-download the shared model once, in the controller only.
+
+    Under pytest-xdist, workers would otherwise clear the caches and download the same
+    model concurrently while other workers are reading them.
+    """
+    if hasattr(config, "workerinput"):
+        return
+    matgl.clear_cache(confirm=False)
+    matcalc.clear_cache(confirm=False)
+    matcalc.load_fp(MATPES_MODEL)
 
 
 @pytest.fixture(scope="session")
@@ -58,29 +69,23 @@ def SiO2() -> Structure:
     return PymatgenTest.get_structure("SiO2")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def Si_atoms() -> Atoms:
-    """Si atoms as session-scoped fixture."""
+    """Si atoms, rebuilt per test since calculators and MD runs mutate Atoms in place."""
     return to_ase_atoms(PymatgenTest.get_structure("Si"))
 
 
 @pytest.fixture(scope="session")
 def matpes_calculator() -> PESCalculator:
     """TensorNet calculator as session-scoped fixture."""
-    return matcalc.load_fp("TensorNet-MatPES-PBE-2025.2")
+    return matcalc.load_fp(MATPES_MODEL)
 
 
 @pytest.fixture(autouse=True)
-def setup_teardown() -> Generator:
-    """
-    Fixture method for setting up and tearing down temporary directory environment for testing.
+def setup_teardown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run each test in its own temporary directory.
 
-    Returns:
-        Generator: A generator yielding the path of the temporary directory.
+    Files written to the working directory are isolated per test, so parallel
+    pytest-xdist workers cannot overwrite or delete each other's outputs.
     """
-    initial_files = os.listdir()
-    yield
-    for f in os.listdir():
-        if f not in initial_files:
-            print(f"Deleting generated file: {f}")  # noqa:T201
-            os.remove(f)
+    monkeypatch.chdir(tmp_path)

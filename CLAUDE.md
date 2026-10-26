@@ -12,6 +12,7 @@ pip install -e '.[ci]'
 
 # Run the test suite
 pytest tests
+pytest -n auto --dist worksteal tests             # parallel (pytest-xdist), as in CI
 pytest tests/test_elasticity.py                       # single file
 pytest tests/test_elasticity.py::test_elasticity_calc # single test
 pytest --cov=matcalc --cov-report=xml tests           # with coverage (CI invocation)

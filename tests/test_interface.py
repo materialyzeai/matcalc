@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from pymatgen.analysis.interfaces.zsl import ZSLGenerator
 
 from matcalc import InterfaceCalc
 
@@ -34,6 +35,8 @@ def test_interface_calc_basic(Si: Structure, SiO2: Structure, matpes_calculator:
             substrate_bulk=Si,
             film_miller=(1, 0, 0),
             substrate_miller=(1, 1, 1),
+            # Keep only the smallest (83 A^2) match; larger ones add ~25 relaxations of up to 162 atoms.
+            zslgen=ZSLGenerator(max_area=100),
         )
     )
     interface_res = results[0]
