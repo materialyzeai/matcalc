@@ -13,7 +13,6 @@ from pymatgen.io.lammps.inputs import LammpsRun
 from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 from .utils import _MATGL_AVAILABLE, MODEL_REGISTRY, _is_matgl_model_dir, _resolve_canonical, to_pmg_structure
 
 if TYPE_CHECKING:
@@ -154,12 +153,7 @@ class LAMMPSMDCalc(PropCalc):
         if self.relax_structure:
             # Create a RelaxCalc instance with the specified calculator, convergence criteria (fmax),
             # optimizer, and any additional keyword arguments for the relaxation calculation.
-            relaxer = RelaxCalc(
-                self.calculator,
-                fmax=self.fmax,
-                optimizer=self.optimizer,
-                **{"relax_atoms": True, "relax_cell": False, **(self.relax_calc_kwargs or {})},
-            )
+            relaxer = self._relaxer(fmax=self.fmax, optimizer=self.optimizer, relax_atoms=True, relax_cell=False)
             # Run the relaxation calculation and update the result dictionary.
             result |= relaxer.calc(structure_in)
             # Update the input structure with the relaxed final structure.

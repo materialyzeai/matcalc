@@ -8,6 +8,8 @@ import pytest
 from matcalc._stability import EnergeticsCalc
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from ase import Atoms
     from matgl.ext.ase import PESCalculator
     from pymatgen.core import Structure
@@ -100,12 +102,12 @@ def test_energetics_all_references_yield_none(
     # not from an empty structure list.
     elemental_refs = {"Si": {"structure": Si_atoms}}
 
-    def fake_calc_many(self, structures, **kwargs):
+    def fake_calc_many(self: object, structures: list, **kwargs: object) -> Iterator[None]:  # noqa: ARG001
         # Mirror allow_errors=True mode: one None per input reference structure.
         for _ in structures:
             yield None
 
-    monkeypatch.setattr("matcalc._stability.RelaxCalc.calc_many", fake_calc_many)
+    monkeypatch.setattr("matcalc._relaxation.RelaxCalc.calc_many", fake_calc_many)
 
     with pytest.raises(RuntimeError, match="All elemental reference relaxations failed"):
         EnergeticsCalc(
@@ -125,7 +127,7 @@ def test_energetics_empty_reference_structure_list(
     The degenerate counterpart: ``calc_many([])`` produces nothing, which the same
     ``if not energies_per_atom`` guard catches.
     """
-    elemental_refs = {"Si": {"structure": []}}
+    elemental_refs: dict[str, dict[str, list]] = {"Si": {"structure": []}}
     with pytest.raises(RuntimeError, match="All elemental reference relaxations failed"):
         EnergeticsCalc(
             matpes_calculator,

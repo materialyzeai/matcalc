@@ -14,7 +14,6 @@ from phonopy.file_IO import write_FORCE_CONSTANTS as write_force_constants
 from pymatgen.io.phonopy import get_phonopy_structure, get_pmg_structure
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 from .backend import run_pes_calc
 from .utils import to_ase_atoms, to_pmg_structure
 
@@ -382,11 +381,7 @@ class PhononCalc(PropCalc):
         Returns:
             Full result dict from RelaxCalc.
         """
-        relax_calc_kwargs = {"fmax": self.fmax, "optimizer": self.optimizer, "max_steps": self.max_steps} | (
-            self.relax_calc_kwargs or {}
-        )
-        relaxer = RelaxCalc(self.calculator, **cast("Any", relax_calc_kwargs))
-        return relaxer.calc(structure_in)
+        return self._relaxer(fmax=self.fmax, optimizer=self.optimizer, max_steps=self.max_steps).calc(structure_in)
 
 
 # _mc_rattle and _phonon_rattle are adapted from hiphive (https://gitlab.com/materials-modeling/hiphive),

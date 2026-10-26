@@ -20,8 +20,11 @@ jobs:
     uses: ./.github/workflows/test.yml
     secrets: inherit
 
+  test-fp-loaders:
+    uses: ./.github/workflows/test-fp-loaders.yml
+
   build:
-    needs: test
+    needs: [test, test-fp-loaders]
     runs-on: ubuntu-latest
     permissions:
       contents: read
