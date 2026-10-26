@@ -187,3 +187,18 @@ def test_lammps_failed_run(Li2O: Structure, tmp_path: Path) -> None:
     calc = LAMMPSMDCalc(calculator="TensorNet", relax_structure=False, settings={"fix_command": "fix 1 all unknown"})
     with pytest.raises(subprocess.CalledProcessError):
         calc.calc(Li2O, directory=tmp_path)
+
+
+def test_lammps_local_matgl_model(tmp_path: Path) -> None:
+    import matgl
+
+    model_dir = tmp_path / "finetuned"
+    matgl.load_model("TensorNet-PES-MatPES-PBE-2025.2").save(model_dir)
+    calc = LAMMPSMDCalc(str(model_dir), relax_structure=False)
+    assert calc.model_name == str(model_dir)
+    assert calc.gnnp_type == "matgl"
+
+
+def test_lammps_removed_model() -> None:
+    with pytest.raises(ValueError, match="was removed"):
+        LAMMPSMDCalc("M3GNet-MatPES-PBE-2025.1", relax_structure=False)

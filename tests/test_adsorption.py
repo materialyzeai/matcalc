@@ -322,5 +322,5 @@ def test_adsorption_calc_adslabs_custom_site_dict(
     # than off the slab in empty vacuum.
     adslab = results[0]["adslab"]
     top_slab_z = float(np.max(results[0]["final_slab"].cart_coords[:, 2]))
-    ads = adslab.cart_coords[len(adslab) - len(CO2):]
+    ads = adslab.cart_coords[len(adslab) - len(CO2) :]
     assert float(np.min(ads[:, 2])) > top_slab_z

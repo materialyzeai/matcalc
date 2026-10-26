@@ -14,7 +14,7 @@ from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
 
 from ._base import PropCalc
 from ._relaxation import RelaxCalc
-from .utils import _MATGL_AVAILABLE, MODEL_REGISTRY, _resolve_canonical, to_pmg_structure
+from .utils import _MATGL_AVAILABLE, MODEL_REGISTRY, _is_matgl_model_dir, _resolve_canonical, to_pmg_structure
 
 if TYPE_CHECKING:
     from typing import Any, Literal
@@ -29,7 +29,9 @@ class LAMMPSMDCalc(PropCalc):
     Class to manage molecular dynamics simulations using LAMMPS.
 
     Attributes:
-        calculator: Universal model name string (resolved for MatGL potentials).
+        calculator: Registered model name or alias, raw MatGL model name, or local MatGL model
+            directory. MatGL models are passed to LAMMPS as ``gnnp`` type ``matgl``; other names
+            are passed through as lower-cased ``gnnp`` types.
         temperature: Target temperature (K).
         ensemble: Thermostat/barostat choice.
         timestep: MD timestep (ps).
@@ -103,7 +105,7 @@ class LAMMPSMDCalc(PropCalc):
         if canonical is not None and MODEL_REGISTRY[canonical]["provider"] == "matgl":
             self.model_name = MODEL_REGISTRY[canonical]["path"]
             self.gnnp_type = "matgl"
-        elif self.model_name in _MATGL_AVAILABLE:
+        elif self.model_name in _MATGL_AVAILABLE or _is_matgl_model_dir(self.model_name):
             self.gnnp_type = "matgl"
         else:
             self.gnnp_type = self.model_name.lower()

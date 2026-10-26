@@ -6,6 +6,7 @@ import difflib
 import sys
 import warnings
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from ase import Atoms
@@ -17,7 +18,6 @@ from .units import eVA3ToGPa
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from maml.apps.pes import LMPStaticCalculator
     from pyace.basis import ACEBBasisSet, ACECTildeBasisSet, BBasisConfiguration
@@ -331,6 +331,11 @@ def _resolve_canonical(name: str) -> str | None:
     return None
 
 
+def _is_matgl_model_dir(name: str) -> bool:
+    """Return True if ``name`` is a local directory holding a saved MatGL model."""
+    return (Path(name) / "model.json").is_file()
+
+
 def _suggest_models(name: str, n: int = 3) -> list[str]:
     """Return the closest candidate model names for an unrecognised input."""
     candidates = list(MODEL_REGISTRY) + list(MODEL_ALIASES)
@@ -622,10 +627,13 @@ class PESCalculator(Calculator):
         in :data:`MODEL_ALIASES` resolve to a canonical name. Lookups are
         case-insensitive.
 
-        If ``name`` is already a :class:`Calculator`, it is returned unchanged.
+        If ``name`` is already a :class:`Calculator`, it is returned unchanged. A raw MatGL
+        pretrained model name or a local directory with a saved MatGL model (e.g. a
+        fine-tuned potential) is loaded with MatGL.
 
         Args:
-            name: Canonical model name, alias, or an existing ASE calculator instance.
+            name: Canonical model name, alias, raw MatGL model name or directory, or an
+                existing ASE calculator instance.
             **kwargs: Provider-specific options. These override the defaults stored
                 in the registry entry (e.g. ``device="cuda"`` for ORB / FAIRChem).
 
@@ -644,8 +652,9 @@ class PESCalculator(Calculator):
         if canonical is None:
             # Backward-compat fallback: a raw MatGL pretrained model name passed
             # straight through (covers any newly released models not yet in the
-            # registry) so users on the bleeding edge are not blocked.
-            if name in _MATGL_AVAILABLE:
+            # registry) so users on the bleeding edge are not blocked, or a local
+            # MatGL model directory such as a fine-tuned potential.
+            if name in _MATGL_AVAILABLE or _is_matgl_model_dir(name):
                 return PESCalculator.load_matgl(name, **kwargs)
             if (reason := _REMOVED_MODELS.get(name.lower())) is not None:
                 raise ValueError(f"{name!r} was removed: {reason}")

@@ -336,3 +336,13 @@ def test_released_model_names() -> None:
         name for name in V060_MODEL_NAMES if _resolve_canonical(name) is None and name.lower() not in _REMOVED_MODELS
     ]
     assert not unresolved
+
+
+def test_load_universal_matgl_model_dir(tmp_path: Path) -> None:
+    import matgl
+
+    model_dir = tmp_path / "finetuned"
+    matgl.load_model("TensorNet-PES-MatPES-PBE-2025.2").save(model_dir)
+    assert isinstance(PESCalculator.load_universal(str(model_dir)), Calculator)
+    with pytest.raises(ValueError, match="Unrecognized"):
+        PESCalculator.load_universal(str(tmp_path))

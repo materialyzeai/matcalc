@@ -108,7 +108,8 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 The table lists the model each alias loads; all registered models are listed in `matcalc.UNIVERSAL_CALCULATOR_NAMES`
 and on the [Foundation Potentials](https://matcalc.ai/models.html) page.
 Names follow `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]` where the upstream release provides these fields.
-Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovered if MatGL is installed.
+Aliases are case-insensitive. All pretrained MatGL PES models are auto-discovered if MatGL is installed,
+and a local directory with a saved MatGL model (e.g. a fine-tuned potential) can be passed by path.
 Pretrained weights have their own licenses, and some are for non-commercial use only; check the upstream model card before use.
 
 The 1M CHGNet models were trained with the CHGNet line-graph fix from [matgl#843](https://github.com/materialyzeai/matgl/pull/843). Until that fix is in a matgl release, install the development version (`pip install git+https://github.com/materialyzeai/matgl.git`) to get exact results for cells with a lattice vector shorter than 3 Å (the CHGNet three-body cutoff).
