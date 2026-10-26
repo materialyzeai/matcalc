@@ -44,7 +44,7 @@ jobs:
           pip install "setuptools<82"  # Required by maml (pkg_resources)
 
       - name: pytest
-        run: pytest --cov=matcalc --cov-report=xml --cov-report=term-missing tests --color=yes
+        run: pytest -n auto --dist worksteal --cov=matcalc --cov-report=xml --cov-report=term-missing tests --color=yes
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

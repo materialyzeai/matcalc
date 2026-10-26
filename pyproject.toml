@@ -97,6 +97,7 @@ ci = [
     "pymatgen-analysis-diffusion>=2025.11.15",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.6.1",
     "seekpath>=2.1.0",
     "phono3py>=4.2.0",
 ]
@@ -139,6 +140,7 @@ dev = [
     "pymatgen-analysis-diffusion>=2025.11.15",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.6.1",
     "requests>=2.32.3",
     "seekpath>=2.1.0",
     "sphinx>=8.1.3",
