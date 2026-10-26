@@ -61,7 +61,7 @@ CASES: dict[str, Callable[[Any, Structure], Any]] = {
     "surface": lambda c, s: SurfaceCalc(c, relax_calc_kwargs=OVERRIDES).calc_slabs(s),
     "gb": lambda c, s: GBCalc(c, relax_calc_kwargs=OVERRIDES).calc({"bulk": s, "grain_boundary": s}),
     "interface": lambda c, s: InterfaceCalc(c, relax_calc_kwargs=OVERRIDES).calc(
-        {"interface": s, "film_bulk": s, "substrate_bulk": s}
+        {"interface": s, "film_bulk": s, "substrate_bulk": s, "film_slab": s, "substrate_slab": s}
     ),
     "adsorption_bulk": lambda c, s: AdsorptionCalc(c, relax_calc_kwargs=OVERRIDES).calc_bulk(s),
     "adsorption_slab": lambda c, s: AdsorptionCalc(c, relax_calc_kwargs=OVERRIDES).calc_slab(s),
