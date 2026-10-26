@@ -244,3 +244,18 @@ def test_initial_velocity_seed(Si_atoms: Atoms, matpes_calculator: PESCalculator
     for _ in range(2):
         result = md_calc.calc(Si_atoms.copy())
         np.testing.assert_array_equal(result["trajectory"][0].get_momenta(), expected.get_momenta())
+
+
+def test_no_frames_to_average(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """MDCalc errors when the equilibration window leaves no frames to average."""
+    md_calc = MDCalc(
+        calculator=matpes_calculator,
+        ensemble="nve",
+        temperature=300,
+        steps=2,
+        frames=1,
+        equilibration_frames=5,
+        relax_structure=False,
+    )
+    with pytest.raises(ValueError, match="No frames left to average after dropping"):
+        md_calc.calc(Si)

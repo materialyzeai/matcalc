@@ -182,3 +182,49 @@ def test_aliases() -> None:
 
     for v in MODEL_ALIASES.values():
         assert v in MODEL_REGISTRY, f"Alias target {v!r} is not a canonical model name."
+
+
+def test_resolve_canonical_variants() -> None:
+    """``_resolve_canonical`` recovers canonical names via direct, alias, and case-folded lookups."""
+    from matcalc.utils import MODEL_ALIASES, MODEL_REGISTRY, _resolve_canonical
+
+    canonical = next(iter(MODEL_REGISTRY))
+    # 1. Direct canonical hit preserves the original casing.
+    assert _resolve_canonical(canonical) == canonical
+    # 2. Alias resolution returns the canonical target.
+    alias_key = next(iter(MODEL_ALIASES))
+    assert _resolve_canonical(alias_key) == MODEL_ALIASES[alias_key]
+    # 2b. Mixed-case alias: the alias lookup lower-cases its input, so a mixed-case
+    #     spelling of a real alias must resolve to the same canonical target.
+    mixed_case_alias = "TensorNet"
+    assert mixed_case_alias.lower() in MODEL_ALIASES
+    assert _resolve_canonical(mixed_case_alias) == MODEL_ALIASES[mixed_case_alias.lower()]
+    assert MODEL_ALIASES[mixed_case_alias.lower()] in MODEL_REGISTRY
+    # 3. Case-folded canonical lookup recovers a mixed-case typo. Use an explicit
+    #     literal (not ``next(iter(...)).lower()``) so a future registry reordering
+    #     cannot silently route this onto the alias branch, and guard that the literal
+    #     is not itself an alias key.
+    case_folded_name = "tensornet-matpes-pbe-2025.2"
+    assert case_folded_name not in MODEL_ALIASES
+    assert _resolve_canonical(case_folded_name) == "TensorNet-MatPES-PBE-2025.2"
+    # Unknown names resolve to None.
+    assert _resolve_canonical("not-a-real-model-xyz") is None
+
+
+def test_install_hint() -> None:
+    """``_install_hint`` builds a friendly "pip install matcalc[<extra>]" message."""
+    from matcalc.utils import _PROVIDER_INSTALL_EXTRA, _install_hint
+
+    # MACE is reached through the 'mace_mp' provider key (mapping 'mace_mp' -> 'mace');
+    # 'mace' itself is NOT a key, so this exercises the real mapping, not the fallback.
+    msg = _install_hint("mace_mp")
+    assert "pip install" in msg
+    assert "matcalc[mace]" in msg
+
+    # Unmapped provider: the .get fallback inserts the provider name itself.
+    unmapped = "totally-unmapped-xyz"
+    assert unmapped not in _PROVIDER_INSTALL_EXTRA
+    hint = _install_hint(unmapped)
+    assert "pip install" in hint
+    assert "matcalc[totally-unmapped-xyz]" in hint
+    assert "totally-unmapped-xyz" in hint
