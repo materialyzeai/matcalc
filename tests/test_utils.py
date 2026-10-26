@@ -248,9 +248,13 @@ def test_install_hint() -> None:
     ],
 )
 def test_renamed_models(old_name: str, canonical: str) -> None:
-    assert _resolve_canonical(old_name) == canonical
+    assert canonical in MODEL_REGISTRY
+    assert old_name not in MODEL_REGISTRY
+    for name in (old_name, old_name.lower(), old_name.upper(), canonical, canonical.lower()):
+        assert _resolve_canonical(name) == canonical
 
 
-def test_removed_models() -> None:
+@pytest.mark.parametrize("name", ["M3GNet-MatPES-PBE-2025.1", "PETMAD-1.0.0", "DPA3-LAM-2025.3.14"])
+def test_removed_models(name: str) -> None:
     with pytest.raises(ValueError, match="was removed"):
-        PESCalculator.load_universal("PETMAD-1.0.0")
+        PESCalculator.load_universal(name)
