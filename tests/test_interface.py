@@ -203,6 +203,17 @@ def test_interface_calc_requires_both_slabs(
         interface_calc.calc({"interface": Si, "film_bulk": Si, "substrate_bulk": Si, given: Si})
 
 
+def test_interface_calc_relax_calc_kwargs_override(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """relax_calc_kwargs may override the arguments InterfaceCalc sets on RelaxCalc (no duplicate-keyword error)."""
+    strained = Si.copy()
+    strained.scale_lattice(Si.volume * 1.05)
+    interface_calc = InterfaceCalc(
+        calculator=matpes_calculator, relax_bulk=True, max_steps=5, relax_calc_kwargs={"relax_cell": False}
+    )
+    out = interface_calc.calc_bulk(strained)
+    assert out["final_bulk"].volume == pytest.approx(strained.volume)
+
+
 def test_interface_calc_adhesion_requires_labels(Si: Structure, matpes_calculator: PESCalculator) -> None:
     """Without slabs, a plain Structure (no interface_label site property) raises a ValueError up front."""
     interface_calc = InterfaceCalc(calculator=matpes_calculator, adhesion_energy=True)

@@ -55,7 +55,8 @@ class InterfaceCalc(PropCalc):
             optimizer (str | Optimizer, optional): The optimization algorithm to use. Defaults to "BFGS".
             max_steps (int, optional): The maximum number of optimization steps. Defaults to 500.
             relax_calc_kwargs: Additional keyword arguments passed to the
-                :class:`RelaxCalc` constructor for the bulk, interface and slab relaxations. Default is None.
+                :class:`RelaxCalc` constructor for the bulk, interface and slab relaxations. They override the
+                settings above (e.g. relax_cell, fmax) for all of these relaxations. Default is None.
 
         Returns:
             None
@@ -71,6 +72,18 @@ class InterfaceCalc(PropCalc):
         self.max_steps = max_steps
         self.relax_calc_kwargs = relax_calc_kwargs
 
+    def _relax_calc(self, *, relax_cell: bool, relax_atoms: bool) -> RelaxCalc:
+        """RelaxCalc with the instance settings; entries in relax_calc_kwargs override them."""
+        kwargs = {
+            "fmax": self.fmax,
+            "max_steps": self.max_steps,
+            "relax_cell": relax_cell,
+            "relax_atoms": relax_atoms,
+            "optimizer": self.optimizer,
+            **(self.relax_calc_kwargs or {}),
+        }
+        return RelaxCalc(calculator=self.calculator, **kwargs)
+
     def calc_bulk(self, bulk: Structure | Atoms) -> dict[str, Any]:
         """Relax a bulk structure if relax_bulk, and compute its energy.
 
@@ -80,16 +93,7 @@ class InterfaceCalc(PropCalc):
         Returns:
             dict: "bulk", "bulk_energy" (eV), "bulk_energy_per_atom" (eV/atom) and "final_bulk".
         """
-        relaxer = RelaxCalc(
-            calculator=self.calculator,
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            relax_cell=self.relax_bulk,
-            relax_atoms=self.relax_bulk,
-            optimizer=self.optimizer,
-            **(self.relax_calc_kwargs or {}),
-        )
-        bulk_opt = relaxer.calc(bulk)
+        bulk_opt = self._relax_calc(relax_cell=self.relax_bulk, relax_atoms=self.relax_bulk).calc(bulk)
         return {
             "bulk": bulk,
             "bulk_energy": bulk_opt["energy"],
@@ -106,16 +110,7 @@ class InterfaceCalc(PropCalc):
         Returns:
             dict: "slab", "slab_energy" (eV), "slab_energy_per_atom" (eV/atom) and "final_slab".
         """
-        relaxer = RelaxCalc(
-            calculator=self.calculator,
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            relax_cell=False,
-            relax_atoms=self.relax_slab,
-            optimizer=self.optimizer,
-            **(self.relax_calc_kwargs or {}),
-        )
-        slab_opt = relaxer.calc(slab)
+        slab_opt = self._relax_calc(relax_cell=False, relax_atoms=self.relax_slab).calc(slab)
         return {
             "slab": slab,
             "slab_energy": slab_opt["energy"],
@@ -287,16 +282,7 @@ class InterfaceCalc(PropCalc):
                 film_in_interface * film["bulk_energy_per_atom"]
                 + substrate_in_interface * substrate["bulk_energy_per_atom"]
             )
-        relaxer = RelaxCalc(
-            calculator=self.calculator,
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            relax_cell=False,
-            relax_atoms=self.relax_interface,
-            optimizer=self.optimizer,
-            **(self.relax_calc_kwargs or {}),
-        )
-        interface_opt = relaxer.calc(interface)
+        interface_opt = self._relax_calc(relax_cell=False, relax_atoms=self.relax_interface).calc(interface)
         final_interface = interface_opt["final_structure"]
         interface_energy = interface_opt["energy"]
 
