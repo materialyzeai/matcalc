@@ -206,89 +206,88 @@ class InterfaceCalc(PropCalc):
     ) -> dict[str, Any]:
         """Calculate the interfacial energy and/or the adhesion energy of the given interface structure.
 
-        Both energies are in eV/Å², with E_interface the energy of the final interface, N_film and N_substrate its
-        numbers of film and substrate atoms, e_film and e_substrate the bulk energies per atom, and A = |a x b| of the
-        input interface lattice. The interface is relaxed at fixed cell, so A is also the area of final_interface,
-        to which both energies refer:
+        The interface cell is assumed to contain one film/substrate contact, with the film and substrate slabs each
+        exposing a free surface to the vacuum, as in the interfaces built by calc_interfaces (pymatgen
+        CoherentInterfaceBuilder with a vacuum over the film). Let E_interface be the energy of the final interface,
+        E_film_slab and E_substrate_slab the energies of the film and substrate slabs in the same cell, N_film and
+        N_substrate their numbers of atoms, e_film and e_substrate the bulk energies per atom, and A = |a x b| of the
+        input interface lattice. The interface is relaxed at fixed cell, so A is also the area of final_interface, to
+        which all energies refer. In eV/Å²:
 
-            interfacial_energy = (E_interface - N_film * e_film - N_substrate * e_substrate) / (2 * A)
+            film_surface_energy = (E_film_slab - N_film * e_film) / (2 * A)
+            substrate_surface_energy = (E_substrate_slab - N_substrate * e_substrate) / (2 * A)
             adhesion_energy = (E_film_slab + E_substrate_slab - E_interface) / A
+            interfacial_energy = film_surface_energy + substrate_surface_energy - adhesion_energy
+                               = (E_interface - N_film * e_film - N_substrate * e_substrate) / A
+                                 - film_surface_energy - substrate_surface_energy
 
-        The adhesion energy is positive for a bound interface and assumes one film/substrate contact per cell, as in
-        the interfaces from calc_interfaces. The slabs are "film_slab" and "substrate_slab" if given, otherwise the
-        film and substrate sites of the final interface in the same cell. With relax_slab, their atoms are relaxed at
-        fixed cell; otherwise, slabs cut from the interface give the rigid work of separation.
+        The surface energies assume that both faces of each slab have the same surface energy. The adhesion energy
+        (work of separation) is positive for a bound interface. The interfacial energy subtracts the two free
+        surfaces of the vacuum cell; it previously was (E_interface - N_film * e_film - N_substrate * e_substrate) /
+        (2 * A), i.e. (interfacial_energy + film_surface_energy + substrate_surface_energy) / 2 in the current
+        notation.
+
+        The slabs are "film_slab" and "substrate_slab" if given, otherwise the film and substrate sites of the final
+        interface in the same cell. They are computed once and shared by both energies. With relax_slab, their atoms
+        are relaxed at fixed cell; otherwise, slabs cut from the interface give the rigid (ideal cleave) work of
+        separation, and the surface energies are those of the unrelaxed slab faces.
 
         Parameters:
             structure : A dictionary with the "interface" structure. For the interfacial energy, it also contains
                 "film_energy_per_atom", "substrate_energy_per_atom", "final_film" and "final_substrate" (from
-                calc_interfaces), or "film_bulk" and "substrate_bulk". For the adhesion energy, it may contain
-                "film_slab" and "substrate_slab" with the film and substrate atoms in the interface cell; otherwise,
-                the interface needs the "interface_label" site property of a pymatgen Interface.
+                calc_interfaces), or "film_bulk" and "substrate_bulk". It may contain "film_slab" and
+                "substrate_slab" with the film and substrate atoms in the interface cell; otherwise, the interface
+                needs the "interface_label" site property of a pymatgen Interface.
 
         Returns:
             dict:
                 - "interface" (Structure): The initial interface structure.
                 - "final_interface" (Structure): The relaxed interface structure.
-                - "interface_energy_per_atom" (float): The final energy of the relaxed interface structure.
+                - "interface_energy_per_atom" (float): The final energy per atom of the interface (eV/atom).
                 - "num_atoms" (int): The number of atoms in the interface structure.
-                - "interfacial_energy" (float): The calculated interfacial energy (eV/Å²), if interfacial_energy.
-                - "final_film_slab", "final_substrate_slab" (Structure), "film_slab_energy",
-                  "substrate_slab_energy" (float, eV) and "adhesion_energy" (float, eV/Å²), if adhesion_energy.
+                - "final_film_slab", "final_substrate_slab" (Structure), "film_slab_energy" and
+                  "substrate_slab_energy" (float, eV), if interfacial_energy or adhesion_energy.
+                - "interfacial_energy", "film_surface_energy" and "substrate_surface_energy" (float, eV/Å²), and
+                  "film_energy_per_atom", "substrate_energy_per_atom" (float, eV/atom), "final_film" and
+                  "final_substrate" (Structure), if interfacial_energy.
+                - "adhesion_energy" (float, eV/Å²), if adhesion_energy.
+                - "_units" (dict): The unit of each numeric output above.
         """
         if not isinstance(structure, dict):
             msg = (
                 "For interface calculations, structure must be a dict in one of the following formats: "
                 "{'interface': interface_struct, 'film_energy_per_atom': energy, ...} from calc_interfaces or "
                 "{'interface': interface_struct, 'film_bulk': film_struct, 'substrate_bulk': substrate_struct}, "
-                "optionally with 'film_slab' and 'substrate_slab' for the adhesion energy."
+                "optionally with 'film_slab' and 'substrate_slab'."
             )
             raise TypeError(msg)
 
+        need_slabs = self.interfacial_energy or self.adhesion_energy
         has_slabs = [key in structure for key in ("film_slab", "substrate_slab")]
         if any(has_slabs) and not all(has_slabs):
             missing = "substrate_slab" if has_slabs[0] else "film_slab"
             msg = f"'film_slab' and 'substrate_slab' must be given together, but {missing!r} is missing."
             raise ValueError(msg)
         labels: list[str] = getattr(structure["interface"], "site_properties", {}).get("interface_label") or []
-        if self.adhesion_energy and not all(has_slabs) and not labels:
+        if need_slabs and not all(has_slabs) and not labels:
             msg = (
-                "The adhesion energy needs the film and substrate slabs: pass 'film_slab' and 'substrate_slab', "
-                "or a pymatgen Interface (with the 'interface_label' site property) as 'interface'."
+                "The interfacial and adhesion energies need the film and substrate slabs: pass 'film_slab' and "
+                "'substrate_slab', or a pymatgen Interface (with the 'interface_label' site property) as 'interface'."
             )
             raise ValueError(msg)
 
         # Type narrowing: at this point, structure is guaranteed to be dict[str, Any]
         result_dict = structure.copy()
+        units = {"interface_energy_per_atom": "eV/atom"}
 
         interface = structure["interface"]
-        bulk_energy: float | None = None
         if self.interfacial_energy:
-            if "film_energy_per_atom" in structure and "substrate_energy_per_atom" in structure:
-                film = {
-                    "bulk_energy_per_atom": structure["film_energy_per_atom"],
-                    "final_bulk": structure["final_film"],
-                }
-                substrate = {
-                    "bulk_energy_per_atom": structure["substrate_energy_per_atom"],
-                    "final_bulk": structure["final_substrate"],
-                }
-            else:
-                film = self.calc_bulk(structure["film_bulk"])
-                substrate = self.calc_bulk(structure["substrate_bulk"])
-            film_in_interface, substrate_in_interface = self._count_atoms(
-                interface, film["final_bulk"], substrate["final_bulk"]
-            )
-            bulk_energy = (
-                film_in_interface * film["bulk_energy_per_atom"]
-                + substrate_in_interface * substrate["bulk_energy_per_atom"]
-            )
+            result_dict |= self._bulk_references(structure)
+            units |= {"film_energy_per_atom": "eV/atom", "substrate_energy_per_atom": "eV/atom"}
+
         interface_opt = self._relax_calc(relax_cell=False, relax_atoms=self.relax_interface).calc(interface)
         final_interface = interface_opt["final_structure"]
         interface_energy = interface_opt["energy"]
-
-        # pymatgen interface object does not include interface properties for interfacial energy
-        # calculation, define them here
 
         matrix = interface.lattice.matrix
         area = float(np.linalg.norm(np.cross(matrix[0], matrix[1])))
@@ -299,9 +298,7 @@ class InterfaceCalc(PropCalc):
             "interface_energy_per_atom": interface_energy / len(interface),
             "num_atoms": len(interface),
         }
-        if bulk_energy is not None:
-            result_dict["interfacial_energy"] = (interface_energy - bulk_energy) / (2 * area)
-        if self.adhesion_energy:
+        if need_slabs:
             if all(has_slabs):
                 film_slab, substrate_slab = structure["film_slab"], structure["substrate_slab"]
             else:
@@ -310,49 +307,49 @@ class InterfaceCalc(PropCalc):
                 substrate_slab = final_interface.copy().remove_sites([i for i, t in enumerate(labels) if "film" in t])
             film = self.calc_slab(film_slab)
             substrate = self.calc_slab(substrate_slab)
+            adhesion_energy = (film["slab_energy"] + substrate["slab_energy"] - interface_energy) / area
             result_dict |= {
                 "final_film_slab": film["final_slab"],
                 "film_slab_energy": film["slab_energy"],
                 "final_substrate_slab": substrate["final_slab"],
                 "substrate_slab_energy": substrate["slab_energy"],
-                "adhesion_energy": (film["slab_energy"] + substrate["slab_energy"] - interface_energy) / area,
             }
+            units |= {"film_slab_energy": "eV", "substrate_slab_energy": "eV"}
+            if self.interfacial_energy:
+                film_surface_energy = (film["slab_energy"] - len(film_slab) * result_dict["film_energy_per_atom"]) / (
+                    2 * area
+                )
+                substrate_surface_energy = (
+                    substrate["slab_energy"] - len(substrate_slab) * result_dict["substrate_energy_per_atom"]
+                ) / (2 * area)
+                result_dict |= {
+                    "film_surface_energy": film_surface_energy,
+                    "substrate_surface_energy": substrate_surface_energy,
+                    "interfacial_energy": film_surface_energy + substrate_surface_energy - adhesion_energy,
+                }
+                units |= {
+                    "film_surface_energy": "eV/A^2",
+                    "substrate_surface_energy": "eV/A^2",
+                    "interfacial_energy": "eV/A^2",
+                }
+            if self.adhesion_energy:
+                result_dict["adhesion_energy"] = adhesion_energy
+                units["adhesion_energy"] = "eV/A^2"
+        result_dict["_units"] = self._merge_units(structure, units)
         return result_dict
 
-    @staticmethod
-    def _count_atoms(
-        interface: Structure, film_structure: Structure, substrate_structure: Structure
-    ) -> tuple[float, float]:
-        """Count the film and substrate atoms in the interface."""
-        # Prefer pymatgen's per-site film/substrate indices when available
-        # (this is the only reliable signal for alloys / shared compositions).
-        film_indices = getattr(interface, "film_indices", None)
-        substrate_indices = getattr(interface, "substrate_indices", None)
-        if film_indices is not None and substrate_indices is not None:
-            film_in_interface = float(len(film_indices))
-            substrate_in_interface = float(len(substrate_indices))
-        else:
-            unique_in_film = set(film_structure.symbol_set) - set(substrate_structure.symbol_set)
-            unique_in_substrate = set(substrate_structure.symbol_set) - set(film_structure.symbol_set)
-
-            if unique_in_film:
-                unique_element = next(iter(unique_in_film))
-                count = film_structure.composition[unique_element]
-                film_in_interface = (interface.composition[unique_element] / count) * film_structure.num_sites
-                substrate_in_interface = interface.num_sites - film_in_interface
-            elif unique_in_substrate:
-                unique_element = next(iter(unique_in_substrate))
-                count = substrate_structure.composition[unique_element]
-                substrate_in_interface = (interface.composition[unique_element] / count) * substrate_structure.num_sites
-                film_in_interface = interface.num_sites - substrate_in_interface
-            else:
-                msg = (
-                    "Could not determine film vs. substrate atom counts: the interface object "
-                    "does not expose film_indices / substrate_indices and the two structures "
-                    "share their full elemental set. Pass a pymatgen Interface with film_indices "
-                    "set (built via CoherentInterfaceBuilder) or supply pre-computed energies "
-                    "via film_energy_per_atom / substrate_energy_per_atom."
-                )
-                raise ValueError(msg)
-
-        return film_in_interface, substrate_in_interface
+    def _bulk_references(self, structure: dict[str, Any]) -> dict[str, Any]:
+        """Bulk energies per atom and structures of the film and substrate, precomputed or from calc_bulk."""
+        if "film_energy_per_atom" in structure and "substrate_energy_per_atom" in structure:
+            return {
+                key: structure[key]
+                for key in ("film_energy_per_atom", "final_film", "substrate_energy_per_atom", "final_substrate")
+            }
+        film = self.calc_bulk(structure["film_bulk"])
+        substrate = self.calc_bulk(structure["substrate_bulk"])
+        return {
+            "film_energy_per_atom": film["bulk_energy_per_atom"],
+            "final_film": film["final_bulk"],
+            "substrate_energy_per_atom": substrate["bulk_energy_per_atom"],
+            "final_substrate": substrate["final_bulk"],
+        }
