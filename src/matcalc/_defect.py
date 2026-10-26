@@ -28,6 +28,10 @@ if TYPE_CHECKING:
     from pymatgen.analysis.phase_diagram import PhaseDiagram
 
 
+E_ABOVE_HULL_TOL = 1e-8
+"""Energy above hull (eV/atom) below which the bulk counts as on the hull, absorbing round-off."""
+
+
 class DefectCalc(PropCalc):
     """Calculate neutral point-defect formation energies in supercells.
 
@@ -206,8 +210,9 @@ class DefectCalc(PropCalc):
             if not entry.composition.is_element and entry.composition.reduced_formula != host.reduced_formula
         ]
         bulk = PDEntry(host, bulk_opt["energy"])
-        e_above_hull = PhaseDiagram([*entries, bulk]).get_e_above_hull(bulk)
-        if e_above_hull:
+        # get_e_above_hull only returns None with on_error="ignore"; "or 0.0" narrows the type.
+        e_above_hull = PhaseDiagram([*entries, bulk]).get_e_above_hull(bulk) or 0.0
+        if e_above_hull > E_ABOVE_HULL_TOL:
             if not stabilize_bulk:
                 raise ValueError(
                     f"{host.reduced_formula} is {e_above_hull:.3f} eV/atom above the hull of the phase diagram."

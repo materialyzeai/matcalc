@@ -102,7 +102,9 @@ def test_calc_defects_compound(Li2O: Structure, matpes_calculator: PESCalculator
         calc.calc({"defect": results[0]["defect"], "element_changes": {"O": -1}, "bulk": Li2O})
 
 
-def test_chemical_potential_limits(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+def test_chemical_potential_limits(
+    Li2O: Structure, matpes_calculator: PESCalculator, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Formation energies come from this phase diagram; its Li2O entry is replaced by the relaxed bulk.
     def phase_diagram(li2o2_formation_energy: float) -> PhaseDiagram:
         li, o = -1.9, -4.9
@@ -139,6 +141,11 @@ def test_chemical_potential_limits(Li2O: Structure, matpes_calculator: PESCalcul
         "Li-Li2O": {"Li": pytest.approx(mu0["Li"]), "O": pytest.approx(e_fu - 2 * mu0["Li"])},
         "Li2O-Li2O2": {"Li": pytest.approx((e_fu - mu_o) / 2), "O": pytest.approx(mu_o)},
     }
+
+    # Round-off above the hull does not count as unstable.
+    with monkeypatch.context() as m:
+        m.setattr(PhaseDiagram, "get_e_above_hull", lambda *_args, **_kwargs: 1e-12)
+        assert calc.calc_chemical_potential_limits(Li2O, phase_diagram(-6.57)) == limits
 
     # A very stable Li2O2 puts Li2O above the hull of Li and Li2O2.
     with pytest.raises(ValueError, match="above the hull"):
