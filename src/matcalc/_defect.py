@@ -14,7 +14,6 @@ from pymatgen.core import Composition, Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 from ._stability import ELEMENTAL_REFS_DIR
 from .utils import to_pmg_structure
 
@@ -26,6 +25,8 @@ if TYPE_CHECKING:
     from ase.optimize.optimize import Optimizer
     from numpy.typing import ArrayLike
     from pymatgen.analysis.phase_diagram import PhaseDiagram
+
+    from ._relaxation import RelaxCalc
 
 
 E_ABOVE_HULL_TOL = 1e-8
@@ -267,7 +268,9 @@ class DefectCalc(PropCalc):
         if "bulk_energy_per_atom" in structure and "final_bulk" in structure:
             bulk_energy_per_atom = structure["bulk_energy_per_atom"]
         else:
-            bulk_opt = self._relaxer(relax_cell=self.relax_bulk, relax_atoms=self.relax_bulk).calc(structure["bulk"])
+            bulk_opt = self._step_relaxer(relax_cell=self.relax_bulk, relax_atoms=self.relax_bulk).calc(
+                structure["bulk"]
+            )
             bulk_energy_per_atom = bulk_opt["energy"] / len(bulk_opt["final_structure"])
             result |= {"final_bulk": bulk_opt["final_structure"], "bulk_energy_per_atom": bulk_energy_per_atom}
         host = to_pmg_structure(result["final_bulk"]).composition
@@ -286,7 +289,7 @@ class DefectCalc(PropCalc):
             )
 
         mu = {el: self._chemical_potential(el, host, bulk_energy_per_atom) for el in changes}
-        defect_opt = self._relaxer(relax_cell=False, relax_atoms=self.relax_defect).calc(defect)
+        defect_opt = self._step_relaxer(relax_cell=False, relax_atoms=self.relax_defect).calc(defect)
         n_pristine = len(defect) - sum(changes.values())
         formation_energy = (
             defect_opt["energy"] - n_pristine * bulk_energy_per_atom - sum(n * mu[el] for el, n in changes.items())
@@ -334,15 +337,19 @@ class DefectCalc(PropCalc):
             bulk.frac_coords.tobytes(),
         )
         if key not in self._bulk_cache:
-            self._bulk_cache[key] = self._relaxer(relax_cell=self.relax_bulk, relax_atoms=self.relax_bulk).calc(bulk)
+            self._bulk_cache[key] = self._step_relaxer(relax_cell=self.relax_bulk, relax_atoms=self.relax_bulk).calc(
+                bulk
+            )
         # Copy the structure so that in-place edits by the caller cannot corrupt the cache.
         cached = self._bulk_cache[key]
         return cached | {"final_structure": cached["final_structure"].copy()}
 
-    def _relaxer(self, *, relax_cell: bool, relax_atoms: bool) -> RelaxCalc:
-        kwargs: dict[str, Any] = {"fmax": self.fmax, "optimizer": self.optimizer, "max_steps": self.max_steps}
-        kwargs |= (self.relax_calc_kwargs or {}) | {"relax_cell": relax_cell, "relax_atoms": relax_atoms}
-        return RelaxCalc(self.calculator, **kwargs)
+    def _step_relaxer(self, *, relax_cell: bool, relax_atoms: bool) -> RelaxCalc:
+        """RelaxCalc for one step; relax_calc_kwargs cannot override the step's relax_cell and relax_atoms."""
+        relaxer = self._relaxer(fmax=self.fmax, optimizer=self.optimizer, max_steps=self.max_steps)
+        relaxer.relax_cell = relax_cell
+        relaxer.relax_atoms = relax_atoms
+        return relaxer
 
     def _chemical_potential(self, symbol: str, host: Composition, bulk_energy_per_atom: float) -> float:
         if self.chemical_potentials and symbol in self.chemical_potentials:
@@ -364,7 +371,7 @@ class DefectCalc(PropCalc):
             if symbol not in refs:
                 raise ValueError(f"No elemental reference for {symbol}; pass it in chemical_potentials.")
             structures = refs[symbol]["structure"]
-            relaxer = self._relaxer(relax_cell=True, relax_atoms=True)
+            relaxer = self._step_relaxer(relax_cell=True, relax_atoms=True)
             self._reference_energies[symbol] = min(
                 (opt := relaxer.calc(ref))["energy"] / len(opt["final_structure"])
                 for ref in (structures if isinstance(structures, list) else [structures])
