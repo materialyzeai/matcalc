@@ -191,3 +191,13 @@ def test_interface_calc_adhesion(Si: Structure, SiO2: Structure, matpes_calculat
         }
     )
     assert frozen["adhesion_energy"] == pytest.approx(0.04016843476908885, rel=1e-1)
+
+
+@pytest.mark.parametrize(("given", "missing"), [("film_slab", "substrate_slab"), ("substrate_slab", "film_slab")])
+def test_interface_calc_requires_both_slabs(
+    Si: Structure, matpes_calculator: PESCalculator, given: str, missing: str
+) -> None:
+    """Supplying only one of film_slab / substrate_slab raises a ValueError naming the other."""
+    interface_calc = InterfaceCalc(calculator=matpes_calculator, adhesion_energy=True)
+    with pytest.raises(ValueError, match=f"'{missing}' is missing"):
+        interface_calc.calc({"interface": Si, "film_bulk": Si, "substrate_bulk": Si, given: Si})

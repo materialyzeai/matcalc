@@ -249,6 +249,12 @@ class InterfaceCalc(PropCalc):
             )
             raise TypeError(msg)
 
+        has_slabs = [key in structure for key in ("film_slab", "substrate_slab")]
+        if any(has_slabs) and not all(has_slabs):
+            missing = "substrate_slab" if has_slabs[0] else "film_slab"
+            msg = f"'film_slab' and 'substrate_slab' must be given together, but {missing!r} is missing."
+            raise ValueError(msg)
+
         # Type narrowing: at this point, structure is guaranteed to be dict[str, Any]
         result_dict = structure.copy()
 
@@ -302,7 +308,7 @@ class InterfaceCalc(PropCalc):
         if bulk_energy is not None:
             result_dict["interfacial_energy"] = (interface_energy - bulk_energy) / (2 * area)
         if self.adhesion_energy:
-            if "film_slab" in structure or "substrate_slab" in structure:
+            if all(has_slabs):
                 film_slab, substrate_slab = structure["film_slab"], structure["substrate_slab"]
             else:
                 labels = final_interface.site_properties["interface_label"]
