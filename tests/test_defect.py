@@ -156,6 +156,37 @@ def test_chemical_potential_limits(
         assert 2 * mu["Li"] + mu["O"] == pytest.approx(hull - 0.003)
 
 
+def test_bulk_relaxation_cached(
+    Li2O: Structure, matpes_calculator: PESCalculator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bulk_relaxations = []
+    relax = RelaxCalc.calc
+
+    def counting_calc(self: RelaxCalc, structure: Structure) -> dict:
+        if structure.composition.reduced_formula == "Li2O" and len(structure) == 12:
+            bulk_relaxations.append(self.fmax)
+        return relax(self, structure)
+
+    monkeypatch.setattr(RelaxCalc, "calc", counting_calc)
+    pd = PhaseDiagram([PDEntry("Li", -1.9), PDEntry("O", -4.9), PDEntry("Li2O", -14.9)])
+    calc = DefectCalc(matpes_calculator, max_steps=20, relax_defect=False)
+
+    limits = calc.calc_chemical_potential_limits(Li2O, pd)
+    calc.chemical_potentials = limits["Li-Li2O"]
+    [first] = calc.calc_defects(Li2O, supercell_matrix=1, vacancies="Li")
+    # In-place edits of the returned bulk do not leak into the cache.
+    first["final_bulk"].remove_sites([0])
+    [second] = calc.calc_defects(Li2O, supercell_matrix=1, vacancies="Li")
+    assert bulk_relaxations == [0.1]
+    assert len(second["final_bulk"]) == 12
+    assert second["bulk_energy_per_atom"] == first["bulk_energy_per_atom"]
+
+    # Changing the relaxation settings invalidates the cache.
+    calc.fmax = 0.05
+    calc.calc_defects(Li2O, supercell_matrix=1, vacancies="Li")
+    assert bulk_relaxations == [0.1, 0.05]
+
+
 def test_calc_defects_interstitials(Cu: Structure, matpes_calculator: PESCalculator) -> None:
     calc = DefectCalc(matpes_calculator, fmax=0.05, chemical_potentials={"H": -1.0})
     results = calc.calc_defects(

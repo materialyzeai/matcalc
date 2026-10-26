@@ -90,6 +90,9 @@ class DefectCalc(PropCalc):
         self.elemental_refs = elemental_refs
         self.relax_calc_kwargs = relax_calc_kwargs
         self._reference_energies: dict[str, float] = {}
+        # Relaxed bulks by input structure, valid for the calculator and settings in _bulk_cache_settings.
+        self._bulk_cache: dict[tuple, dict[str, Any]] = {}
+        self._bulk_cache_settings: tuple | None = None
 
     def calc_defects(
         self,
@@ -107,6 +110,8 @@ class DefectCalc(PropCalc):
         """Generate point defects in a supercell of the relaxed bulk and compute their formation energies.
 
         Defects are placed on one site of each symmetry-inequivalent orbit of the conventional cell.
+        The relaxed bulk is cached per input structure, so a preceding ``calc_chemical_potential_limits``
+        call on the same structure with the same relaxation settings is not repeated.
 
         Args:
             structure: Ordered bulk structure, converted to the conventional cell.
@@ -179,8 +184,9 @@ class DefectCalc(PropCalc):
         Following ``FormationEnergyDiagram.with_atomic_entries`` in pymatgen-analysis-defects, the
         formation energies of the competing phases are taken from ``phase_diagram`` (e.g. built from
         Materials Project entries) and referenced to the relaxed elemental references of this calculator.
-        The bulk is relaxed as in ``calc_defects`` and replaces the entries of its composition, so each
-        limit satisfies ``sum_i n_i mu_i`` = bulk energy per formula unit.
+        The bulk is relaxed as in ``calc_defects`` (and cached, so the two share one relaxation) and
+        replaces the entries of its composition, so each limit satisfies ``sum_i n_i mu_i`` = bulk energy
+        per formula unit.
 
         Args:
             structure: Ordered bulk structure.
@@ -294,9 +300,34 @@ class DefectCalc(PropCalc):
         }
 
     def _relax_bulk(self, structure: Structure | Atoms) -> dict[str, Any]:
+        """Relax the conventional bulk, reusing the result for the same input and relaxation settings.
+
+        ``calc_chemical_potential_limits`` and ``calc_defects`` both need the relaxed bulk; the cache
+        relaxes it once and guarantees that both use the same bulk energy.
+        """
+        settings = (
+            self.calculator,  # compared by identity; holding it also prevents id reuse
+            self.relax_bulk,
+            self.fmax,
+            repr(self.optimizer),
+            self.max_steps,
+            repr(self.relax_calc_kwargs),
+        )
+        if settings != self._bulk_cache_settings:
+            self._bulk_cache = {}
+            self._bulk_cache_settings = settings
         bulk = to_pmg_structure(structure).to_conventional()
         bulk.remove_oxidation_states()
-        return self._relaxer(relax_cell=self.relax_bulk, relax_atoms=self.relax_bulk).calc(bulk)
+        key = (
+            tuple(site.species_string for site in bulk),
+            bulk.lattice.matrix.tobytes(),
+            bulk.frac_coords.tobytes(),
+        )
+        if key not in self._bulk_cache:
+            self._bulk_cache[key] = self._relaxer(relax_cell=self.relax_bulk, relax_atoms=self.relax_bulk).calc(bulk)
+        # Copy the structure so that in-place edits by the caller cannot corrupt the cache.
+        cached = self._bulk_cache[key]
+        return cached | {"final_structure": cached["final_structure"].copy()}
 
     def _relaxer(self, *, relax_cell: bool, relax_atoms: bool) -> RelaxCalc:
         kwargs: dict[str, Any] = {"fmax": self.fmax, "optimizer": self.optimizer, "max_steps": self.max_steps}
