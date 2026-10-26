@@ -188,6 +188,14 @@ class DefectCalc(PropCalc):
         replaces the entries of its composition, so each limit satisfies ``sum_i n_i mu_i`` = bulk energy
         per formula unit.
 
+        This is a hybrid scheme: the bulk and elemental energies come from the foundation potential, while
+        the formation energies of the competing phases carry whatever level of theory and corrections
+        ``phase_diagram`` was built with. With Materials Project entries these include the MP2020 anion
+        and GGA+U corrections, e.g. the O-rich limit of an oxide inherits MP's O2 correction while the
+        bulk energy does not. That favors agreement with experimental formation enthalpies. When internal
+        consistency with the potential matters more, pass a phase diagram of uncorrected entries or, better,
+        one computed with the same potential.
+
         Args:
             structure: Ordered bulk structure.
             phase_diagram: Phase diagram of the host's chemical system. Phases with other elements, e.g.
