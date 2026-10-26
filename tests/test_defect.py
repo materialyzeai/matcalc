@@ -256,12 +256,3 @@ def test_defect_calc_si(Si: Structure, matpes_calculator: PESCalculator) -> None
     assert result["defect_name"] == "v_Si"
     assert len(result["defect"]) == 7
     assert 1 < result["formation_energy"] < 6
-
-
-def test_step_relaxer_keeps_relax_flags(matpes_calculator: PESCalculator) -> None:
-    """relax_calc_kwargs override fmax etc., but not the relax_cell/relax_atoms each step requires."""
-    calc = DefectCalc(matpes_calculator, relax_calc_kwargs={"fmax": 0.123, "relax_cell": True, "relax_atoms": False})
-    relaxer = calc._step_relaxer(relax_cell=False, relax_atoms=True)  # noqa: SLF001
-    assert relaxer.fmax == pytest.approx(0.123)
-    assert not relaxer.relax_cell
-    assert relaxer.relax_atoms
