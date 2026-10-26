@@ -374,7 +374,10 @@ class DefectCalc(PropCalc):
 
 @functools.cache
 def _load_elemental_refs(name: str) -> dict:
-    """Elemental reference structures shipped with matcalc."""
+    """Elemental reference structures shipped with matcalc.
+
+    The cached dict is shared by all DefectCalc instances; treat it and its structures as read-only.
+    """
     return loadfn(ELEMENTAL_REFS_DIR / f"{name}-Element-Refs.json.gz")
 
 
