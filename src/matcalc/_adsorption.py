@@ -217,7 +217,7 @@ class AdsorptionCalc(PropCalc):
         inplane_supercell: tuple[int, int] = (1, 1),
         slab_gen_kwargs: dict[str, Any] | None = None,
         get_slabs_kwargs: dict[str, Any] | None = None,
-        adsorption_sites: dict[str, Sequence[tuple[float, float]]] | str = "all",
+        adsorption_sites: dict[str, Sequence[tuple[float, float, float]]] | str = "all",
         height: float = 0.9,
         mi_vec: tuple[float, float] | None = None,
         fixed_height: float = 5,
@@ -238,7 +238,7 @@ class AdsorptionCalc(PropCalc):
             inplane_supercell: In-plane supercell factors.
             slab_gen_kwargs: Kwargs for ``SlabGenerator``.
             get_slabs_kwargs: Kwargs for ``SlabGenerator.get_slabs``.
-            adsorption_sites: ``"all"``, site name string, or custom fractional-coordinate dict.
+            adsorption_sites: ``"all"``, site name string, or custom Cartesian-coordinate dict.
             height: Adsorbate height above surface (Å).
             mi_vec: Optional in-plane vector for ``AdsorbateSiteFinder``.
             fixed_height: Fix slab atoms below this height (Å) during relaxation.
@@ -364,6 +364,17 @@ class AdsorptionCalc(PropCalc):
                 "and/or 'adsorbate_energy'). Use calc_adslabs(...) to generate input dicts."
             )
             raise TypeError(msg)
+
+        required_keys = ("slab", "adsorbate", "adslab")
+        missing = [k for k in required_keys if k not in structure]
+        if missing:
+            raise ValueError(
+                "For adsorption calculations, structure must be a dict with keys "
+                f"({', '.join(required_keys)}) and optionally 'slab_energy_per_atom' "
+                "and/or 'adsorbate_energy'. Missing: "
+                f"({', '.join(missing)}). Use calc_adslabs(...) to generate input dicts."
+            )
+
         result_dict = structure.copy()
 
         result_dict |= self.calc_adsorbate(
@@ -373,15 +384,7 @@ class AdsorptionCalc(PropCalc):
 
         result_dict |= self.calc_slab(structure["slab"], slab_energy=structure.get("slab_energy"))
 
-        try:
-            adslab = structure["adslab"]
-        except KeyError as err:
-            raise ValueError(
-                "For adsorption calculations, structure must be dict with"
-                " keys ('adslab' and 'slab' and 'adsorbate') and optionally"
-                " ('slab_energy_per_atom') and/or"
-                " 'adsorbate_energy'"
-            ) from err
+        adslab = structure["adslab"]
 
         n_adsorbate_atoms = len(structure["adsorbate"])
         n_slab_atoms = len(adslab) - n_adsorbate_atoms
