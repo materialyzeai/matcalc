@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
 
-from matcalc import MEP, NEBCalc, RelaxCalc
+from matcalc import MEP, NEBCalc
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -16,17 +16,18 @@ if TYPE_CHECKING:
 
 def test_neb_calc(LiFePO4: Structure, matpes_calculator: PESCalculator, tmp_path: Path) -> None:
     """Tests for NEBCalc class"""
-    relax = RelaxCalc(matpes_calculator, fmax=0.5, relax_cell=False)
     image_start = LiFePO4.copy()
     image_start.remove_sites([2])
-    image_start = relax.calc(image_start)["final_structure"]
     image_end = LiFePO4.copy()
     image_end.remove_sites([3])
-    image_end = relax.calc(image_end)["final_structure"]
     neb_calc = NEBCalc(matpes_calculator, traj_folder=tmp_path, fmax=0.5, method="aseneb")
-    barriers = neb_calc.calc_images(image_start, image_end, n_images=5)
+    start_result, end_result = neb_calc.calc_endpoints(image_start, image_end, relax_calc_kwargs={"optimizer": "FIRE"})
+    barriers = neb_calc.calc_images(start_result["final_structure"], end_result["final_structure"], n_images=5)
     assert barriers["barrier"] == pytest.approx(0.26219177246093794, rel=0.05)
-    assert barriers["force"] == pytest.approx(0.00128173828125, abs=1e-3)
+    assert barriers["reaction_energy"] == pytest.approx(0.00128173828125, abs=1e-3)
+    assert barriers["forces"].shape == (5 * len(image_start), 3)
+    assert np.isfinite(barriers["forces"]).all()
+    assert barriers["_units"] == {"barrier": "eV", "reaction_energy": "eV", "forces": "eV/Å"}
     assert isinstance(barriers["mep"], MEP), "barriers['mep'] should be an MEP instance"
     mep = barriers["mep"]
     assert len(mep.labels) > 0, "MEP should have labels"
@@ -119,3 +120,47 @@ def test_neb_calc_requires_dict(matpes_calculator: PESCalculator) -> None:
     """NEBCalc.calc must raise ValueError when structure is not a dict of images."""
     with pytest.raises(ValueError, match="For NEB calculations, structure must be a dict"):
         NEBCalc(matpes_calculator).calc("not-a-dict")
+
+
+def test_neb_calc_endpoints(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    start = Li2O.copy()
+    start.translate_sites([0], [0.1, 0, 0], frac_coords=False)
+    end = Li2O.copy()
+    end.translate_sites([0], [-0.1, 0, 0], frac_coords=False)
+    neb_calc = NEBCalc(matpes_calculator, optimizer="FIRE", fmax=0.1, max_steps=20)
+
+    start_result, end_result = neb_calc.calc_endpoints({"final_structure": start, "label": "start"}, end)
+
+    for result in (start_result, end_result):
+        assert result["final_structure"].lattice == Li2O.lattice
+    assert start_result["label"] == "start"
+    assert start_result["final_structure"] != start
+    assert end_result["final_structure"] != end
+
+
+def test_neb_calc_images_pbc(Cu: Structure, matpes_calculator: PESCalculator) -> None:
+    bulk = Cu.make_supercell(2, in_place=False)
+    # The nearest neighbor at (0.75, 0.75, 0) hops across the cell boundary into the vacancy at the origin.
+    hop = int(np.argmin(np.linalg.norm(bulk.frac_coords - [0.75, 0.75, 0], axis=1)))
+    start = bulk.copy()
+    start.remove_sites([0])
+    end = start.copy()
+    end.replace(hop - 1, "Cu", [0, 0, 0])
+
+    def path_length(result: dict[str, Any]) -> float:
+        coords = np.array([s[hop - 1].coords for s in result["mep"].get_structures()])
+        return float(np.linalg.norm(np.diff(coords, axis=0), axis=1).sum())
+
+    # Zero NEB steps keep the interpolated band.
+    unrelaxed = NEBCalc(matpes_calculator, max_steps=0)
+    with pytest.warns(RuntimeWarning, match="did not converge"):
+        periodic = unrelaxed.calc_images(start, end, n_images=3)
+    with pytest.warns(RuntimeWarning, match="did not converge"):
+        raw = unrelaxed.calc_images(start, end, n_images=3, pbc=False)
+    assert path_length(periodic) == pytest.approx(3.6 / np.sqrt(2))
+    assert path_length(raw) == pytest.approx(3 * 3.6 / np.sqrt(2))
+
+    result = NEBCalc(matpes_calculator, fmax=0.1, max_steps=200).calc_images(start, end, n_images=3)
+    assert result["converged"]
+    assert path_length(result) < 3
+    assert 0.3 < result["barrier"] < 1.5
