@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,6 +14,7 @@ from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
 
 from ._base import PropCalc
 from ._relaxation import RelaxCalc
+from .utils import to_pmg_structure
 
 if TYPE_CHECKING:
     from typing import Any, Literal
@@ -46,10 +46,13 @@ class LAMMPSMDCalc(PropCalc):
         pressure: Target pressure for NPT (bar).
         taut, taup: Thermo/barostat time constants (ps).
         infile, trajfile, logfile: LAMMPS IO paths.
-        loginterval: Thermo output stride.
+        loginterval: Steps between saved frames and between thermo outputs.
         relax_structure: Pre-MD ``RelaxCalc`` when True.
         fmax, optimizer: Relaxation settings.
-        frames: Number of trailing trajectory frames to return.
+        frames: Number of trailing trajectory frames to return, or None for all frames.
+        equilibration_frames: Leading saved frames to discard before selecting trailing frames.
+        seed: Positive integer seed for initial velocities.
+        set_com_stationary, set_zero_rotation: Remove initial linear and angular momentum.
         settings: Extra template placeholders for ``LammpsRun``.
         relax_calc_kwargs: Kwargs for pre-MD ``RelaxCalc``.
     """
@@ -58,7 +61,7 @@ class LAMMPSMDCalc(PropCalc):
         self,
         calculator: str,
         *,
-        temperature: int = 300,
+        temperature: float = 300,
         ensemble: Literal["nve", "nvt", "npt", "nvt_nose_hoover", "npt_nose_hoover"] = "nvt",
         timestep: float = 0.001,
         steps: int = 100,
@@ -72,7 +75,11 @@ class LAMMPSMDCalc(PropCalc):
         relax_structure: bool = True,
         fmax: float = 0.1,
         optimizer: str = "FIRE",
-        frames: int = 10,
+        frames: int | None = None,
+        equilibration_frames: int = 0,
+        seed: int = 142857,
+        set_com_stationary: bool = True,
+        set_zero_rotation: bool = True,
         settings: dict | None = None,
         relax_calc_kwargs: dict | None = None,
     ) -> None:
@@ -94,6 +101,10 @@ class LAMMPSMDCalc(PropCalc):
         self.fmax = fmax
         self.optimizer = optimizer
         self.frames = frames
+        self.equilibration_frames = equilibration_frames
+        self.seed = seed
+        self.set_com_stationary = set_com_stationary
+        self.set_zero_rotation = set_zero_rotation
         self.settings = settings
         self.relax_calc_kwargs = relax_calc_kwargs
 
@@ -125,20 +136,23 @@ class LAMMPSMDCalc(PropCalc):
         self,
         structure: Structure | Atoms | dict[str, Any],
         script_template: str | Path = Path(LAMMPS_TEMPLATES_DIR / "md.template"),
+        *,
+        directory: str | Path = ".",
     ) -> LammpsRun:
         """Write LAMMPS input files based on a given structure.
 
         Args:
             structure: Structure, atoms, or dict accepted by ``PropCalc.calc``.
             script_template: Path or string content of the LAMMPS script template.
+            directory: Directory for input files and relative output paths.
 
         Returns:
-            ``LammpsRun`` with inputs written to the current working directory.
+            ``LammpsRun`` with inputs written to the selected directory.
         """
         # Preprocess the input structure using the superclass's calc method.
         # This initial processing returns a dictionary containing a "final_structure".
         result = super().calc(structure)
-        structure_in: Structure = result["final_structure"]
+        structure_in = to_pmg_structure(result["final_structure"])
 
         # If structure relaxation is enabled, relax the structure (atoms only) before the MD simulation.
         if self.relax_structure:
@@ -148,9 +162,7 @@ class LAMMPSMDCalc(PropCalc):
                 self.calculator,
                 fmax=self.fmax,
                 optimizer=self.optimizer,
-                relax_atoms=True,
-                relax_cell=False,
-                **(self.relax_calc_kwargs or {}),
+                **{"relax_atoms": True, "relax_cell": False, **(self.relax_calc_kwargs or {})},
             )
             # Run the relaxation calculation and update the result dictionary.
             result |= relaxer.calc(structure_in)
@@ -164,7 +176,7 @@ class LAMMPSMDCalc(PropCalc):
             "trajfile": self.trajfile,
             "gnnp_type": self.gnnp_type,
             "model_name": self.model_name,
-            "symbol_set": " ".join(structure_in.composition.as_dict()),
+            "symbol_set": " ".join(element.symbol for element in sorted(structure_in.composition.element_composition)),
             "temperature": self.temperature,
             "timestep": self.timestep,
             "steps": self.steps,
@@ -173,6 +185,9 @@ class LAMMPSMDCalc(PropCalc):
             "taup": self.taup,
             "pressure": self.pressure,
             "fix_command": self.fix_command,
+            "seed": self.seed,
+            "mom": "yes" if self.set_com_stationary else "no",
+            "rot": "yes" if self.set_zero_rotation else "no",
         }
         full_settings = {**default_settings, **(self.settings or {})}
 
@@ -186,44 +201,66 @@ class LAMMPSMDCalc(PropCalc):
             data=lmpdata,
             script_filename=self.infile,
         )
-        lammps_run.write_inputs(output_dir=str(Path.cwd()))
+        lammps_run.write_inputs(output_dir=str(directory))
         return lammps_run
 
-    def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict:
-        """Run the MD calculation using LAMMPS."""
+    def calc(self, structure: Structure | Atoms | dict[str, Any], *, directory: str | Path = ".") -> dict:
+        """Run MD and return the selected frames and the mean energies over the steps they span.
+
+        Args:
+            structure: Structure, ASE Atoms, or upstream result dict.
+            directory: Working directory for LAMMPS and its relative input/output paths. If the input
+                script and ``md.data`` already exist there, e.g. from ``write_inputs`` with a custom
+                ``script_template``, they are run as is and ``structure`` is not written.
+
+        Returns:
+            Result dict including the selected trajectory and the mean thermo energies from its first
+            to its last frame.
+        """
         # Preprocess the input structure using the superclass's calc method.
         # This initial processing returns a dictionary containing a "final_structure".
         result = super().calc(structure)
         structure_in: Structure = result["final_structure"]
+        directory = Path(directory)
 
-        if not (os.path.exists(self.infile) and os.path.exists("md.data")):
-            self.write_inputs(structure_in)
+        if not ((directory / self.infile).exists() and (directory / "md.data").exists()):
+            self.write_inputs(structure_in, directory=directory)
 
-        lammps_command = f"lmp < {self.infile}"
-        subprocess.run(lammps_command, shell=True, check=False)  # noqa: S602
+        subprocess.run(["lmp", "-in", self.infile], check=True, cwd=directory)  # noqa: S603, S607
 
         # Create a list to record the state of atoms at each simulation step.
         traj = []
-        for snapshot in parse_lammps_dumps(self.trajfile):
+        frame_steps = []
+        for snapshot in parse_lammps_dumps(str(directory / self.trajfile)):
             lattice = snapshot.box.to_lattice()
             coords = snapshot.data[["x", "y", "z"]].to_numpy()
             species = snapshot.data["element"].tolist()
             struct = Structure(lattice, species, coords, coords_are_cartesian=True)
 
             traj.append(AseAtomsAdaptor.get_atoms(struct))
-        # Select the last 'self.frames' frames from the trajectory for further analysis.
-        traj = traj[-self.frames :]
+            frame_steps.append(snapshot.timestep)
+        traj = traj[self.equilibration_frames :]
+        frame_steps = frame_steps[self.equilibration_frames :]
+        if self.frames is not None:
+            traj = traj[-self.frames :]
+            frame_steps = frame_steps[-self.frames :]
+        if not traj:
+            raise ValueError(
+                f"No frames left after dropping {self.equilibration_frames=} and selecting {self.frames=}."
+            )
 
-        thermo = parse_lammps_log(self.logfile)[0]
-        # Calculate the average potential energy over the selected frames.
-        energy_pot = thermo["PotEng"][-self.frames :].mean()
-        # Calculate the average kinetic energy over the selected frames.
-        energy_kin = thermo["KinEng"][-self.frames :].mean()
-        # Calculate the average total energy (potential + kinetic) over the selected frames.
-        energy_tot = thermo["TotEng"][-self.frames :].mean()
+        thermo = parse_lammps_log(str(directory / self.logfile))[0]
+        # Average all thermo output over the steps spanned by the selected frames.
+        thermo = thermo[thermo["Step"].between(frame_steps[0], frame_steps[-1])]
+        if thermo.empty:
+            raise ValueError(f"No thermo output between steps {frame_steps[0]} and {frame_steps[-1]}.")
+        energy_pot = thermo["PotEng"].mean()
+        energy_kin = thermo["KinEng"].mean()
+        energy_tot = thermo["TotEng"].mean()
 
         # Update the result dictionary with the simulation trajectory and computed energy.
         result |= {
+            "final_structure": to_pmg_structure(traj[-1]),
             "trajectory": traj,
             "potential_energy": energy_pot,
             "kinetic_energy": energy_kin,

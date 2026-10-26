@@ -26,7 +26,7 @@ pair_coeff      * *  $gnnp_type $model_name  $symbol_set
 
 # Create velocities
 
-velocity        all create $temperature 142857 mom yes rot yes dist gaussian
+velocity        all create $temperature $seed mom $mom rot $rot dist gaussian
 
 # Ensemble constraints
 

@@ -55,7 +55,7 @@ class MDCalc(PropCalc):
             "npt_mtk",
             "npt_isotropic_mtk",
         ] = "nvt",
-        temperature: int = 300,
+        temperature: float = 300,
         timestep: float = 1.0,
         steps: int = 100,
         pressure: float = 1.01325 * units.bar,
@@ -84,6 +84,7 @@ class MDCalc(PropCalc):
         relax_calc_kwargs: dict | None = None,
         set_com_stationary: bool = False,
         set_zero_rotation: bool = False,
+        seed: int | None = None,
     ) -> None:
         """
         Initializes an MDCalc instance with the specified simulation parameters and relaxation settings.
@@ -94,7 +95,7 @@ class MDCalc(PropCalc):
             ensemble (str): Ensemble for MD simulation. Options include "nve", "nvt_langevin",
                 "nvt_andersen", "nvt_bussi", "npt", "npt_berendsen", "npt_nose_hoover", "npt_mtk",
                 "npt_isotropic_mtk". Default to "nvt".
-            temperature (int): Simulation temperature in Kelvin. Default to 300.
+            temperature (float): Simulation temperature in Kelvin. Default to 300.
             timestep (float): Time step in femtoseconds. Default to 1.0.
             steps (int): Number of MD simulation steps. Default to 100.
             pressure (float): External pressure for NPT simulations (in eV/Å³). Default to 1.01325 * units.bar.
@@ -139,6 +140,7 @@ class MDCalc(PropCalc):
             set_zero_rotation (bool): Whether to set the total angular momentum to zero after setting up the
                 Maxwell-Boltzmann distribution.
                 Default to False.
+            seed: Seed for the initial velocities. None uses NumPy's global random number generator.
         """
         self.calculator = calculator
         self.ensemble = ensemble
@@ -171,6 +173,7 @@ class MDCalc(PropCalc):
         self.relax_calc_kwargs = relax_calc_kwargs
         self.set_com_stationary = set_com_stationary
         self.set_zero_rotation = set_zero_rotation
+        self.seed = seed
 
     def _initialize_md(self, atoms: Atoms) -> Any:  # noqa: C901, PLR0911
         """
@@ -377,7 +380,8 @@ class MDCalc(PropCalc):
 
         # Initialize the atomic velocities based on the Maxwell-Boltzmann distribution
         # at the specified temperature, ensuring proper kinetic energy.
-        MaxwellBoltzmannDistribution(atoms, temperature_K=self.temperature)
+        rng = None if self.seed is None else np.random.RandomState(self.seed)
+        MaxwellBoltzmannDistribution(atoms, temperature_K=self.temperature, rng=rng)
 
         if self.set_com_stationary:
             Stationary(atoms)

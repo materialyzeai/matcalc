@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 from ase.io import read
+from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
 
 from matcalc import MDCalc
 
@@ -225,6 +226,24 @@ def test_invalid_ensemble(Si: Structure, matpes_calculator: PESCalculator) -> No
             logfile=None,
             trajfile=None,
         ).calc(Si)
+
+
+def test_initial_velocity_seed(Si_atoms: Atoms, matpes_calculator: PESCalculator) -> None:
+    temperature = 600.5
+    expected = Si_atoms.copy()
+    MaxwellBoltzmannDistribution(expected, temperature_K=temperature, rng=np.random.RandomState(42))
+    md_calc = MDCalc(
+        matpes_calculator,
+        temperature=temperature,
+        steps=1,
+        frames=2,
+        relax_structure=False,
+        seed=42,
+    )
+    # Every run starts from the same velocities.
+    for _ in range(2):
+        result = md_calc.calc(Si_atoms.copy())
+        np.testing.assert_array_equal(result["trajectory"][0].get_momenta(), expected.get_momenta())
 
 
 def test_no_frames_to_average(Si: Structure, matpes_calculator: PESCalculator) -> None:

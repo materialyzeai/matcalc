@@ -7,6 +7,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from ._adsorption import AdsorptionCalc
 from ._base import ChainedCalc, PropCalc
+from ._diffusion import DiffusionCalc
 from ._elasticity import ElasticityCalc
 from ._eos import EOSCalc
 from ._gb import GBCalc
@@ -45,6 +46,7 @@ __all__ = [
     "UNIVERSAL_CALCULATOR_NAMES",
     "AdsorptionCalc",
     "ChainedCalc",
+    "DiffusionCalc",
     "EOSCalc",
     "ElasticityCalc",
     "EnergeticsCalc",
