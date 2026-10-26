@@ -12,6 +12,7 @@ from ase.calculators.calculator import Calculator
 
 from matcalc import RelaxCalc
 from matcalc.utils import (
+    _REMOVED_MODELS,
     MODEL_ALIASES,
     MODEL_REGISTRY,
     UNIVERSAL_CALCULATORS,
@@ -258,3 +259,80 @@ def test_renamed_models(old_name: str, canonical: str) -> None:
 def test_removed_models(name: str) -> None:
     with pytest.raises(ValueError, match="was removed"):
         PESCalculator.load_universal(name)
+
+
+# Every canonical name and alias in the v0.6.0 release.
+V060_MODEL_NAMES = (
+    "TensorNet-MatPES-PBE-2025.2",
+    "TensorNet-MatPES-r2SCAN-2025.2",
+    "M3GNet-MatPES-PBE-2025.1",
+    "CHGNet-MatPES-PBE-1M-2026.9",
+    "CHGNet-MatPES-r2SCAN-1M-2026.9",
+    "CHGNet-MatPES-PBE-2025.2.10",
+    "CHGNet-MatPES-r2SCAN-2025.2.10",
+    "MACE-MP-0-small",
+    "MACE-MP-0-medium",
+    "MACE-MP-0-large",
+    "MACE-MP-0b-small",
+    "MACE-MP-0b-medium",
+    "MACE-MP-0b2-small",
+    "MACE-MP-0b2-medium",
+    "MACE-MP-0b2-large",
+    "MACE-MP-0b3-medium",
+    "MACE-MPA-0-medium",
+    "MACE-OMAT-0-small",
+    "MACE-OMAT-0-medium",
+    "MACE-MatPES-PBE-0",
+    "MACE-MatPES-r2SCAN-0",
+    "SevenNet-0",
+    "SevenNet-l3i5",
+    "SevenNet-MF-OMPA",
+    "SevenNet-OMAT",
+    "GRACE-1L-OAM",
+    "GRACE-2L-OAM",
+    "GRACE-2L-OMAT",
+    "GRACE-2L-MPtrj",
+    "ORB-v2",
+    "ORB-d3-v2",
+    "ORB-d3-sm-v2",
+    "ORB-d3-xs-v2",
+    "MatterSim-v1.0.0-1M",
+    "MatterSim-v1.0.0-5M",
+    "UMA-S-1.2.1",
+    "UMA-S-1.2",
+    "UMA-S-1.1",
+    "UMA-M-1.1",
+    "PETMAD-1.0.0",
+    "DPA3-LAM-2025.3.14",
+    "tensornet",
+    "m3gnet",
+    "chgnet",
+    "pbe",
+    "r2scan",
+    "mace",
+    "sevennet",
+    "grace",
+    "tensorpotential",
+    "orb",
+    "mattersim",
+    "fairchem",
+    "uma",
+    "petmad",
+    "deepmd",
+    "tensornet-pes-matpes-pbe-2025.2",
+    "tensornet-pes-matpes-r2scan-2025.2",
+    "m3gnet-pes-matpes-pbe-2025.1",
+    "chgnet-pes-matpes-pbe-1m-2026.9",
+    "chgnet-pes-matpes-r2scan-1m-2026.9",
+    "chgnet-pes-matpes-pbe-2025.2.10",
+    "chgnet-pes-matpes-r2scan-2025.2.10",
+    "chgnet-matpes-pbe-2025.2.10-2.7m-pes",
+)
+
+
+def test_released_model_names() -> None:
+    """Every v0.6.0 name resolves or is reported as removed."""
+    unresolved = [
+        name for name in V060_MODEL_NAMES if _resolve_canonical(name) is None and name.lower() not in _REMOVED_MODELS
+    ]
+    assert not unresolved
