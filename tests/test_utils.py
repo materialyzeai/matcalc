@@ -81,7 +81,9 @@ def test_pescalculator_load_mtp(expected_unit: str, expected_weight: float) -> N
 
 
 @pytest.mark.skipif(not find_spec("maml"), reason="maml is not installed")
-def test_pescalculator_load_gap() -> None:
+def test_pescalculator_load_gap(monkeypatch: pytest.MonkeyPatch) -> None:
+    # gap.xml references its soapparam files relative to the repository root.
+    monkeypatch.chdir(DIR.parent)
     calc = PESCalculator.load_gap(filename=DIR / "pes" / "GAP-NiMo-2020.3-PES" / "gap.xml")
     assert isinstance(calc, Calculator)
 

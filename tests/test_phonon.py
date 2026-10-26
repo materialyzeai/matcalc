@@ -290,7 +290,8 @@ def test_phonon_calc_rattle_seed(
     assert len(first) == 2
     assert not np.allclose(first[0], first[1])
     for disp, disp_again in zip(first, run(seed=7, rattle_stdev=stdev_again), strict=True):
-        assert_allclose(disp_again, stdev_again / 0.01 * disp, atol=1e-6)
+        # rtol absorbs float32 noise in the model forces behind the "phonon" eigenvectors.
+        assert_allclose(disp_again, stdev_again / 0.01 * disp, rtol=1e-3, atol=1e-6)
     assert not np.allclose(first[0], run(seed=8)[0])
     if rattle_method == "phonon":
         assert_allclose(np.sqrt(np.mean(np.square(first))), 0.01)

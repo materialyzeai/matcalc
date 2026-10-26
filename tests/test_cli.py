@@ -13,10 +13,16 @@ import matcalc
 from matcalc._cli import calculate_property, clear_cache, main
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pymatgen.core import Structure
 
 
-def test_clear_cache() -> None:
+def test_clear_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Clear a private cache dir so parallel workers keep the shared benchmark cache.
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(matcalc.config, "BENCHMARK_DATA_DIR", cache_dir)
     args = namedtuple("args", ["yes"])  # noqa: PYI024
     a = args(yes=False)
     clear_cache(a)
@@ -79,7 +85,7 @@ def test_calculate_property(LiFePO4: Structure) -> None:
         assert os.path.exists("cli_results.yaml")
 
 
-def test_main_calc_subcommand(LiFePO4: Structure, monkeypatch) -> None:
+def test_main_calc_subcommand(LiFePO4: Structure, monkeypatch: pytest.MonkeyPatch) -> None:
     """main() dispatches through 'calc' to a non-JSON outfile (yaml branch) with verbose on."""
     with ScratchDir(".") as _:
         cif_file = "cli_main_test.cif"
@@ -106,7 +112,7 @@ def test_main_calc_subcommand(LiFePO4: Structure, monkeypatch) -> None:
         assert os.path.exists(outfile)
 
 
-def test_main_calc_stdout(LiFePO4: Structure, monkeypatch) -> None:
+def test_main_calc_stdout(LiFePO4: Structure, monkeypatch: pytest.MonkeyPatch) -> None:
     """main() 'calc' with no --outfile prints results to stdout (pprint branch)."""
     with ScratchDir(".") as _:
         cif_file = "cli_main_stdout.cif"
@@ -128,7 +134,11 @@ def test_main_calc_stdout(LiFePO4: Structure, monkeypatch) -> None:
         main()
 
 
-def test_main_clear_subcommand(monkeypatch) -> None:
+def test_main_clear_subcommand(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """main() dispatches through the 'clear' subcommand (no confirmation prompt)."""
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    monkeypatch.setattr(matcalc.config, "BENCHMARK_DATA_DIR", cache_dir)
     monkeypatch.setattr(sys, "argv", ["matcalc", "clear"])
     main()
+    assert not cache_dir.exists()
