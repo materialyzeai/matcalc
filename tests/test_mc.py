@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from ase.calculators.calculator import Calculator
     from pymatgen.core import Structure
 
-RELAX_KWARGS = {"relax_cell": False}
 SINGLE_POINT_ENERGY = 3.1541968844142314
 
 
@@ -35,7 +34,6 @@ def test_mc_single_point(Cu_supercell: Structure, emt_calculator: Calculator) ->
         relax=False,
         seed=42,
         trajfile="mc.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
     )
     results = mc.calc(Cu_supercell)
 
@@ -76,7 +74,6 @@ def test_mc_relaxation(Cu_supercell: Structure, emt_calculator: Calculator) -> N
         relax=False,
         seed=42,
         trajfile="mc_sp.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
     )
     single_point.calc(Cu_supercell)
     assert mc.trajectory[0].get_potential_energy() < single_point.trajectory[0].get_potential_energy()
@@ -94,7 +91,6 @@ def test_mc_fixed_composition(Cu_supercell: Structure, emt_calculator: Calculato
         relax=False,
         seed=7,
         trajfile="mc_fixed.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
     )
     mc.calc(Cu_supercell)
 
@@ -115,7 +111,6 @@ def test_mc_reproducible_seed(Cu_supercell: Structure, emt_calculator: Calculato
             relax=False,
             seed=seed,
             trajfile="mc_seed.traj",
-            relax_calc_kwargs=RELAX_KWARGS,
         ).calc(Cu_supercell)
 
     first, repeat, other = run(42), run(42), run(123)
@@ -135,7 +130,6 @@ def test_mc_grand_canonical_not_implemented(Cu_supercell: Structure, emt_calcula
         relax=False,
         seed=42,
         trajfile="mc_gc.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
     )
     with pytest.raises(NotImplementedError):
         mc.calc(Cu_supercell)
@@ -152,7 +146,27 @@ def test_mc_invalid_ensemble(Cu_supercell: Structure, emt_calculator: Calculator
         relax=False,
         seed=42,
         trajfile="mc_bad.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
     )
     with pytest.raises(ValueError, match="canonical"):
         mc.calc(Cu_supercell)
+
+
+def test_mc_single_point_ignores_relax_kwargs(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """With relax=False, relax_calc_kwargs warn and are ignored, so max_steps cannot trigger a relaxation."""
+    with pytest.warns(UserWarning, match="ignored when relax=False"):
+        mc = MCCalc(
+            emt_calculator,
+            remove_three(Cu_supercell),
+            transform_initial=True,
+            nsteps=5,
+            temperature=1000,
+            save_freq=1,
+            relax=False,
+            seed=42,
+            trajfile="mc_sp_kwargs.traj",
+            relax_calc_kwargs={"max_steps": 50, "fmax": 0.01},
+        )
+    results = mc.calc(Cu_supercell)
+
+    # Same seeded run as test_mc_single_point, so the same single-point energy.
+    assert results["energy"] == pytest.approx(SINGLE_POINT_ENERGY, rel=1e-6)

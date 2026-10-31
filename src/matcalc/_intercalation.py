@@ -288,9 +288,16 @@ class IntercalationCalc(PropCalc):
                 one is built from ``species`` (species/vacancy). Default is None.
             swap_size: Number of sites swapped per Markov step (``l``). Default is 1.
             seed: Seed for the random number generator, for reproducible sampling. Default is None.
-            relax_calc_kwargs: Additional keyword arguments passed to :class:`RelaxCalc`.
-                ``max_steps``, ``optimizer`` and ``fmax`` are honored if present. Default is None.
+            relax_calc_kwargs: Additional keyword arguments passed to :class:`RelaxCalc` when
+                ``relax`` is True; they override the defaults (``optimizer="FIRE"``, ``fmax=0.02``,
+                ``max_steps=200``). Ignored, with a warning, when ``relax`` is False. Default is None.
         """
+        if not relax and relax_calc_kwargs:
+            warnings.warn(
+                "relax_calc_kwargs is ignored when relax=False; every configuration is scored with a "
+                "single-point energy.",
+                stacklevel=2,
+            )
         self.calculator = calculator  # type: ignore[assignment]
         self.nsteps = nsteps
         self.temperature = temperature
@@ -380,7 +387,7 @@ class IntercalationCalc(PropCalc):
                 trajfile=k_trajfile,
                 relax=self.relax,
                 seed=self.seed,
-                relax_calc_kwargs=self.relax_calc_kwargs,
+                relax_calc_kwargs=self.relax_calc_kwargs if self.relax else None,
             )
             mc_results = mc.calc(mc_structure)
             results[f"{ik}"] = mc_results | {

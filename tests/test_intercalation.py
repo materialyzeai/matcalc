@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,8 +18,6 @@ if TYPE_CHECKING:
     from ase import Atoms
     from ase.calculators.calculator import Calculator
 
-RELAX_KWARGS = {"relax_cell": False}
-
 
 def test_intercalation_single_point(Cu: Structure, emt_calculator: Calculator) -> None:
     """A single concentration level removes 3 Cu and returns the per-level result schema."""
@@ -33,7 +32,6 @@ def test_intercalation_single_point(Cu: Structure, emt_calculator: Calculator) -
         seed=42,
         supercell=[2, 2, 2],
         trajfile="ic.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
     )
     results = calc.calc(Cu.copy())
 
@@ -61,7 +59,6 @@ def test_intercalation_concentration_sweep(Cu: Structure, emt_calculator: Calcul
         seed=42,
         supercell=[2, 2, 2],
         trajfile="ic_sweep.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
     )
     results = calc.calc(Cu.copy())
 
@@ -86,7 +83,6 @@ def test_intercalation_fixed_composition_per_k(Cu: Structure, emt_calculator: Ca
         seed=42,
         supercell=[2, 2, 2],
         trajfile="ic_fix.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
     )
     calc.calc(Cu.copy())
 
@@ -108,7 +104,6 @@ def test_intercalation_results_serialized(Cu: Structure, emt_calculator: Calcula
         seed=42,
         supercell=[2, 2, 2],
         trajfile="ic_ser.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
     )
     calc.calc(Cu.copy())
 
@@ -139,7 +134,6 @@ def test_intercalation_validation(
         relax=False,
         seed=42,
         trajfile="ic_val.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
         **kwargs,
     )
     with pytest.raises(ValueError, match=match):
@@ -161,7 +155,6 @@ def test_intercalation_markov(Cu: Structure, emt_calculator: Calculator) -> None
         algorithm="markov",
         swap_size=1,
         trajfile="ic_markov.traj",
-        relax_calc_kwargs=RELAX_KWARGS,
     )
     res = calc.calc(Cu.copy())["0"]
 
@@ -179,3 +172,24 @@ def test_intercalation_markov(Cu: Structure, emt_calculator: Calculator) -> None
 
     moves = [len(occupancy(frames[i]) ^ occupancy(frames[i + 1])) for i in range(len(frames) - 1)]
     assert max(moves) <= 2  # each accepted step relocates at most one Cu (a local swap)
+
+
+def test_intercalation_relax_kwargs_ignored_without_relax(Cu: Structure, emt_calculator: Calculator) -> None:
+    """relax_calc_kwargs with relax=False warns once at construction, not again for every concentration level."""
+    with pytest.warns(UserWarning, match="ignored when relax=False"):
+        calc = IntercalationCalc(
+            emt_calculator,
+            nsteps=2,
+            temperature=1000,
+            concentration_range=[0.05, 0.10, 0.03],  # -> k = 2, 3
+            species="Cu",
+            relax=False,
+            seed=42,
+            supercell=[2, 2, 2],
+            trajfile="ic_kwargs.traj",
+            relax_calc_kwargs={"max_steps": 50},
+        )
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message="relax_calc_kwargs is ignored")
+        results = calc.calc(Cu.copy())
+    assert len(results) == 2

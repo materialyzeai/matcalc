@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -10,6 +11,7 @@ from ase.io import write
 from tqdm import tqdm
 
 from ._base import PropCalc
+from ._relaxation import RelaxCalc
 from .utils import to_ase_atoms, to_pmg_structure
 
 if TYPE_CHECKING:
@@ -102,9 +104,16 @@ class MCCalc(PropCalc):
             relax: Whether to relax each configuration before scoring it. If False a single
                 point energy is used. Default is True.
             seed: Seed for the random number generator, for reproducible sampling. Default is None.
-            relax_calc_kwargs: Additional keyword arguments passed to :class:`RelaxCalc`.
-                ``max_steps``, ``optimizer`` and ``fmax`` are honored if present. Default is None.
+            relax_calc_kwargs: Additional keyword arguments passed to :class:`RelaxCalc` when
+                ``relax`` is True; they override the defaults (``optimizer="FIRE"``, ``fmax=0.02``,
+                ``max_steps=200``). Ignored, with a warning, when ``relax`` is False. Default is None.
         """
+        if not relax and relax_calc_kwargs:
+            warnings.warn(
+                "relax_calc_kwargs is ignored when relax=False; every configuration is scored with a "
+                "single-point energy.",
+                stacklevel=2,
+            )
         self.calculator = calculator
         self.transformation = transformation
         self.nsteps = nsteps
@@ -128,7 +137,10 @@ class MCCalc(PropCalc):
 
     def _score(self, structure: Structure) -> dict[str, Any]:
         """
-        Score a structure with a relaxation (or single point if ``relax`` is False).
+        Score a structure with a relaxation, or a single point if ``relax`` is False.
+
+        Single points ignore ``relax_calc_kwargs``, so a ``max_steps`` there cannot turn them
+        into relaxations.
 
         Args:
             structure: The configuration to evaluate.
@@ -136,8 +148,9 @@ class MCCalc(PropCalc):
         Returns:
             The :class:`RelaxCalc` results dictionary (``final_structure``, ``energy``, ...).
         """
-        relaxer = self._relaxer(optimizer="FIRE", fmax=0.02, max_steps=200 if self.relax else 0)
-        return relaxer.calc(structure)
+        if not self.relax:
+            return RelaxCalc(self.calculator, max_steps=0).calc(structure)
+        return self._relaxer(optimizer="FIRE", fmax=0.02, max_steps=200).calc(structure)
 
     def step_canonical(self) -> bool:
         """
