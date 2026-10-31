@@ -97,7 +97,8 @@ class MCCalc(PropCalc):
                 every step (fixed-composition sampling); if False, apply it to the current accepted state.
             ensemble: Monte Carlo ensemble. Only ``"canonical"`` is implemented;
                 ``"grand_canonical"`` is reserved. Default is ``"canonical"``.
-            nsteps: Number of Monte Carlo steps to run. Default is 100.
+            nsteps: Number of Monte Carlo steps to run. With 0, only the initial configuration is
+                scored and ``acceptance_ratio`` is NaN. Default is 100.
             temperature: Temperature in Kelvin used in the Metropolis acceptance test. Default is 300.
             save_freq: Append a frame to the trajectory every ``save_freq`` steps. Default is 10.
             trajfile: Trajectory filename. Default is ``"mc.traj"``.
@@ -210,6 +211,7 @@ class MCCalc(PropCalc):
         self._results = self._score(self._structure)
         self._min_results = self._results
         self.trajectory = [_atoms_from_results(self._results)]
+        write(self.trajfile, self.trajectory)
         if self.ensemble == "canonical":
             step = self.step_canonical
         elif self.ensemble == "grand_canonical":
@@ -221,7 +223,7 @@ class MCCalc(PropCalc):
             if i % self.save_freq == 0:
                 self.trajectory.append(_atoms_from_results(self._results))
                 write(self.trajfile, self.trajectory)
-        self.acceptance_ratio = self._n_accepted / self.nsteps
+        self.acceptance_ratio = self._n_accepted / self.nsteps if self.nsteps else float("nan")
         self.min_energy = self._min_results["energy"]
         self.min_structure = self._min_results["final_structure"]
         return self._results | {

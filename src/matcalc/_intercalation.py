@@ -263,7 +263,9 @@ class IntercalationCalc(PropCalc):
         Args:
             calculator: An ASE calculator object used to perform energy and force
                 calculations. If a string is provided, the corresponding universal calculator is loaded.
-            nsteps: Number of Monte Carlo steps to run at each concentration level.
+            nsteps: Number of Monte Carlo steps to run at each concentration level. Levels with a
+                single possible configuration (nothing removed, or every candidate site removed) are
+                scored once without Monte Carlo steps.
             temperature: Temperature in Kelvin used in the Metropolis-Hastings acceptance test.
             concentration_range: Arguments forwarded to :func:`numpy.arange` (start, stop, step)
                 defining the fractional concentrations of removed ions to sample.
@@ -363,6 +365,10 @@ class IntercalationCalc(PropCalc):
             traj_path = Path(self.trajfile)
             k_trajfile = str(traj_path.with_name(f"{traj_path.stem}_k{int(k)}{traj_path.suffix}"))
 
+            # With nothing removed, or every candidate site removed, there is a single configuration:
+            # nothing to remove or swap, so score it once instead of repeating the same calculation.
+            nsteps = 0 if k in (0, n_indices) else self.nsteps
+
             if self.algorithm == "independent":
                 # Independent fixed-concentration sampling: each proposal removes k from the pristine host.
                 transformation: Any = _RemoveKSites(self.indices, int(k), self._rng)
@@ -381,7 +387,7 @@ class IntercalationCalc(PropCalc):
                 self.calculator,
                 transformation,
                 transform_initial=transform_initial,
-                nsteps=self.nsteps,
+                nsteps=nsteps,
                 temperature=self.temperature,
                 save_freq=self.save_freq,
                 trajfile=k_trajfile,

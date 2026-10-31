@@ -193,3 +193,47 @@ def test_intercalation_relax_kwargs_ignored_without_relax(Cu: Structure, emt_cal
         warnings.filterwarnings("error", message="relax_calc_kwargs is ignored")
         results = calc.calc(Cu.copy())
     assert len(results) == 2
+
+
+def test_intercalation_endpoints_skip_mc(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """Levels with a single configuration (k = 0 and k = all candidates) are scored once, without MC steps."""
+    calc = IntercalationCalc(
+        emt_calculator,
+        nsteps=3,
+        temperature=1000,
+        concentration_range=[0.0, 1.01, 1 / 3],  # -> k = 0, 1, 2, 3
+        indices=[0, 1, 2],
+        relax=False,
+        seed=42,
+        save_freq=1,
+        trajfile="ic_ends.traj",
+    )
+    results = calc.calc(Cu_supercell.copy())
+
+    assert [res["Num_removed"] for res in results.values()] == [0, 1, 2, 3]
+    for key, n_frames in (("0", 1), ("1", 4), ("2", 4), ("3", 1)):
+        k = results[key]["Num_removed"]
+        assert len(read(f"ic_ends_k{k}.traj", index=":")) == n_frames
+    assert np.isnan(results["0"]["acceptance_ratio"])
+    assert np.isnan(results["3"]["acceptance_ratio"])
+    assert results["0"]["final_structure"].composition.formula == "Cu32"
+    assert results["3"]["final_structure"].composition.formula == "Cu29"
+
+
+def test_intercalation_markov_fully_occupied(Cu: Structure, emt_calculator: Calculator) -> None:
+    """A Markov level with nothing removed has no vacancy to swap into, so it is scored without MC steps."""
+    calc = IntercalationCalc(
+        emt_calculator,
+        nsteps=3,
+        temperature=1000,
+        concentration_range=[0.0, 0.01, 0.1],  # -> k = 0
+        species="Cu",
+        supercell=[2, 2, 2],
+        algorithm="markov",
+        relax=False,
+        seed=42,
+        trajfile="ic_markov_full.traj",
+    )
+    res = calc.calc(Cu.copy())["0"]
+    assert res["final_structure"].composition.formula == "Cu32"
+    assert np.isnan(res["acceptance_ratio"])

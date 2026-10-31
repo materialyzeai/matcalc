@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+from ase.io import read
 
 from matcalc import MCCalc
 from matcalc._intercalation import _RemoveKSites
@@ -170,3 +171,21 @@ def test_mc_single_point_ignores_relax_kwargs(Cu_supercell: Structure, emt_calcu
 
     # Same seeded run as test_mc_single_point, so the same single-point energy.
     assert results["energy"] == pytest.approx(SINGLE_POINT_ENERGY, rel=1e-6)
+
+
+def test_mc_zero_steps(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """nsteps=0 scores only the initial configuration and writes it to the trajectory."""
+    mc = MCCalc(
+        emt_calculator,
+        remove_three(Cu_supercell),
+        transform_initial=True,
+        nsteps=0,
+        relax=False,
+        seed=42,
+        trajfile="mc_zero.traj",
+    )
+    results = mc.calc(Cu_supercell)
+
+    assert results["energy"] == pytest.approx(mc.trajectory[0].get_potential_energy())
+    assert np.isnan(results["acceptance_ratio"])
+    assert len(read("mc_zero.traj", index=":")) == 1
