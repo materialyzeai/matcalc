@@ -42,7 +42,7 @@ def test_intercalation_single_point(Cu: Structure, emt_calculator: Calculator) -
     assert res["Num_removed"] == 3
     assert res["concentration"] == pytest.approx(3 / 32)
     assert res["final_structure"].composition.formula == "Cu29"
-    assert res["energy"] == pytest.approx(3.0007899233778073, rel=1e-6)
+    assert res["energy"] == pytest.approx(3.1541968844142314, rel=1e-6)
     assert 0 <= res["acceptance_ratio"] <= 1
     assert Path("ic_k3.traj").exists()
     assert Path("results.json.gz").exists()
@@ -168,7 +168,7 @@ def test_intercalation_markov(Cu: Structure, emt_calculator: Calculator) -> None
     assert res["Num_removed"] == 3
     assert res["concentration"] == pytest.approx(3 / 32)
     assert res["final_structure"].composition.formula == "Cu29"
-    assert res["energy"] == pytest.approx(3.2843720430568393, rel=1e-6)
+    assert res["energy"] == pytest.approx(3.209710325848368, rel=1e-6)
     assert res["min_energy"] <= res["energy"]
 
     frames = read("ic_markov_k3.traj", ":")

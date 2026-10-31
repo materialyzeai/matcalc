@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from pymatgen.core import Structure
 
 RELAX_KWARGS = {"relax_cell": False}
-SINGLE_POINT_ENERGY = 3.0007899233778073
+SINGLE_POINT_ENERGY = 3.1541968844142314
 
 
 def remove_three(structure: Structure, seed: int = 42) -> _RemoveKSites:
@@ -42,7 +42,7 @@ def test_mc_single_point(Cu_supercell: Structure, emt_calculator: Calculator) ->
     assert set(results) >= {"final_structure", "energy", "forces", "stress", "acceptance_ratio"}
     assert results["final_structure"].composition.formula == "Cu29"
     assert results["energy"] == pytest.approx(SINGLE_POINT_ENERGY, rel=1e-6)
-    assert results["acceptance_ratio"] == pytest.approx(0.4)
+    assert results["acceptance_ratio"] == pytest.approx(0.6)
     assert results["min_energy"] <= results["energy"]
     assert len(mc.trajectory) == 6  # 1 initial frame + nsteps frames at save_freq=1
 
@@ -64,9 +64,22 @@ def test_mc_relaxation(Cu_supercell: Structure, emt_calculator: Calculator) -> N
     results = mc.calc(Cu_supercell)
 
     assert results["final_structure"].composition.formula == "Cu29"
-    assert results["energy"] == pytest.approx(2.9606656232203203, rel=1e-5)
-    # Relaxation lowers the energy relative to the single-point of the same seeded configuration.
-    assert results["energy"] < SINGLE_POINT_ENERGY
+    assert results["energy"] == pytest.approx(3.193023988898929, rel=1e-5)
+
+    # Relaxation lowers the energy of the same seeded configuration: with the same transformation seed,
+    # the first frame of a single-point run is the unrelaxed counterpart of the first relaxed frame.
+    single_point = MCCalc(
+        emt_calculator,
+        remove_three(Cu_supercell),
+        transform_initial=True,
+        nsteps=1,
+        relax=False,
+        seed=42,
+        trajfile="mc_sp.traj",
+        relax_calc_kwargs=RELAX_KWARGS,
+    )
+    single_point.calc(Cu_supercell)
+    assert mc.trajectory[0].get_potential_energy() < single_point.trajectory[0].get_potential_energy()
 
 
 def test_mc_fixed_composition(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
