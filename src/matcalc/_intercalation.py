@@ -226,6 +226,13 @@ class IntercalationCalc(PropCalc):
     trajectory is written per concentration level and the per-level results are serialized to
     ``results.json.gz``.
 
+    Note:
+        This implementation is deliberately simple and slow: every Monte Carlo proposal is scored
+        with a full energy evaluation (and a relaxation if ``relax=True``) and there is no caching or
+        parallelism. It is intended for benchmarking only, e.g. quantifying the error in
+        intercalation properties across models by sampling from the same seed, not for production
+        voltage-profile calculations.
+
     Args:
         calculator: An ASE calculator object used to perform energy and force
             calculations. If a string is provided, the corresponding universal calculator is loaded.

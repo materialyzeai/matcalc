@@ -10,6 +10,7 @@ nav_order: 2
 1. **PR #251 New `IntercalationCalc` and `MCCalc` for Monte Carlo deintercalation and voltage profiles** by @mkphuthi
    - `MCCalc` runs canonical Metropolis Monte Carlo over any transformation exposing `apply_transformation(structure)`, scoring each proposal by single point or relaxation (`relax`). Returns the final accepted state with `acceptance_ratio`, `min_energy` and `min_structure`, and writes a trajectory every `save_freq` steps. `ensemble="grand_canonical"` is reserved and raises `NotImplementedError`.
    - `IntercalationCalc` sweeps `concentration_range` (`numpy.arange` arguments) of removed `species` (or explicit `indices`, optionally in a `supercell`) and runs an `MCCalc` per level. `algorithm="independent"` draws each proposal from the pristine host; `algorithm="markov"` runs a composition-conserving swap chain (species/vacancy or binary species, via `disordered_structure`). Per-level results are written to `results.json.gz`.
+   - Both are slow (a full energy evaluation or relaxation per proposal, no caching or parallelism) and intended for benchmarking only, e.g. quantifying the error in intercalation properties across models from the same seed.
 
 ## v0.7.0
 1. **PR #271 New `DiffusionCalc` for diffusivity and ionic conductivity** by @rul048

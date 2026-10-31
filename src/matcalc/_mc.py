@@ -58,6 +58,11 @@ class MCCalc(PropCalc):
     recorded every ``save_freq`` steps, and the lowest-energy configuration visited is tracked
     (``min_energy`` / ``min_structure``).
 
+    Note:
+        Each step runs a full energy evaluation (or relaxation) with no caching or parallelism, so
+        sampling is slow. It is intended for benchmarking, e.g. comparing models on identical seeded
+        Monte Carlo runs, rather than for production sampling.
+
     Args:
         calculator: An ASE calculator object used to perform energy and force
             calculations. If a string is provided, the corresponding universal calculator is loaded.
