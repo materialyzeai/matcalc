@@ -224,7 +224,7 @@ class IntercalationCalc(PropCalc):
     resulting configurations are sampled with an :class:`MCCalc` Metropolis-Hastings run at fixed
     composition. The accepted energies are used downstream to predict voltage profiles. A
     trajectory is written per concentration level and the per-level results are serialized to
-    ``results.json.gz``.
+    ``results.json.gz`` unless ``write_results=False``.
 
     Note:
         This implementation is deliberately simple and slow: every Monte Carlo proposal is scored
@@ -243,8 +243,9 @@ class IntercalationCalc(PropCalc):
         calculator: Calculator | str,
         nsteps: int,
         temperature: float,
-        concentration_range: Sequence[float],
+        concentration_range: Sequence[float] | None = None,
         *,
+        concentrations: Sequence[float] | None = None,
         save_freq: int = 100,
         trajfile: str | None = None,
         supercell: Sequence[int] | None = None,
@@ -256,6 +257,7 @@ class IntercalationCalc(PropCalc):
         swap_size: int = 1,
         seed: int | None = None,
         relax_calc_kwargs: dict[str, Any] | None = None,
+        write_results: bool | str = True,
     ) -> None:
         """
         Initialize the IntercalationCalc.
@@ -268,7 +270,10 @@ class IntercalationCalc(PropCalc):
                 scored once without Monte Carlo steps.
             temperature: Temperature in Kelvin used in the Metropolis-Hastings acceptance test.
             concentration_range: Arguments forwarded to :func:`numpy.arange` (start, stop, step)
-                defining the fractional concentrations of removed ions to sample.
+                defining the fractional concentrations of removed ions to sample. Provide exactly one
+                of ``concentration_range`` and ``concentrations``.
+            concentrations: Explicit fractional concentrations of removed ions to sample (each is
+                rounded to the nearest whole number of ions). Default is None.
             save_freq: Append a frame to the trajectory every ``save_freq`` Monte Carlo steps.
                 Default is 100.
             trajfile: Base trajectory filename. A ``_k{k}`` suffix is inserted before the
@@ -293,6 +298,9 @@ class IntercalationCalc(PropCalc):
             relax_calc_kwargs: Additional keyword arguments passed to :class:`RelaxCalc` when
                 ``relax`` is True; they override the defaults (``optimizer="FIRE"``, ``fmax=0.02``,
                 ``max_steps=200``). Ignored, with a warning, when ``relax`` is False. Default is None.
+            write_results: Where to serialize the per-level results: True writes ``results.json.gz``
+                in the working directory, a string selects the path, and False disables writing.
+                Default is True.
         """
         if not relax and relax_calc_kwargs:
             warnings.warn(
@@ -303,7 +311,11 @@ class IntercalationCalc(PropCalc):
         self.calculator = calculator  # type: ignore[assignment]
         self.nsteps = nsteps
         self.temperature = temperature
+        if (concentration_range is None) == (concentrations is None):
+            raise ValueError("Provide exactly one of concentration_range and concentrations")
         self.concentration_range = concentration_range
+        self.concentrations = concentrations
+        self.write_results = "results.json.gz" if write_results is True else write_results
         self.supercell = supercell
         self.save_freq = save_freq
         self.trajfile = trajfile or f"traj-{datetime.now(tz=UTC).strftime('%H%Mhrs_%d-%m-%Y')}.traj"
@@ -360,7 +372,11 @@ class IntercalationCalc(PropCalc):
             disordered = self.disordered_structure or _build_disordered(host, self.species)
 
         n_indices = len(indices)
-        concentrations = np.arange(*self.concentration_range)
+        concentrations = (
+            np.asarray(self.concentrations, dtype=float)
+            if self.concentrations is not None
+            else np.arange(*self.concentration_range)  # type: ignore[misc]
+        )
         ks = np.unique(np.round(concentrations * n_indices)).astype(int)
 
         results = {}
@@ -405,5 +421,6 @@ class IntercalationCalc(PropCalc):
                 "concentration": concentration,
             }
 
-        dumpfn(results, "results.json.gz")
+        if self.write_results:
+            dumpfn(results, self.write_results)
         return results

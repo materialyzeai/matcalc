@@ -260,3 +260,56 @@ def test_intercalation_input_unchanged_and_reusable(Cu: Structure, emt_calculato
     for res in (first["0"], second["0"]):
         assert res["Num_removed"] == 3
         assert res["final_structure"].composition.formula == "Cu29"
+
+
+def test_intercalation_explicit_concentrations(Cu: Structure, emt_calculator: Calculator) -> None:
+    """Explicit concentrations give the same levels and energies as the equivalent concentration_range."""
+    common = {
+        "nsteps": 2,
+        "temperature": 1000,
+        "species": "Cu",
+        "relax": False,
+        "seed": 42,
+        "supercell": [2, 2, 2],
+        "write_results": False,
+    }
+    from_range = IntercalationCalc(
+        emt_calculator, concentration_range=[0.05, 0.10, 0.03], trajfile="ic_range.traj", **common
+    ).calc(Cu.copy())
+    explicit = IntercalationCalc(
+        emt_calculator, concentrations=[2 / 32, 3 / 32], trajfile="ic_explicit.traj", **common
+    ).calc(Cu.copy())
+
+    assert [r["Num_removed"] for r in explicit.values()] == [2, 3]
+    for key in from_range:
+        assert explicit[key]["energy"] == pytest.approx(from_range[key]["energy"])
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"concentration_range": [0.1, 0.2, 0.1], "concentrations": [0.1]}])
+def test_intercalation_concentrations_exclusive(emt_calculator: Calculator, kwargs: dict) -> None:
+    """Exactly one of concentration_range and concentrations must be given."""
+    with pytest.raises(ValueError, match="exactly one of concentration_range and concentrations"):
+        IntercalationCalc(emt_calculator, nsteps=1, temperature=300, species="Cu", relax=False, **kwargs)
+
+
+@pytest.mark.parametrize(("write_results", "path"), [(False, None), ("levels.json.gz", "levels.json.gz")])
+def test_intercalation_write_results(
+    Cu: Structure, emt_calculator: Calculator, write_results: bool | str, path: str | None
+) -> None:
+    """write_results=False skips the results file; a string selects its path."""
+    IntercalationCalc(
+        emt_calculator,
+        nsteps=1,
+        temperature=1000,
+        concentrations=[3 / 32],
+        species="Cu",
+        relax=False,
+        seed=42,
+        supercell=[2, 2, 2],
+        trajfile="ic_write.traj",
+        write_results=write_results,
+    ).calc(Cu.copy())
+
+    assert not Path("results.json.gz").exists()
+    if path is not None:
+        assert loadfn(path)["0"]["Num_removed"] == 3
