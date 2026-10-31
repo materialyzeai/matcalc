@@ -44,12 +44,10 @@ class _RemoveKSites:
         """
         Initialize the transformation.
 
-        :param indices: Candidate site indices eligible for removal.
-        :type indices: Sequence[int]
-        :param k: Number of sites to remove on each call.
-        :type k: int
-        :param rng: Random number generator used to choose which sites to remove.
-        :type rng: numpy.random.Generator
+        Args:
+            indices: Candidate site indices eligible for removal.
+            k: Number of sites to remove on each call.
+            rng: Random number generator used to choose which sites to remove.
         """
         self.indices = indices
         self.k = k
@@ -59,10 +57,11 @@ class _RemoveKSites:
         """
         Return a copy of ``structure`` with ``k`` randomly chosen sites removed.
 
-        :param structure: The structure to deintercalate.
-        :type structure: Structure
-        :return: A new structure with the selected sites removed.
-        :rtype: Structure
+        Args:
+            structure: The structure to deintercalate.
+
+        Returns:
+            A new structure with the selected sites removed.
         """
         indices_to_remove = self.rng.choice(self.indices, self.k, replace=False)
         return RemoveSitesTransformation(indices_to_remove).apply_transformation(structure)
@@ -100,20 +99,18 @@ class _SwapSites:
         """
         Initialize the swap transformation.
 
-        :param ordered_structure: The fully occupied host providing the active-site positions and
-            inert framework.
-        :type ordered_structure: Structure
-        :param disordered_structure: The same cell with partial occupancy marking the configurable
-            sublattice (its ``not site.is_ordered`` sites define the active sublattice and states).
-        :type disordered_structure: Structure
-        :param n_swaps: Number of sites to swap on each call (``l``).
-        :type n_swaps: int
-        :param rng: Random number generator used to choose which sites to swap.
-        :type rng: numpy.random.Generator
-        :param tol: Distance tolerance in Å for mapping current sites onto the active sublattice.
-        :type tol: float, optional
-        :raises ValueError: If the structures differ in size, there are no active sites, or the
-            active sites have an unsupported number of species.
+        Args:
+            ordered_structure: The fully occupied host providing the active-site positions and
+                inert framework.
+            disordered_structure: The same cell with partial occupancy marking the configurable
+                sublattice (its ``not site.is_ordered`` sites define the active sublattice and states).
+            n_swaps: Number of sites to swap on each call (``l``).
+            rng: Random number generator used to choose which sites to swap.
+            tol: Distance tolerance in Å for mapping current sites onto the active sublattice.
+
+        Raises:
+            ValueError: If the structures differ in size, there are no active sites, or the
+                active sites have an unsupported number of species.
         """
         if len(ordered_structure) != len(disordered_structure):
             raise ValueError("ordered_structure and disordered_structure must have the same sites")
@@ -148,10 +145,11 @@ class _SwapSites:
         """
         Return a copy of ``structure`` with ``n_swaps`` sites swapped on the active sublattice.
 
-        :param structure: The current configuration (an ordered structure at the target composition).
-        :type structure: Structure
-        :return: A new configuration differing by the swap move, with composition conserved.
-        :rtype: Structure
+        Args:
+            structure: The current configuration (an ordered structure at the target composition).
+
+        Returns:
+            A new configuration differing by the swap move, with composition conserved.
         """
         if self.species_b is None:
             return self._swap_vacancy(structure)
@@ -200,14 +198,16 @@ def _build_disordered(structure: Structure, species: str | None) -> Structure:
     """
     Build a disordered structure marking the ``species`` sublattice as active (species/vacancy).
 
-    :param structure: The fully occupied host structure.
-    :type structure: Structure
-    :param species: Symbol of the active (swappable) species.
-    :type species: str | None
-    :return: A copy with the ``species`` sites given partial occupancy (active) and the rest left
+    Args:
+        structure: The fully occupied host structure.
+        species: Symbol of the active (swappable) species.
+
+    Returns:
+        A copy with the ``species`` sites given partial occupancy (active) and the rest left
         fully occupied (inert framework).
-    :rtype: Structure
-    :raises ValueError: If ``species`` is not set.
+
+    Raises:
+        ValueError: If ``species`` is not set.
     """
     if species is None:
         raise ValueError("algorithm='markov' without disordered_structure requires species")
@@ -226,9 +226,9 @@ class IntercalationCalc(PropCalc):
     trajectory is written per concentration level and the per-level results are serialized to
     ``results.json.gz``.
 
-    :param calculator: An ASE calculator object used to perform energy and force
-        calculations. If a string is provided, the corresponding universal calculator is loaded.
-    :type calculator: Calculator | str
+    Args:
+        calculator: An ASE calculator object used to perform energy and force
+            calculations. If a string is provided, the corresponding universal calculator is loaded.
     """
 
     def __init__(
@@ -253,50 +253,36 @@ class IntercalationCalc(PropCalc):
         """
         Initialize the IntercalationCalc.
 
-        :param calculator: An ASE calculator object used to perform energy and force
-            calculations. If a string is provided, the corresponding universal calculator is loaded.
-        :type calculator: Calculator | str
-        :param nsteps: Number of Monte Carlo steps to run at each concentration level.
-        :type nsteps: int
-        :param temperature: Temperature in Kelvin used in the Metropolis-Hastings acceptance test.
-        :type temperature: float
-        :param concentration_range: Arguments forwarded to :func:`numpy.arange` (start, stop, step)
-            defining the fractional concentrations of removed ions to sample.
-        :type concentration_range: Sequence[float]
-        :param save_freq: Append a frame to the trajectory every ``save_freq`` Monte Carlo steps.
-            Default is 100.
-        :type save_freq: int, optional
-        :param trajfile: Base trajectory filename. A ``_k{k}`` suffix is inserted before the
-            extension for each concentration level. Defaults to a timestamped name.
-        :type trajfile: str | None, optional
-        :param supercell: Optional supercell scaling applied to the input structure before site
-            indices are resolved. Only valid together with ``species``. Default is None.
-        :type supercell: Sequence[int] | None, optional
-        :param relax: Whether to relax each configuration before scoring it. If False a single
-            point energy is used. Default is True.
-        :type relax: bool, optional
-        :param species: Symbol of the intercalating species to remove. Mutually exclusive with
-            ``indices``. Default is None.
-        :type species: str | None, optional
-        :param indices: Explicit site indices eligible for removal. Mutually exclusive with
-            ``species``. Default is None.
-        :type indices: Sequence[int] | None, optional
-        :param algorithm: Sampling algorithm. ``"independent"`` draws each proposal afresh from the
-            pristine host (fixed-concentration independent sampling); ``"markov"`` runs a true
-            Metropolis Markov chain of local swap moves (requires ``species`` or
-            ``disordered_structure``). Default is ``"independent"``.
-        :type algorithm: Literal["independent", "markov"], optional
-        :param disordered_structure: For ``algorithm="markov"``, a structure on the same cell as the
-            (supercelled) host whose partially occupied sites define the active sublattice. If omitted,
-            one is built from ``species`` (species/vacancy). Default is None.
-        :type disordered_structure: Structure | None, optional
-        :param swap_size: Number of sites swapped per Markov step (``l``). Default is 1.
-        :type swap_size: int, optional
-        :param seed: Seed for the random number generator, for reproducible sampling. Default is None.
-        :type seed: int | None, optional
-        :param relax_calc_kwargs: Additional keyword arguments passed to :class:`RelaxCalc`.
-            ``max_steps``, ``optimizer`` and ``fmax`` are honored if present. Default is None.
-        :type relax_calc_kwargs: dict[str, Any] | None, optional
+        Args:
+            calculator: An ASE calculator object used to perform energy and force
+                calculations. If a string is provided, the corresponding universal calculator is loaded.
+            nsteps: Number of Monte Carlo steps to run at each concentration level.
+            temperature: Temperature in Kelvin used in the Metropolis-Hastings acceptance test.
+            concentration_range: Arguments forwarded to :func:`numpy.arange` (start, stop, step)
+                defining the fractional concentrations of removed ions to sample.
+            save_freq: Append a frame to the trajectory every ``save_freq`` Monte Carlo steps.
+                Default is 100.
+            trajfile: Base trajectory filename. A ``_k{k}`` suffix is inserted before the
+                extension for each concentration level. Defaults to a timestamped name.
+            supercell: Optional supercell scaling applied to the input structure before site
+                indices are resolved. Only valid together with ``species``. Default is None.
+            relax: Whether to relax each configuration before scoring it. If False a single
+                point energy is used. Default is True.
+            species: Symbol of the intercalating species to remove. Mutually exclusive with
+                ``indices``. Default is None.
+            indices: Explicit site indices eligible for removal. Mutually exclusive with
+                ``species``. Default is None.
+            algorithm: Sampling algorithm. ``"independent"`` draws each proposal afresh from the
+                pristine host (fixed-concentration independent sampling); ``"markov"`` runs a true
+                Metropolis Markov chain of local swap moves (requires ``species`` or
+                ``disordered_structure``). Default is ``"independent"``.
+            disordered_structure: For ``algorithm="markov"``, a structure on the same cell as the
+                (supercelled) host whose partially occupied sites define the active sublattice. If omitted,
+                one is built from ``species`` (species/vacancy). Default is None.
+            swap_size: Number of sites swapped per Markov step (``l``). Default is 1.
+            seed: Seed for the random number generator, for reproducible sampling. Default is None.
+            relax_calc_kwargs: Additional keyword arguments passed to :class:`RelaxCalc`.
+                ``max_steps``, ``optimizer`` and ``fmax`` are honored if present. Default is None.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.nsteps = nsteps
@@ -322,25 +308,28 @@ class IntercalationCalc(PropCalc):
         """
         Run the Monte Carlo deintercalation sweep over the requested concentrations.
 
-        :param structure: The fully occupied host structure to deintercalate, or a dict carrying
-            one under ``final_structure`` / ``structure``.
-        :type structure: Structure | Atoms | dict[str, Any]
-        :return: A dictionary keyed by concentration index, each value being the accepted
+        Args:
+            structure: The fully occupied host structure to deintercalate, or a dict carrying
+                one under ``final_structure`` / ``structure``.
+
+        Returns:
+            A dictionary keyed by concentration index, each value being the accepted
             configuration's :class:`MCCalc` results augmented with ``Num_removed`` and
             ``concentration``.
-        :rtype: dict[str, Any]
-        :raises ValueError: If neither or both of ``species`` and ``indices`` are provided, or if
-            ``supercell`` is combined with explicit ``indices``.
+
+        Raises:
+            ValueError: If neither or both of ``species`` and ``indices`` are provided, or if
+                ``supercell`` is combined with explicit ``indices``.
         """
         result = super().calc(structure)
-        structure = to_pmg_structure(result["final_structure"])
+        host = to_pmg_structure(result["final_structure"])
 
         if self.indices is None and self.species is None:
             raise ValueError("Provide one of indices or species")
         if self.species is not None and self.indices is None:
             if self.supercell:
-                structure = structure.make_supercell(self.supercell)
-            self.indices = structure.indices_from_symbol(self.species)
+                host = host.make_supercell(self.supercell)
+            self.indices = host.indices_from_symbol(self.species)
         elif self.indices is not None and self.supercell is not None:
             raise ValueError("Provide supercell as input structure if specifying supercell argument")
 
@@ -348,7 +337,7 @@ class IntercalationCalc(PropCalc):
 
         disordered = None
         if self.algorithm == "markov":
-            disordered = self.disordered_structure or _build_disordered(structure, self.species)
+            disordered = self.disordered_structure or _build_disordered(host, self.species)
 
         n_indices = len(self.indices)
         concentrations = np.arange(*self.concentration_range)
@@ -364,13 +353,13 @@ class IntercalationCalc(PropCalc):
                 # Independent fixed-concentration sampling: each proposal removes k from the pristine host.
                 transformation: Any = _RemoveKSites(self.indices, int(k), self._rng)
                 transform_initial = True
-                mc_structure = structure
+                mc_structure = host
             elif self.algorithm == "markov":
                 # True Markov chain: seed a configuration at concentration k, then swap-move locally.
                 assert disordered is not None  # noqa: S101  # set above when algorithm == "markov"
-                transformation = _SwapSites(structure, disordered, self.swap_size, self._rng)
+                transformation = _SwapSites(host, disordered, self.swap_size, self._rng)
                 transform_initial = False
-                mc_structure = _RemoveKSites(self.indices, int(k), self._rng).apply_transformation(structure)
+                mc_structure = _RemoveKSites(self.indices, int(k), self._rng).apply_transformation(host)
             else:
                 raise ValueError("algorithm must be one of {'independent', 'markov'}")
 

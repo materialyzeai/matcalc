@@ -26,12 +26,13 @@ def _atoms_from_results(results: dict[str, Any]) -> Atoms:
     """
     Build an ASE ``Atoms`` carrying a ``SinglePointCalculator`` from a results dict.
 
-    :param results: A results dictionary containing ``final_structure``, ``energy``,
-        ``forces`` and ``stress`` keys (as returned by :class:`RelaxCalc`).
-    :type results: dict[str, Any]
-    :return: An ``Atoms`` object with energy/forces/stress attached, suitable for writing
+    Args:
+        results: A results dictionary containing ``final_structure``, ``energy``,
+            ``forces`` and ``stress`` keys (as returned by :class:`RelaxCalc`).
+
+    Returns:
+        An ``Atoms`` object with energy/forces/stress attached, suitable for writing
         to an ASE trajectory.
-    :rtype: Atoms
     """
     atoms = to_ase_atoms(results["final_structure"])
     atoms.calc = SinglePointCalculator(
@@ -57,9 +58,9 @@ class MCCalc(PropCalc):
     recorded every ``save_freq`` steps, and the lowest-energy configuration visited is tracked
     (``min_energy`` / ``min_structure``).
 
-    :param calculator: An ASE calculator object used to perform energy and force
-        calculations. If a string is provided, the corresponding universal calculator is loaded.
-    :type calculator: Calculator | str
+    Args:
+        calculator: An ASE calculator object used to perform energy and force
+            calculations. If a string is provided, the corresponding universal calculator is loaded.
     """
 
     def __init__(
@@ -80,34 +81,24 @@ class MCCalc(PropCalc):
         """
         Initialize the MCCalc.
 
-        :param calculator: An ASE calculator object used to perform energy and force
-            calculations. If a string is provided, the corresponding universal calculator is loaded.
-        :type calculator: Calculator | str
-        :param transformation: Any object exposing ``apply_transformation(structure) -> Structure``
-            that proposes a new configuration (e.g. a pymatgen transformation).
-        :type transformation: Any
-        :param transform_initial: If True, apply the transformation to the pristine input structure
-            every step (fixed-composition sampling); if False, apply it to the current accepted state.
-        :type transform_initial: bool
-        :param ensemble: Monte Carlo ensemble. Only ``"canonical"`` is implemented;
-            ``"grand_canonical"`` is reserved. Default is ``"canonical"``.
-        :type ensemble: Literal["canonical", "grand_canonical"], optional
-        :param nsteps: Number of Monte Carlo steps to run. Default is 100.
-        :type nsteps: int, optional
-        :param temperature: Temperature in Kelvin used in the Metropolis acceptance test. Default is 300.
-        :type temperature: float, optional
-        :param save_freq: Append a frame to the trajectory every ``save_freq`` steps. Default is 10.
-        :type save_freq: int, optional
-        :param trajfile: Trajectory filename. Default is ``"mc.traj"``.
-        :type trajfile: str, optional
-        :param relax: Whether to relax each configuration before scoring it. If False a single
-            point energy is used. Default is True.
-        :type relax: bool, optional
-        :param seed: Seed for the random number generator, for reproducible sampling. Default is None.
-        :type seed: int | None, optional
-        :param relax_calc_kwargs: Additional keyword arguments passed to :class:`RelaxCalc`.
-            ``max_steps``, ``optimizer`` and ``fmax`` are honored if present. Default is None.
-        :type relax_calc_kwargs: dict | None, optional
+        Args:
+            calculator: An ASE calculator object used to perform energy and force
+                calculations. If a string is provided, the corresponding universal calculator is loaded.
+            transformation: Any object exposing ``apply_transformation(structure) -> Structure``
+                that proposes a new configuration (e.g. a pymatgen transformation).
+            transform_initial: If True, apply the transformation to the pristine input structure
+                every step (fixed-composition sampling); if False, apply it to the current accepted state.
+            ensemble: Monte Carlo ensemble. Only ``"canonical"`` is implemented;
+                ``"grand_canonical"`` is reserved. Default is ``"canonical"``.
+            nsteps: Number of Monte Carlo steps to run. Default is 100.
+            temperature: Temperature in Kelvin used in the Metropolis acceptance test. Default is 300.
+            save_freq: Append a frame to the trajectory every ``save_freq`` steps. Default is 10.
+            trajfile: Trajectory filename. Default is ``"mc.traj"``.
+            relax: Whether to relax each configuration before scoring it. If False a single
+                point energy is used. Default is True.
+            seed: Seed for the random number generator, for reproducible sampling. Default is None.
+            relax_calc_kwargs: Additional keyword arguments passed to :class:`RelaxCalc`.
+                ``max_steps``, ``optimizer`` and ``fmax`` are honored if present. Default is None.
         """
         self.calculator = calculator
         self.transformation = transformation
@@ -134,10 +125,11 @@ class MCCalc(PropCalc):
         """
         Score a structure with a relaxation (or single point if ``relax`` is False).
 
-        :param structure: The configuration to evaluate.
-        :type structure: Structure
-        :return: The :class:`RelaxCalc` results dictionary (``final_structure``, ``energy``, ...).
-        :rtype: dict[str, Any]
+        Args:
+            structure: The configuration to evaluate.
+
+        Returns:
+            The :class:`RelaxCalc` results dictionary (``final_structure``, ``energy``, ...).
         """
         relaxer = self._relaxer(optimizer="FIRE", fmax=0.02, max_steps=200 if self.relax else 0)
         return relaxer.calc(structure)
@@ -149,8 +141,8 @@ class MCCalc(PropCalc):
         Proposes a new configuration, scores it, and accepts it with the Metropolis
         criterion, updating the current structure and results on acceptance.
 
-        :return: Whether the proposed configuration was accepted.
-        :rtype: bool
+        Returns:
+            Whether the proposed configuration was accepted.
         """
         if self.transform_initial:
             proposal = self.transformation.apply_transformation(self._initial_structure)
@@ -171,8 +163,8 @@ class MCCalc(PropCalc):
         """
         Take a single grand-canonical Monte Carlo step.
 
-        :raises NotImplementedError: Grand-canonical sampling is not yet implemented.
-        :rtype: bool
+        Raises:
+            NotImplementedError: Grand-canonical sampling is not yet implemented.
         """
         raise NotImplementedError
 
@@ -180,13 +172,16 @@ class MCCalc(PropCalc):
         """
         Run the Monte Carlo simulation on the input structure.
 
-        :param structure: The starting structure to sample from, or a dict carrying one under
-            ``final_structure`` / ``structure``.
-        :type structure: Structure | Atoms | dict[str, Any]
-        :return: The final accepted configuration's results augmented with ``acceptance_ratio`` and
+        Args:
+            structure: The starting structure to sample from, or a dict carrying one under
+                ``final_structure`` / ``structure``.
+
+        Returns:
+            The final accepted configuration's results augmented with ``acceptance_ratio`` and
             the lowest-energy configuration visited (``min_energy`` and ``min_structure``).
-        :rtype: dict[str, Any]
-        :raises ValueError: If ``ensemble`` is not a recognized value.
+
+        Raises:
+            ValueError: If ``ensemble`` is not a recognized value.
         """
         result = super().calc(structure)
         self._initial_structure = to_pmg_structure(result["final_structure"])
