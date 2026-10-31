@@ -13,6 +13,7 @@ from monty.serialization import loadfn
 from pymatgen.core import Structure
 
 from matcalc import IntercalationCalc
+from matcalc._intercalation import removal_counts
 
 if TYPE_CHECKING:
     from ase import Atoms
@@ -25,7 +26,7 @@ def test_intercalation_single_point(Cu: Structure, emt_calculator: Calculator) -
         emt_calculator,
         nsteps=5,
         temperature=1000,
-        concentration_range=[0.09, 0.10, 0.05],  # -> k = round(0.094 * 32) = 3
+        removal_range=(3 / 32, 3 / 32),  # -> k = 3 of 32
         save_freq=1,
         species="Cu",
         relax=False,
@@ -52,7 +53,7 @@ def test_intercalation_concentration_sweep(Cu: Structure, emt_calculator: Calcul
         emt_calculator,
         nsteps=4,
         temperature=1000,
-        concentration_range=[0.06, 0.12, 0.03],  # -> ks = [2, 3]
+        removal_range=(2 / 32, 3 / 32),  # -> ks = [2, 3]
         save_freq=1,
         species="Cu",
         relax=False,
@@ -76,7 +77,7 @@ def test_intercalation_fixed_composition_per_k(Cu: Structure, emt_calculator: Ca
         emt_calculator,
         nsteps=4,
         temperature=1000,
-        concentration_range=[0.06, 0.12, 0.03],
+        removal_range=(2 / 32, 3 / 32),
         save_freq=1,
         species="Cu",
         relax=False,
@@ -97,7 +98,7 @@ def test_intercalation_results_serialized(Cu: Structure, emt_calculator: Calcula
         emt_calculator,
         nsteps=3,
         temperature=1000,
-        concentration_range=[0.09, 0.10, 0.05],
+        removal_range=(3 / 32, 3 / 32),
         save_freq=1,
         species="Cu",
         relax=False,
@@ -130,7 +131,7 @@ def test_intercalation_validation(
         emt_calculator,
         nsteps=1,
         temperature=1000,
-        concentration_range=[0.1, 0.2, 0.1],
+        removal_range=(0.25, 0.5),
         relax=False,
         seed=42,
         trajfile="ic_val.traj",
@@ -146,7 +147,7 @@ def test_intercalation_markov(Cu: Structure, emt_calculator: Calculator) -> None
         emt_calculator,
         nsteps=6,
         temperature=2000,
-        concentration_range=[0.09, 0.10, 0.05],
+        removal_range=(3 / 32, 3 / 32),
         save_freq=1,
         species="Cu",
         relax=False,
@@ -181,7 +182,7 @@ def test_intercalation_relax_kwargs_ignored_without_relax(Cu: Structure, emt_cal
             emt_calculator,
             nsteps=2,
             temperature=1000,
-            concentration_range=[0.05, 0.10, 0.03],  # -> k = 2, 3
+            removal_range=(2 / 32, 3 / 32),  # -> k = 2, 3
             species="Cu",
             relax=False,
             seed=42,
@@ -201,7 +202,7 @@ def test_intercalation_endpoints_skip_mc(Cu_supercell: Structure, emt_calculator
         emt_calculator,
         nsteps=3,
         temperature=1000,
-        concentration_range=[0.0, 1.01, 1 / 3],  # -> k = 0, 1, 2, 3
+        removal_range=(0.0, 1.0),  # -> k = 0, 1, 2, 3
         indices=[0, 1, 2],
         relax=False,
         seed=42,
@@ -226,7 +227,7 @@ def test_intercalation_markov_fully_occupied(Cu: Structure, emt_calculator: Calc
         emt_calculator,
         nsteps=3,
         temperature=1000,
-        concentration_range=[0.0, 0.01, 0.1],  # -> k = 0
+        removal_range=(0.0, 0.0),  # -> k = 0
         species="Cu",
         supercell=[2, 2, 2],
         algorithm="markov",
@@ -246,7 +247,7 @@ def test_intercalation_input_unchanged_and_reusable(Cu: Structure, emt_calculato
         emt_calculator,
         nsteps=1,
         temperature=1000,
-        concentration_range=[0.09, 0.10, 0.05],  # -> k = 3 of 32
+        removal_range=(3 / 32, 3 / 32),  # -> k = 3 of 32
         species="Cu",
         relax=False,
         seed=42,
@@ -262,36 +263,6 @@ def test_intercalation_input_unchanged_and_reusable(Cu: Structure, emt_calculato
         assert res["final_structure"].composition.formula == "Cu29"
 
 
-def test_intercalation_explicit_concentrations(Cu: Structure, emt_calculator: Calculator) -> None:
-    """Explicit concentrations give the same levels and energies as the equivalent concentration_range."""
-    common = {
-        "nsteps": 2,
-        "temperature": 1000,
-        "species": "Cu",
-        "relax": False,
-        "seed": 42,
-        "supercell": [2, 2, 2],
-        "write_results": False,
-    }
-    from_range = IntercalationCalc(
-        emt_calculator, concentration_range=[0.05, 0.10, 0.03], trajfile="ic_range.traj", **common
-    ).calc(Cu.copy())
-    explicit = IntercalationCalc(
-        emt_calculator, concentrations=[2 / 32, 3 / 32], trajfile="ic_explicit.traj", **common
-    ).calc(Cu.copy())
-
-    assert [r["Num_removed"] for r in explicit.values()] == [2, 3]
-    for key in from_range:
-        assert explicit[key]["energy"] == pytest.approx(from_range[key]["energy"])
-
-
-@pytest.mark.parametrize("kwargs", [{}, {"concentration_range": [0.1, 0.2, 0.1], "concentrations": [0.1]}])
-def test_intercalation_concentrations_exclusive(emt_calculator: Calculator, kwargs: dict) -> None:
-    """Exactly one of concentration_range and concentrations must be given."""
-    with pytest.raises(ValueError, match="exactly one of concentration_range and concentrations"):
-        IntercalationCalc(emt_calculator, nsteps=1, temperature=300, species="Cu", relax=False, **kwargs)
-
-
 @pytest.mark.parametrize(("write_results", "path"), [(False, None), ("levels.json.gz", "levels.json.gz")])
 def test_intercalation_write_results(
     Cu: Structure, emt_calculator: Calculator, write_results: bool | str, path: str | None
@@ -301,7 +272,7 @@ def test_intercalation_write_results(
         emt_calculator,
         nsteps=1,
         temperature=1000,
-        concentrations=[3 / 32],
+        removal_range=(3 / 32, 3 / 32),
         species="Cu",
         relax=False,
         seed=42,
@@ -313,3 +284,43 @@ def test_intercalation_write_results(
     assert not Path("results.json.gz").exists()
     if path is not None:
         assert loadfn(path)["0"]["Num_removed"] == 3
+
+
+def test_intercalation_partial_removal_range(Cu: Structure, emt_calculator: Calculator) -> None:
+    """A partial range samples every whole ion count inside it; only k = 0 is a single configuration."""
+    calc = IntercalationCalc(
+        emt_calculator,
+        nsteps=2,
+        temperature=1000,
+        removal_range=(0.0, 0.125),  # -> k = 0..4 of 32
+        species="Cu",
+        relax=False,
+        seed=42,
+        supercell=[2, 2, 2],
+        trajfile="ic_partial.traj",
+        write_results=False,
+    )
+    results = calc.calc(Cu.copy())
+
+    assert [res["Num_removed"] for res in results.values()] == [0, 1, 2, 3, 4]
+    assert np.isnan(results["0"]["acceptance_ratio"])
+    assert not np.isnan(results["4"]["acceptance_ratio"])  # many configurations: MC runs
+    assert results["4"]["concentration"] == pytest.approx(0.125)
+
+
+def test_removal_counts_rounds_inward() -> None:
+    """Bounds off whole ion counts are rounded inward, with a warning; exact bounds are not."""
+    np.testing.assert_array_equal(removal_counts(6, (0.0, 0.5)), [0, 1, 2, 3])
+    np.testing.assert_array_equal(removal_counts(6, (1 / 3, 1.0)), [2, 3, 4, 5, 6])
+    with pytest.warns(UserWarning, match="does not fall on whole ions"):
+        np.testing.assert_array_equal(removal_counts(6, (0.1, 0.4)), [1, 2])
+
+
+@pytest.mark.parametrize(
+    ("removal_range", "match"),
+    [((0.6, 0.4), "0 <= start <= stop <= 1"), ((-0.1, 0.5), "0 <= start <= stop <= 1"), ((0.3, 0.45), "no whole")],
+)
+def test_removal_range_invalid(removal_range: tuple[float, float], match: str) -> None:
+    """Ranges outside [0, 1], reversed, or without a whole ion count raise ValueError."""
+    with pytest.raises(ValueError, match=match):
+        removal_counts(4, removal_range)

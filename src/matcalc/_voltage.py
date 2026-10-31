@@ -14,7 +14,7 @@ from pymatgen.core import Composition, Element, Structure
 from pymatgen.entries.computed_entries import ComputedEntry, ComputedStructureEntry
 
 from ._base import PropCalc
-from ._intercalation import IntercalationCalc
+from ._intercalation import IntercalationCalc, _check_removal_range, removal_counts
 from ._relaxation import RelaxCalc
 from .utils import to_pmg_structure
 
@@ -61,7 +61,7 @@ class VoltageCalc(PropCalc):
         calculator: Calculator | str,
         *,
         species: str = "Li",
-        n_levels: int | None = None,
+        removal_range: tuple[float, float] = (0.0, 1.0),
         supercell: Sequence[int] | None = None,
         nsteps: int = 100,
         temperature: float = 300,
@@ -81,9 +81,11 @@ class VoltageCalc(PropCalc):
         Args:
             calculator: ASE calculator or universal model name string.
             species: Working-ion element symbol. Default is ``"Li"``.
-            n_levels: Number of ion counts to sample, spread evenly from fully intercalated to fully
-                deintercalated (both always included). None samples every integer ion count.
-                Default is None.
+            removal_range: Inclusive (start, stop) fractions of the working-ion sites to remove, e.g.
+                ``(0.0, 0.5)`` for a material that only delithiates to 50%. Every whole number of ions in
+                the range is sampled, one ion at a time, so the supercell sets the resolution; bounds are
+                rounded inward with a warning. At least two ion counts are required. Default is
+                ``(0.0, 1.0)``.
             supercell: Supercell scaling applied to the (relaxed) host before sampling. Default is None.
             nsteps: Monte Carlo steps per ion count. Levels with a single configuration (the end
                 points) are scored once. Default is 100.
@@ -117,9 +119,8 @@ class VoltageCalc(PropCalc):
         self.valence = abs(max(Element(species).oxidation_states, default=0))
         if self.valence == 0:
             raise ValueError(f"{species} has no positive oxidation state and cannot be a working ion")
-        if n_levels is not None and n_levels < 2:  # noqa: PLR2004
-            raise ValueError("n_levels must be at least 2 (the two end points)")
-        self.n_levels = n_levels
+        _check_removal_range(removal_range)
+        self.removal_range = removal_range
         self.supercell = supercell
         self.nsteps = nsteps
         self.temperature = temperature
@@ -144,9 +145,10 @@ class VoltageCalc(PropCalc):
 
         Returns:
             Dict with, per ion count sorted by increasing ``x`` (fraction of working-ion sites
-            occupied): ``x``, ``n_removed``, ``energies`` (final accepted, eV), ``min_energies``
+            occupied, within ``x_range``): ``x``, ``n_removed``, ``energies`` (final accepted, eV), ``min_energies``
             (lowest found, eV), ``acceptance_ratios``, ``min_structures`` and ``mixing_energies``
-            (eV per working-ion site, relative to the line between the end points). Raw step
+            (eV per working-ion site, relative to the line between the end points of the sampled
+            window). Hull results describe the sampled window only. Raw step
             voltages between consecutive levels in ``voltages`` (V) at ``voltage_x`` (midpoints).
             Convex-hull results from ``InsertionElectrode``: ``voltage_pairs`` (list of dicts with
             ``x_charge``, ``x_discharge``, ``voltage``), ``average_voltage``, ``max_voltage``,
@@ -157,7 +159,8 @@ class VoltageCalc(PropCalc):
             steps.
 
         Raises:
-            ValueError: If the host contains no ``species`` sites, or the ion reference is invalid.
+            ValueError: If the host contains no ``species`` sites, ``removal_range`` holds fewer than two
+                ion counts, or the ion reference is invalid.
         """
         result = super().calc(structure)
         result, raw_host = self._check_and_prelax(result["final_structure"], result, **_RELAX_DEFAULTS)
@@ -168,13 +171,15 @@ class VoltageCalc(PropCalc):
         if n_sites == 0:
             raise ValueError(f"The host structure contains no {self.species} sites")
 
-        n_removed = (
-            np.arange(n_sites + 1)
-            if self.n_levels is None
-            else np.unique(np.round(np.linspace(0, n_sites, self.n_levels)).astype(int))
-        )
+        n_removed = removal_counts(n_sites, self.removal_range)
+        if len(n_removed) < 2:  # noqa: PLR2004
+            raise ValueError(
+                f"removal_range {tuple(self.removal_range)} contains a single ion count for {n_sites} {self.species} "
+                "sites; a voltage needs at least two"
+            )
         intercalation_kwargs: dict[str, Any] = {
-            "concentrations": n_removed / n_sites,
+            # The bounds already fall on whole ions here, so IntercalationCalc does not warn again.
+            "removal_range": (n_removed[0] / n_sites, n_removed[-1] / n_sites),
             "species": self.species,
             "algorithm": self.algorithm,
             "relax": self.relax,
@@ -194,8 +199,9 @@ class VoltageCalc(PropCalc):
         removed = np.array([r["Num_removed"] for r in ordered])
         x = (n_sites - removed) / n_sites
         min_energies = np.array([r["min_energy"] for r in ordered], dtype=float)
-        # Mixing energy relative to the end points, per working-ion site.
-        e_line = min_energies[0] + x * (min_energies[-1] - min_energies[0])
+        # Mixing energy relative to the line between the end points of the sampled window, per site.
+        t = (x - x[0]) / (x[-1] - x[0])
+        e_line = min_energies[0] + t * (min_energies[-1] - min_energies[0])
         mixing_energies = (min_energies - e_line) / n_sites
 
         # Raw step voltages: V = [E(fewer ions) + dn * E_ion - E(more ions)] / (dn * valence).
@@ -206,15 +212,18 @@ class VoltageCalc(PropCalc):
             [ComputedStructureEntry(r["min_structure"], r["min_energy"]) for r in ordered],
             ComputedEntry(Composition(self.species), e_ion),
         )
-        # pymatgen's x counts ions per framework formula unit; rescale to the fraction of sites occupied.
-        x_max = max(vp.x_discharge for vp in electrode.voltage_pairs)
+        # pymatgen's x counts ions per framework formula unit. Rescale by the fully intercalated host's
+        # value (from its composition, so it holds when the window does not include the full host).
+        framework = Composition({el: amt for el, amt in host.composition.items() if el.symbol != self.species})
+        x_full = n_sites / framework.get_reduced_composition_and_factor()[1]
         voltage_pairs = [
-            {"x_charge": vp.x_charge / x_max, "x_discharge": vp.x_discharge / x_max, "voltage": vp.voltage}
+            {"x_charge": vp.x_charge / x_full, "x_discharge": vp.x_discharge / x_full, "voltage": vp.voltage}
             for vp in electrode.voltage_pairs
         ]
 
         output: dict[str, Any] = {
             "x": x,
+            "x_range": (float(x[0]), float(x[-1])),
             "n_removed": removed,
             "energies": np.array([r["energy"] for r in ordered], dtype=float),
             "min_energies": min_energies,

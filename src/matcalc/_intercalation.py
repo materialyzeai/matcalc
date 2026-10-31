@@ -31,6 +31,55 @@ warnings.filterwarnings("ignore", message="logm result may be inaccurate")
 _BINARY_SPECIES = 2
 
 
+# Tolerance for deciding that a removal-range bound falls on a whole number of ions.
+_ROUNDING_TOL = 1e-8
+
+
+def _check_removal_range(removal_range: tuple[float, float]) -> None:
+    """Validate an inclusive (start, stop) removal-fraction range.
+
+    Args:
+        removal_range: Fractions of the candidate sites to remove.
+
+    Raises:
+        ValueError: Unless ``0 <= start <= stop <= 1``.
+    """
+    start, stop = removal_range
+    if not 0 <= start <= stop <= 1:
+        raise ValueError(f"removal_range must satisfy 0 <= start <= stop <= 1, got {tuple(removal_range)}")
+
+
+def removal_counts(n_sites: int, removal_range: tuple[float, float]) -> np.ndarray:
+    """Whole numbers of ions to remove, one ion at a time, within an inclusive removal-fraction range.
+
+    Bounds are rounded inward (``ceil(start * n_sites)`` to ``floor(stop * n_sites)``) so that no
+    level lies outside the requested range; a warning is issued when a bound moves.
+
+    Args:
+        n_sites: Number of candidate working-ion sites.
+        removal_range: Inclusive (start, stop) fractions of the sites to remove.
+
+    Returns:
+        Increasing integer array of ion counts to remove.
+
+    Raises:
+        ValueError: If the range is invalid or contains no whole number of ions.
+    """
+    _check_removal_range(removal_range)
+    start, stop = removal_range
+    k_min = int(np.ceil(start * n_sites - _ROUNDING_TOL))
+    k_max = int(np.floor(stop * n_sites + _ROUNDING_TOL))
+    if k_min > k_max:
+        raise ValueError(f"removal_range {tuple(removal_range)} contains no whole number of {n_sites} sites")
+    if abs(k_min - start * n_sites) > _ROUNDING_TOL or abs(k_max - stop * n_sites) > _ROUNDING_TOL:
+        warnings.warn(
+            f"removal_range {tuple(removal_range)} does not fall on whole ions for {n_sites} sites; "
+            f"sampling {k_min / n_sites:.4g} to {k_max / n_sites:.4g} ({k_min} to {k_max} ions) instead.",
+            stacklevel=3,
+        )
+    return np.arange(k_min, k_max + 1)
+
+
 class _RemoveKSites:
     """
     Transformation that removes ``k`` randomly chosen sites from a fixed candidate set.
@@ -219,9 +268,9 @@ class IntercalationCalc(PropCalc):
     """
     Calculator for intercalation and voltage-profile predictions via Monte Carlo.
 
-    For each target concentration derived from ``concentration_range``, a number ``k`` of
-    intercalating ions is removed from the (optionally supercelled) host structure and the
-    resulting configurations are sampled with an :class:`MCCalc` Metropolis-Hastings run at fixed
+    For every whole number ``k`` of intercalating ions whose removed fraction lies in
+    ``removal_range``, ``k`` ions are removed from the (optionally supercelled) host structure and
+    the resulting configurations are sampled with an :class:`MCCalc` Metropolis-Hastings run at fixed
     composition. The accepted energies are used downstream to predict voltage profiles. A
     trajectory is written per concentration level and the per-level results are serialized to
     ``results.json.gz`` unless ``write_results=False``.
@@ -243,9 +292,8 @@ class IntercalationCalc(PropCalc):
         calculator: Calculator | str,
         nsteps: int,
         temperature: float,
-        concentration_range: Sequence[float] | None = None,
         *,
-        concentrations: Sequence[float] | None = None,
+        removal_range: tuple[float, float] = (0.0, 1.0),
         save_freq: int = 100,
         trajfile: str | None = None,
         supercell: Sequence[int] | None = None,
@@ -269,11 +317,10 @@ class IntercalationCalc(PropCalc):
                 single possible configuration (nothing removed, or every candidate site removed) are
                 scored once without Monte Carlo steps.
             temperature: Temperature in Kelvin used in the Metropolis-Hastings acceptance test.
-            concentration_range: Arguments forwarded to :func:`numpy.arange` (start, stop, step)
-                defining the fractional concentrations of removed ions to sample. Provide exactly one
-                of ``concentration_range`` and ``concentrations``.
-            concentrations: Explicit fractional concentrations of removed ions to sample (each is
-                rounded to the nearest whole number of ions). Default is None.
+            removal_range: Inclusive (start, stop) fractions of the candidate sites to remove, e.g.
+                ``(0.0, 0.5)`` to delithiate up to 50%. Every whole number of ions in the range is
+                sampled, one ion at a time; bounds that do not fall on a whole number are rounded
+                inward with a warning. Default is ``(0.0, 1.0)``.
             save_freq: Append a frame to the trajectory every ``save_freq`` Monte Carlo steps.
                 Default is 100.
             trajfile: Base trajectory filename. A ``_k{k}`` suffix is inserted before the
@@ -311,10 +358,8 @@ class IntercalationCalc(PropCalc):
         self.calculator = calculator  # type: ignore[assignment]
         self.nsteps = nsteps
         self.temperature = temperature
-        if (concentration_range is None) == (concentrations is None):
-            raise ValueError("Provide exactly one of concentration_range and concentrations")
-        self.concentration_range = concentration_range
-        self.concentrations = concentrations
+        _check_removal_range(removal_range)
+        self.removal_range = removal_range
         self.write_results = "results.json.gz" if write_results is True else write_results
         self.supercell = supercell
         self.save_freq = save_freq
@@ -372,12 +417,7 @@ class IntercalationCalc(PropCalc):
             disordered = self.disordered_structure or _build_disordered(host, self.species)
 
         n_indices = len(indices)
-        concentrations = (
-            np.asarray(self.concentrations, dtype=float)
-            if self.concentrations is not None
-            else np.arange(*self.concentration_range)  # type: ignore[misc]
-        )
-        ks = np.unique(np.round(concentrations * n_indices)).astype(int)
+        ks = removal_counts(n_indices, self.removal_range)
 
         results = {}
         for ik, k in enumerate(tqdm(ks, desc="concentration levels")):
