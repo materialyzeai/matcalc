@@ -11,7 +11,6 @@ from pymatgen.core.elasticity import DeformedStructureSet, ElasticTensor, Strain
 from pymatgen.core.elasticity.elastic import get_strain_state_dict
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 from .backend import run_pes_calc
 from .utils import to_pmg_structure
 
@@ -25,6 +24,8 @@ if TYPE_CHECKING:
     from ase.calculators.calculator import Calculator
     from numpy.typing import ArrayLike
     from pymatgen.core import Structure
+
+    from ._relaxation import RelaxCalc
 
 
 class ElasticityCalc(PropCalc):
@@ -118,7 +119,7 @@ class ElasticityCalc(PropCalc):
         result, structure_in = self._check_and_prelax(structure_in, result, fmax=self.fmax)
         relax_calc: RelaxCalc | None = None
         if self.relax_deformed_structures:
-            relax_calc = RelaxCalc(self.calculator, fmax=self.fmax, **(self.relax_calc_kwargs or {}))
+            relax_calc = self._relaxer(fmax=self.fmax)
             relax_calc.relax_cell = False
 
         deformed_structure_set = DeformedStructureSet(

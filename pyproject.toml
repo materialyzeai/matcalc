@@ -2,13 +2,14 @@
 name = "matcalc"
 authors = [
     { name = "Runze Liu", email = "rul048@ucsd.edu" },
-    { name = "Eliott Liu", email = "elliottliu17@gmail.com" },
+    { name = "Elliott Liu", email = "elliottliu17@gmail.com" },
     { name = "Ji Qi", email = "j1qi@ucsd.edu" },
     { name = "Shyue Ping Ong", email = "shyue@nus.edu.sg" },
     { name = "Tsz Wai Ko", email = "t1ko@ucsd.edu" },
 ]
 description = "Calculators for materials properties from the potential energy surface."
 readme = "README.md"
+dynamic = ["version"]
 requires-python = ">=3.11"
 keywords = [
     "AI",
@@ -43,42 +44,43 @@ dependencies = [
     "joblib>=1.4.2",
     "phonopy>=4.2.0",
 ]
-version = "0.6.0"
 
 [project.optional-dependencies]
 phonon = ["seekpath"]
 phonon3 = ["phono3py>=4.2.0"]
 benchmark = ["matminer>=0.10.1"]
+defects = ["pymatgen-analysis-defects>=2026.3.20"]
+diffusion = ["pymatgen-analysis-diffusion>=2025.11.15"]
 maml = [
     "maml>=2025.4.3",
 ]
 matgl = [
-    "matgl>=4.0.1",
+    "matgl>=4.1.0",
 ]
 mace = [
-    "mace-torch>=0.3.12",
+    "mace-torch>=0.3.15",
 ]
 sevennet = [
-    "sevenn>=0.10.4",
+    "sevenn>=0.13.0",
 ]
 grace = [
     "tensorpotential>=0.5.1",
 ]
 orb = [
-    "orb-models>=0.4.2",
+    "orb-models>=0.6.0; python_version >= '3.12'",
     "pynanoflann>=0.10.0",
 ]
 mattersim = [
     "mattersim",
 ]
 fairchem = [
-    "fairchem-core",
+    "fairchem-core>=2",
 ]
-petmad = [
-    "pet-mad",
+upet = [
+    "upet>=0.3.0",
 ]
 deepmd = [
-    "deepmd-kit>=3.0.2",
+    "deepmd-kit[torch]>=3.2.0",
 ]
 ci = [
     "setuptools<82",  # Required by maml which uses pkg_resources
@@ -88,13 +90,16 @@ ci = [
     "ipython>=8.34.0",
     "jupyter>=1.1.1",
     "maml>=2025.4.3",
-    "matgl>=4.0.1",
+    "matgl>=4.1.0",
     "matminer>=0.10.1",
     "mp-api>=0.45.3",
     "nbmake>=1.5.5",
     "pre-commit>=4.2.0",
+    "pymatgen-analysis-defects>=2026.3.20",
+    "pymatgen-analysis-diffusion>=2025.11.15",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.6.1",
     "seekpath>=2.1.0",
     "phono3py>=4.2.0",
 ]
@@ -114,8 +119,12 @@ include = ["matcalc", "matcalc.*"]
 ]
 
 [build-system]
-requires = ["oldest-supported-numpy", "setuptools>=58.0.3,<82"]
+requires = ["oldest-supported-numpy", "setuptools>=64,<82", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+# Version is derived from git tags (vX.Y.Z). Fallback for checkouts without git metadata.
+fallback_version = "0.0.0"
 
 [dependency-groups]
 dev = [
@@ -128,14 +137,17 @@ dev = [
     "ipython>=8.34.0",
     "jupyter>=1.1.1",
     "maml>=2025.4.3",
-    "matgl>=4.0.1",
+    "matgl>=4.1.0",
     "matminer>=0.10.1",
     "mp-api>=0.45.3",
     "nbmake>=1.5.5",
     "openai>=1.101.0",
     "pre-commit>=4.2.0",
+    "pymatgen-analysis-defects>=2026.3.20",
+    "pymatgen-analysis-diffusion>=2025.11.15",
     "pytest>=8.3.5",
     "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.6.1",
     "requests>=2.32.3",
     "seekpath>=2.1.0",
     "sphinx>=8.1.3",
@@ -157,6 +169,8 @@ lint = [
 # ]
 
 [tool.uv]
+# Rebuild editable installs when the git commit or tags change, so the scm version stays current.
+cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
 conflicts = [
     [
       { extra = "mace" },
@@ -165,16 +179,16 @@ conflicts = [
       { extra = "sevennet" },
       { extra = "grace" },
       { extra = "orb" },
-      { extra = "petmad" },
+      { extra = "upet" },
       { extra = "deepmd" },
     ],
 ]
-# Restrict the lock to platforms with torch wheels; Python < 3.15 until torch ships cp315 wheels.
+# Restrict the lock to platforms with torch wheels and Python < 3.14 for TensorFlow 2.20.
 # Does not affect the published requires-python.
 environments = [
-    "sys_platform == 'linux' and python_version < '3.15'",
-    "sys_platform == 'darwin' and python_version < '3.15'",
-    "sys_platform == 'win32' and python_version < '3.15'",
+    "sys_platform == 'linux' and python_version < '3.14'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64' and python_version < '3.14'",
+    "sys_platform == 'win32' and python_version < '3.14'",
 ]
 required-environments = [
     "sys_platform == 'linux'",

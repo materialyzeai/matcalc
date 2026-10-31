@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from ase.calculators.calculator import Calculator
     from pymatgen.core import Structure
 
+    from ._relaxation import RelaxCalc
+
 
 class PropCalc(abc.ABC):
     """
@@ -88,6 +90,26 @@ class PropCalc(abc.ABC):
         base: dict = prev.get("_units", prev) if isinstance(prev, dict) else {}
         return {**base, **new}
 
+    def _relaxer(self, **kwargs: Any) -> RelaxCalc:
+        """Build a ``RelaxCalc`` for ``self.calculator``, with ``relax_calc_kwargs`` taking precedence.
+
+        Use this instead of ``RelaxCalc(..., fmax=..., **self.relax_calc_kwargs)``, which raises a
+        duplicate-keyword ``TypeError`` when ``relax_calc_kwargs`` repeats one of the explicit arguments.
+
+        Args:
+            **kwargs: Default ``RelaxCalc`` arguments for this relaxation (e.g. ``fmax``,
+                ``relax_cell``). Entries in the subclass's ``relax_calc_kwargs`` (if any) override them.
+
+        Returns:
+            A new ``RelaxCalc``.
+        """
+        # Lazy import: RelaxCalc imports from _base, so we can't import it
+        # at module scope without a circular import.
+        from ._relaxation import RelaxCalc
+
+        extra = getattr(self, "relax_calc_kwargs", None) or {}
+        return RelaxCalc(self.calculator, **{**kwargs, **extra})
+
     def _check_and_prelax(
         self,
         structure: Structure | Atoms,
@@ -126,12 +148,7 @@ class PropCalc(abc.ABC):
         """
         if not getattr(self, "relax_structure", False):
             return result, structure
-        # Lazy import: RelaxCalc imports from _base, so we can't import it
-        # at module scope without a circular import.
-        from ._relaxation import RelaxCalc
-
-        extra = getattr(self, "relax_calc_kwargs", None) or {}
-        relaxer = RelaxCalc(self.calculator, **{**relax_kwargs, **extra})
+        relaxer = self._relaxer(**relax_kwargs)
         relax_result = relaxer.calc(structure)
         if not relax_result.get("is_converged", True):
             raise RuntimeError(

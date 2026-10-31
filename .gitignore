@@ -32,6 +32,7 @@ _site
 # GitHub Pages). Source files (CNAME, Gemfile*, _config.yml, apidoc/conf.py,
 # changes.md, dev.md, static assets) remain tracked.
 docs/index.md
+docs/models.md
 docs/matcalc*.html
 docs/modules.html
 docs/tutorials/

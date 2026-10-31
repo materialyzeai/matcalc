@@ -11,7 +11,6 @@ from pymatgen.core.interface import GrainBoundaryGenerator
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 from .utils import to_pmg_structure
 
 if TYPE_CHECKING:
@@ -117,14 +116,12 @@ class GBCalc(PropCalc):
         bulk_conventional = structure.to_conventional()
 
         # Bulk relaxation
-        relax_bulk_calc = RelaxCalc(
-            calculator=self.calculator,
+        relax_bulk_calc = self._relaxer(
             fmax=self.fmax,
             max_steps=self.max_steps,
             relax_cell=self.relax_bulk,
             relax_atoms=self.relax_bulk,
             optimizer=self.optimizer,
-            **(self.relax_calc_kwargs or {}),
         )
 
         bulk_opt = relax_bulk_calc.calc(bulk_conventional)
@@ -221,14 +218,12 @@ class GBCalc(PropCalc):
             bulk_energy_per_atom = structure["bulk_energy_per_atom"]
         else:
             logger.info("Relaxing bulk structure with both atomic and cell degrees of freedom")
-            relaxer = RelaxCalc(
-                calculator=self.calculator,
+            relaxer = self._relaxer(
                 fmax=self.fmax,
                 max_steps=self.max_steps,
                 relax_cell=self.relax_bulk,
                 relax_atoms=self.relax_bulk,
                 optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
             )
             bulk_opt = relaxer.calc(structure["bulk"])
             final_bulk = bulk_opt["final_structure"]
@@ -238,14 +233,12 @@ class GBCalc(PropCalc):
 
         # Relax GB
         gb_struct = structure["grain_boundary"]
-        relax_gb_calc = RelaxCalc(
-            calculator=self.calculator,
+        relax_gb_calc = self._relaxer(
             fmax=self.fmax,
             max_steps=self.max_steps,
             relax_cell=False,
             relax_atoms=self.relax_gb,
             optimizer=self.optimizer,
-            **(self.relax_calc_kwargs or {}),
         )
         gb_opt = relax_gb_calc.calc(gb_struct)
         final_gb = gb_opt["final_structure"]

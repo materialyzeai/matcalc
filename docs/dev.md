@@ -17,6 +17,9 @@ or
 pip install uv
 ```
 
+`uv.lock` does not cover Intel Macs, so `uv sync` fails there: deepmd-kit 3.2 requires torch 2.11, which has no Intel
+macOS wheels.
+
 Please refer to the [uv] documentation on how to manage dependencies. The core dependencies should be kept to an
 absolute minimum. Dependencies that are only used for development should be placed in the `dev`
 dependency group using:

@@ -189,7 +189,7 @@ class NEBCalc(PropCalc):
             climb (bool, optional): Whether to perform climbing image nudged elastic band (CI-NEB). Defaults to True.
             fmax (float, optional): The maximum force tolerance for convergence. Defaults to 0.1.
             max_steps (int, optional): The maximum number of optimization steps. Defaults to 1000.
-            **kwargs (Any): Additional keyword arguments.
+            **kwargs (Any): Additional keyword arguments forwarded to ``ase.mep.NEB``.
 
         Returns:
             None
@@ -205,6 +205,37 @@ class NEBCalc(PropCalc):
         self.max_steps = max_steps
         self.kwargs = kwargs
 
+    def calc_endpoints(
+        self,
+        start_struct: Structure | Atoms | dict[str, Any],
+        end_struct: Structure | Atoms | dict[str, Any],
+        *,
+        relax_calc_kwargs: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Relax the two endpoint structures independently before building the band.
+
+        Args:
+            start_struct: Initial structure.
+            end_struct: Final structure.
+            relax_calc_kwargs: Options forwarded to ``RelaxCalc``, overriding this
+                calculator's ``optimizer``, ``fmax`` and ``max_steps``, and the
+                default ``relax_cell=False``.
+
+        Returns:
+            The two complete ``RelaxCalc.calc()`` results, in start/end order.
+        """
+        from ._relaxation import RelaxCalc
+
+        relax_kwargs = {
+            "optimizer": self.optimizer,
+            "fmax": self.fmax,
+            "max_steps": self.max_steps,
+            "relax_cell": False,
+            **(relax_calc_kwargs or {}),
+        }
+        relaxer = RelaxCalc(self.calculator, **relax_kwargs)
+        return relaxer.calc(start_struct), relaxer.calc(end_struct)
+
     def calc_images(
         self,
         start_struct: Structure,
@@ -213,6 +244,7 @@ class NEBCalc(PropCalc):
         n_images: int = 7,
         interpolate_lattices: bool = False,
         autosort_tol: float = 0.5,
+        pbc: bool = True,
     ) -> dict[str, Any]:
         """Calculate NEB images between given start and end structures.
 
@@ -223,6 +255,9 @@ class NEBCalc(PropCalc):
             interpolate_lattices (bool): Whether to interpolate lattices between start and end structures (default is
                 False).
             autosort_tol (float): Tolerance for autosorting the images (default is 0.5).
+            pbc (bool): Interpolate each atom along its shortest periodic displacement, so that hops across
+                the cell boundary take the short path (default is True). False interpolates the raw
+                fractional coordinates.
 
         Returns:
             NEBCalc: NEB calculation object containing the interpolated images.
@@ -231,7 +266,7 @@ class NEBCalc(PropCalc):
             end_struct,
             nimages=n_images + 1,
             interpolate_lattices=interpolate_lattices,
-            pbc=False,
+            pbc=pbc,
             autosort_tol=autosort_tol,
         )
         return self.calc({f"image{i:02d}": s for i, s in enumerate(images)})
@@ -248,7 +283,8 @@ class NEBCalc(PropCalc):
         Returns:
                 dict:
                     - "barrier" (float): The energy barrier of the reaction pathway.
-                    - "force" (float): The force exerted on the atoms during the NEB calculation.
+                    - "reaction_energy" (float): Energy of the final image minus the initial image (eV).
+                    - "forces" (np.ndarray): Final NEB forces on the moving images (eV/Å).
                     - "mep" (MEP): An MEP dataclass containing the images and their respective energies.
         """
         if not isinstance(structure, dict):
@@ -282,7 +318,12 @@ class NEBCalc(PropCalc):
             )
         neb_tool = NEBTools(self.neb.images)
         data = neb_tool.get_barrier()  # add structures
-        result = {"barrier": data[0], "force": data[1], "converged": converged}
+        result = {
+            "barrier": data[0],
+            "reaction_energy": data[1],
+            "converged": converged,
+            "forces": self.neb.get_forces(),
+        }
 
         energies = fit_images(self.neb.images).energies
         # Convert images to pymatgen structures
@@ -291,5 +332,5 @@ class NEBCalc(PropCalc):
         # Create MEP instance from structures and energies
         mep = MEP(structures, list(energies))
         result["mep"] = mep
-        result["_units"] = self._merge_units(None, {"barrier": "eV", "force": "eV/Å"})
+        result["_units"] = self._merge_units(None, {"barrier": "eV", "reaction_energy": "eV", "forces": "eV/Å"})
         return result

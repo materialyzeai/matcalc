@@ -11,7 +11,6 @@ from pymatgen.core.adsorption import AdsorbateSiteFinder
 from pymatgen.core.surface import Slab, SlabGenerator
 
 from ._base import PropCalc
-from ._relaxation import RelaxCalc
 from .backend._ase import get_ase_optimizer
 from .utils import to_ase_atoms, to_pmg_molecule, to_pmg_structure
 
@@ -91,14 +90,12 @@ class AdsorptionCalc(PropCalc):
         initial_bulk = to_pmg_structure(bulk)
 
         if self.relax_bulk:
-            relaxer_bulk = RelaxCalc(
-                calculator=self.calculator,
+            relaxer_bulk = self._relaxer(
                 fmax=self.fmax,
                 max_steps=self.max_steps,
                 relax_cell=self.relax_bulk,
                 relax_atoms=self.relax_bulk,
                 optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
             )
 
             bulk_opt = relaxer_bulk.calc(initial_bulk)
@@ -126,14 +123,12 @@ class AdsorptionCalc(PropCalc):
         initial_adsorbate = to_pmg_molecule(adsorbate)
 
         if self.relax_adsorbate:
-            relaxer = RelaxCalc(
-                calculator=self.calculator,
+            relaxer = self._relaxer(
                 fmax=self.fmax,
                 max_steps=self.max_steps,
                 relax_atoms=self.relax_adsorbate,
                 relax_cell=False,
                 optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
             )
 
             adsorbate = to_ase_atoms(adsorbate)
@@ -176,14 +171,12 @@ class AdsorptionCalc(PropCalc):
             Dict with ``slab``, ``slab_energy``, ``slab_energy_per_atom``, ``final_slab``.
         """
         if self.relax_slab:
-            relaxer = RelaxCalc(
-                calculator=self.calculator,
+            relaxer = self._relaxer(
                 fmax=self.fmax,
                 max_steps=self.max_steps,
                 relax_atoms=self.relax_slab,
                 relax_cell=False,
                 optimizer=self.optimizer,
-                **(self.relax_calc_kwargs or {}),
             )
             slab_opt = relaxer.calc(slab)
         else:
@@ -217,7 +210,7 @@ class AdsorptionCalc(PropCalc):
         inplane_supercell: tuple[int, int] = (1, 1),
         slab_gen_kwargs: dict[str, Any] | None = None,
         get_slabs_kwargs: dict[str, Any] | None = None,
-        adsorption_sites: dict[str, Sequence[tuple[float, float]]] | str = "all",
+        adsorption_sites: dict[str, Sequence[tuple[float, float, float]]] | str = "all",
         height: float = 0.9,
         mi_vec: tuple[float, float] | None = None,
         fixed_height: float = 5,
@@ -238,7 +231,7 @@ class AdsorptionCalc(PropCalc):
             inplane_supercell: In-plane supercell factors.
             slab_gen_kwargs: Kwargs for ``SlabGenerator``.
             get_slabs_kwargs: Kwargs for ``SlabGenerator.get_slabs``.
-            adsorption_sites: ``"all"``, site name string, or custom fractional-coordinate dict.
+            adsorption_sites: ``"all"``, site name string, or custom Cartesian-coordinate dict.
             height: Adsorbate height above surface (Å).
             mi_vec: Optional in-plane vector for ``AdsorbateSiteFinder``.
             fixed_height: Fix slab atoms below this height (Å) during relaxation.
@@ -364,6 +357,17 @@ class AdsorptionCalc(PropCalc):
                 "and/or 'adsorbate_energy'). Use calc_adslabs(...) to generate input dicts."
             )
             raise TypeError(msg)
+
+        required_keys = ("slab", "adsorbate", "adslab")
+        missing = [k for k in required_keys if k not in structure]
+        if missing:
+            raise ValueError(
+                "For adsorption calculations, structure must be a dict with keys "
+                f"({', '.join(required_keys)}) and optionally 'slab_energy_per_atom' "
+                "and/or 'adsorbate_energy'. Missing: "
+                f"({', '.join(missing)}). Use calc_adslabs(...) to generate input dicts."
+            )
+
         result_dict = structure.copy()
 
         result_dict |= self.calc_adsorbate(
@@ -373,15 +377,7 @@ class AdsorptionCalc(PropCalc):
 
         result_dict |= self.calc_slab(structure["slab"], slab_energy=structure.get("slab_energy"))
 
-        try:
-            adslab = structure["adslab"]
-        except KeyError as err:
-            raise ValueError(
-                "For adsorption calculations, structure must be dict with"
-                " keys ('adslab' and 'slab' and 'adsorbate') and optionally"
-                " ('slab_energy_per_atom') and/or"
-                " 'adsorbate_energy'"
-            ) from err
+        adslab = structure["adslab"]
 
         n_adsorbate_atoms = len(structure["adsorbate"])
         n_slab_atoms = len(adslab) - n_adsorbate_atoms

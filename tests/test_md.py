@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 from ase.io import read
+from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
 
 from matcalc import MDCalc
 
@@ -19,25 +20,26 @@ if TYPE_CHECKING:
     from pymatgen.core import Structure
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(autouse=True)
 def _set_seed() -> None:
+    # Reseed per test so results do not depend on test order (e.g. under pytest-xdist).
     np.random.seed(42)  # noqa: NPY002
 
 
 @pytest.mark.parametrize(
     ("ensemble", "expected_energy"),
     [
-        ("nve", -10.681398645973719),
-        ("nvt", -10.669462076229149),
-        ("nvt_berendsen", -10.682300543040231),
-        ("nvt_langevin", -10.636199534575727),
-        ("nvt_andersen", -10.689862392797687),
-        ("nvt_bussi", -10.634646418536288),
-        ("npt_inhomogeneous", -10.684206021309203),
-        ("npt_berendsen", -10.663122054639796),
-        ("npt_nose_hoover", -10.639228676099112),
-        ("npt_isotropic_mtk", -10.664155796043316),
-        ("npt_mtk", -10.695427268514504),
+        ("nve", -10.681398837039941),
+        ("nvt", -10.6812750292946),
+        ("nvt_berendsen", -10.705081376492938),
+        ("nvt_langevin", -10.68243804863792),
+        ("nvt_andersen", -10.714444959621353),
+        ("nvt_bussi", -10.682800878748354),
+        ("npt_inhomogeneous", -10.705095876651583),
+        ("npt_berendsen", -10.705094547199234),
+        ("npt_nose_hoover", -10.709411041617395),
+        ("npt_isotropic_mtk", -10.681375314402317),
+        ("npt_mtk", -10.681387481306512),
     ],
 )
 def test_md_calc(
@@ -104,8 +106,6 @@ def test_md_atoms(
     md_calc = MDCalc(
         calculator=matpes_calculator,
         temperature=300,
-        taut=0.1,
-        taup=0.1,
         steps=10,
         frames=5,
         compressibility_au=1,
@@ -225,3 +225,36 @@ def test_invalid_ensemble(Si: Structure, matpes_calculator: PESCalculator) -> No
             logfile=None,
             trajfile=None,
         ).calc(Si)
+
+
+def test_initial_velocity_seed(Si_atoms: Atoms, matpes_calculator: PESCalculator) -> None:
+    temperature = 600.5
+    expected = Si_atoms.copy()
+    MaxwellBoltzmannDistribution(expected, temperature_K=temperature, rng=np.random.RandomState(42))
+    md_calc = MDCalc(
+        matpes_calculator,
+        temperature=temperature,
+        steps=1,
+        frames=2,
+        relax_structure=False,
+        seed=42,
+    )
+    # Every run starts from the same velocities.
+    for _ in range(2):
+        result = md_calc.calc(Si_atoms.copy())
+        np.testing.assert_array_equal(result["trajectory"][0].get_momenta(), expected.get_momenta())
+
+
+def test_no_frames_to_average(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """MDCalc errors when the equilibration window leaves no frames to average."""
+    md_calc = MDCalc(
+        calculator=matpes_calculator,
+        ensemble="nve",
+        temperature=300,
+        steps=2,
+        frames=1,
+        equilibration_frames=5,
+        relax_structure=False,
+    )
+    with pytest.raises(ValueError, match="No frames left to average after dropping"):
+        md_calc.calc(Si)

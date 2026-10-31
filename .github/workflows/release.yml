@@ -20,14 +20,19 @@ jobs:
     uses: ./.github/workflows/test.yml
     secrets: inherit
 
+  test-fp-loaders:
+    uses: ./.github/workflows/test-fp-loaders.yml
+
   build:
-    needs: test
+    needs: [test, test-fp-loaders]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write  # required for PyPI trusted publishing
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # setuptools-scm needs tags to derive the version
       - name: Set up Python 3.11
         uses: actions/setup-python@v6
         with:

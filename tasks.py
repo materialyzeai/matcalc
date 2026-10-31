@@ -8,18 +8,11 @@ import os
 import re
 import shutil
 import subprocess
-from datetime import UTC, datetime
 from pprint import pprint
 
 import requests
 from invoke import Context, task
 from monty.os import cd
-
-with open("pyproject.toml") as f:
-    for line in f:
-        if line.startswith("version"):
-            NEW_VER = line.split("=")[-1].strip().strip('"')
-            break
 
 
 @task
@@ -56,6 +49,57 @@ def make_tutorials(ctx: Context):
 
 
 @task
+def make_model_list(ctx: Context):  # noqa: ARG001
+    """Write docs/models.md, the list of all registered foundation potentials."""
+    from matcalc.utils import _PROVIDER_INSTALL_EXTRA, MODEL_ALIASES, MODEL_REGISTRY
+
+    titles = {
+        "matgl": "MatGL",
+        "mace_mp": "MACE",
+        "sevennet": "SevenNet",
+        "grace": "GRACE",
+        "orb": "ORB",
+        "mattersim": "MatterSim",
+        "fairchem": "FAIRChem",
+        "upet": "UPET",
+        "deepmd": "DeePMD",
+    }
+    aliases: dict[str, list[str]] = {}
+    for alias, name in MODEL_ALIASES.items():
+        aliases.setdefault(name, []).append(f"`{alias}`")
+    lines = [
+        "---",
+        "layout: default",
+        "title: Foundation Potentials",
+        "nav_order: 3",
+        "---",
+        "",
+        "# Foundation Potentials",
+        "",
+        (
+            f"`matcalc.load_fp()` loads each of the {len(MODEL_REGISTRY)} models below by its canonical name or any of "
+            "its aliases (case-insensitive). This page is generated from `matcalc.utils.MODEL_REGISTRY`."
+        ),
+    ]
+    for provider in dict.fromkeys(spec["provider"] for spec in MODEL_REGISTRY.values()):
+        lines += [
+            "",
+            f"## {titles[provider]}",
+            "",
+            f"Install with `pip install matcalc[{_PROVIDER_INSTALL_EXTRA[provider]}]`.",
+            "",
+            "| Canonical name | Aliases | Upstream model |",
+            "|---|---|---|",
+        ]
+        for name, spec in MODEL_REGISTRY.items():
+            if spec["provider"] == provider:
+                upstream = ", ".join(f'{k}="{v}"' for k, v in spec.items() if k != "provider")
+                lines.append(f"| `{name}` | {', '.join(aliases.get(name, [])) or '—'} | `{upstream}` |")
+    with open("docs/models.md", "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+@task
 def make_docs(ctx: Context):
     """
     This new version requires markdown builder.
@@ -73,6 +117,7 @@ def make_docs(ctx: Context):
         sphinx-build -M markdown ./ build
     """
     make_tutorials(ctx)
+    make_model_list(ctx)
 
     with cd("docs"):
         ctx.run("touch apidoc/index.rst", warn=True)
@@ -116,12 +161,14 @@ def publish(ctx: Context):
 
 @task
 def release(ctx: Context):  # noqa: ARG001
-    desc = get_changelog()
+    """Create a GitHub release for the latest version in changes.md. The package version is derived from this tag."""
+    new_ver = get_last_version()
+    desc = get_changelog(new_ver)
 
     payload = {
-        "tag_name": "v" + NEW_VER,
+        "tag_name": "v" + new_ver,
         "target_commitish": "main",
-        "name": "v" + NEW_VER,
+        "name": "v" + new_ver,
         "body": desc,
         "draft": False,
         "prerelease": False,
@@ -135,10 +182,10 @@ def release(ctx: Context):  # noqa: ARG001
     pprint(response.json())
 
 
-def get_changelog():
+def get_changelog(version: str):
     with open("changes.md") as f:
         contents = f.read()
-        match = re.search(f"## v{NEW_VER}([^#]*)", contents)
+        match = re.search(rf"^## v{re.escape(version)}\n(.*?)(?=^## |\Z)", contents, re.MULTILINE | re.DOTALL)
         if not match:
             raise ValueError("could not parse latest version from changes.md")
         return match.group(1).strip()
@@ -155,17 +202,15 @@ def get_last_version():
 
 
 @task
-def update_changelog(ctx: Context, version: str | None = None, *, dry_run: bool = False) -> None:
+def update_changelog(ctx: Context, version: str, *, dry_run: bool = False) -> None:
     """Create a preliminary change log using the git logs.
 
     Args:
         ctx (invoke.Context): The context object.
-        version (str, optional): The version to use for the change log. If not provided, it will
-            use the current date in the format 'YYYY.M.D'. Defaults to None.
+        version (str): The new semantic version (e.g., '0.7.0') for the change log entry.
         dry_run (bool, optional): If True, the function will only print the changes without
             updating the actual change log file. Defaults to False.
     """
-    version = version or f"{datetime.now(tz=UTC):%Y.%-m.%-d}"
     lastver = get_last_version()
     print(f"Getting all comments since {lastver}")
     output = subprocess.check_output(["git", "log", "--pretty=format:%s", f"v{lastver}..HEAD"])

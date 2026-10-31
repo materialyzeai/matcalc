@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 from pathlib import Path
 from shutil import which
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pytest
+from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.io.lammps.data import LammpsData
+from pymatgen.io.lammps.outputs import parse_lammps_log
 
 from matcalc import LAMMPSMDCalc
 
@@ -16,6 +22,23 @@ if TYPE_CHECKING:
     from pymatgen.core import Structure
 
 LAMMPS_TEMPLATES_DIR = Path(__file__).parent.parent / "src" / "matcalc" / "lammps_templates"
+
+
+@pytest.mark.parametrize(
+    ("name", "expected_model"),
+    [
+        ("TensorNet-MatPES-PBE-2025.2", "TensorNet-PES-MatPES-PBE-2025.2"),
+        ("pbe", "TensorNet-PES-MatPES-PBE-2025.2"),
+        ("tensornet-pes-matpes-pbe-2025.2", "TensorNet-PES-MatPES-PBE-2025.2"),
+        ("m3gnet", "M3GNet-PES-MatPES-PBE-2025.2"),
+        ("M3GNet-MatPES-r2SCAN-2025.2", "M3GNet-PES-MatPES-r2SCAN-2025.2"),
+        ("TensorNet-PES-ANI-1x-Subset", "TensorNet-PES-ANI-1x-Subset"),
+    ],
+)
+def test_lammps_model_names(name: str, expected_model: str) -> None:
+    calc = LAMMPSMDCalc(name, relax_structure=False)
+    assert calc.model_name == expected_model
+    assert calc.gnnp_type == "matgl"
 
 
 @pytest.mark.parametrize(
@@ -102,3 +125,80 @@ def test_invalid_ensemble(Si: Structure) -> None:
             taup=0.1,
             steps=10,
         ).calc(Si)
+
+
+def test_lammps_element_mapping(Li2O: Structure, tmp_path: Path) -> None:
+    # O comes first, so the composition order differs from the type order of the data file.
+    structure = Li2O.get_sorted_structure(key=lambda site: site.specie.symbol != "O")
+    structure.remove_oxidation_states()
+    charged = structure.copy()
+    charged.add_oxidation_state_by_element({"Li": 1, "O": -2})
+    calc = LAMMPSMDCalc(calculator="TensorNet", relax_structure=False)
+    inputs = [structure, charged, AseAtomsAdaptor.get_atoms(structure), AseAtomsAdaptor.get_atoms(charged)]
+    for i, structure_in in enumerate(inputs):
+        calc.write_inputs(structure_in, directory=tmp_path / str(i))
+        data = LammpsData.from_file(str(tmp_path / str(i) / "md.data"), atom_style="atomic")
+        script = (tmp_path / str(i) / calc.infile).read_text().splitlines()
+        pair_coeff = next(line.split() for line in script if line.startswith("pair_coeff"))
+        dump_modify = next(line.split() for line in script if line.startswith("dump_modify"))
+        assert pair_coeff[-2:] == ["Li", "O"]
+        assert dump_modify[-2:] == ["Li", "O"]
+        assert [pair_coeff[-2:][int(atom_type) - 1] for atom_type in data.atoms["type"]] == ["O", "Li", "Li"]
+
+
+def test_lammps_frames(Li2O: Structure, tmp_path: Path) -> None:
+    if not which("lmp"):
+        pytest.skip("lammps not available")
+    calc = LAMMPSMDCalc(calculator="TensorNet", relax_structure=False, steps=25, loginterval=10, equilibration_frames=1)
+    result = calc.calc(Li2O, directory=tmp_path)
+
+    # Frames are saved at steps 0, 10 and 20; the log also reports the last step.
+    thermo = parse_lammps_log(str(tmp_path / "log.lammps"))[0]
+    assert list(thermo["Step"]) == [0, 10, 20, 25]
+    kept = thermo[thermo["Step"].isin([10, 20])]
+    assert len(result["trajectory"]) == 2
+    assert result["potential_energy"] == pytest.approx(kept["PotEng"].mean())
+    assert result["kinetic_energy"] == pytest.approx(kept["KinEng"].mean())
+    assert result["total_energy"] == pytest.approx(kept["TotEng"].mean())
+    np.testing.assert_allclose(result["final_structure"].cart_coords, result["trajectory"][-1].positions)
+
+
+def test_lammps_thermo_stride(Li2O: Structure, tmp_path: Path) -> None:
+    if not which("lmp"):
+        pytest.skip("lammps not available")
+    calc = LAMMPSMDCalc(calculator="TensorNet", relax_structure=False, steps=25, loginterval=10, equilibration_frames=1)
+    calc.write_inputs(Li2O, directory=tmp_path)
+    script = tmp_path / calc.infile
+    script.write_text(re.sub(r"^thermo\s+\d+", "thermo 7", script.read_text(), flags=re.MULTILINE))
+    result = calc.calc(Li2O, directory=tmp_path)
+
+    # Frames are saved at steps 10 and 20, and the edited script outputs thermo at 0, 7, 14, 21 and 25.
+    thermo = parse_lammps_log(str(tmp_path / "log.lammps"))[0]
+    assert list(thermo["Step"]) == [0, 7, 14, 21, 25]
+    assert result["potential_energy"] == pytest.approx(thermo["PotEng"][2])
+    calc.frames = 1
+    with pytest.raises(ValueError, match="No thermo output between steps 20 and 20"):
+        calc.calc(Li2O, directory=tmp_path)
+
+
+def test_lammps_failed_run(Li2O: Structure, tmp_path: Path) -> None:
+    if not which("lmp"):
+        pytest.skip("lammps not available")
+    calc = LAMMPSMDCalc(calculator="TensorNet", relax_structure=False, settings={"fix_command": "fix 1 all unknown"})
+    with pytest.raises(subprocess.CalledProcessError):
+        calc.calc(Li2O, directory=tmp_path)
+
+
+def test_lammps_local_matgl_model(tmp_path: Path) -> None:
+    import matgl
+
+    model_dir = tmp_path / "finetuned"
+    matgl.load_model("TensorNet-PES-MatPES-PBE-2025.2").save(model_dir)
+    calc = LAMMPSMDCalc(str(model_dir), relax_structure=False)
+    assert calc.model_name == str(model_dir)
+    assert calc.gnnp_type == "matgl"
+
+
+def test_lammps_removed_model() -> None:
+    with pytest.raises(ValueError, match="was removed"):
+        LAMMPSMDCalc("M3GNet-MatPES-PBE-2025.1", relax_structure=False)
