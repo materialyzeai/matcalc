@@ -342,20 +342,24 @@ class IntercalationCalc(PropCalc):
 
         if self.indices is None and self.species is None:
             raise ValueError("Provide one of indices or species")
+        # Resolve candidate sites locally: storing them on self would make a second calc() call see
+        # explicit indices and reject the supercell.
         if self.species is not None and self.indices is None:
             if self.supercell:
-                host = host.make_supercell(self.supercell)
-            self.indices = host.indices_from_symbol(self.species)
+                # Structure.make_supercell works in place; copy so the caller's structure is untouched.
+                host = host.copy().make_supercell(self.supercell)
+            indices: Sequence[int] = host.indices_from_symbol(self.species)
         elif self.indices is not None and self.supercell is not None:
             raise ValueError("Provide supercell as input structure if specifying supercell argument")
-
-        assert self.indices is not None  # noqa: S101  # resolved above; satisfies type checker
+        else:
+            assert self.indices is not None  # noqa: S101  # checked above; satisfies type checker
+            indices = self.indices
 
         disordered = None
         if self.algorithm == "markov":
             disordered = self.disordered_structure or _build_disordered(host, self.species)
 
-        n_indices = len(self.indices)
+        n_indices = len(indices)
         concentrations = np.arange(*self.concentration_range)
         ks = np.unique(np.round(concentrations * n_indices)).astype(int)
 
@@ -371,7 +375,7 @@ class IntercalationCalc(PropCalc):
 
             if self.algorithm == "independent":
                 # Independent fixed-concentration sampling: each proposal removes k from the pristine host.
-                transformation: Any = _RemoveKSites(self.indices, int(k), self._rng)
+                transformation: Any = _RemoveKSites(indices, int(k), self._rng)
                 transform_initial = True
                 mc_structure = host
             elif self.algorithm == "markov":
@@ -379,7 +383,7 @@ class IntercalationCalc(PropCalc):
                 assert disordered is not None  # noqa: S101  # set above when algorithm == "markov"
                 transformation = _SwapSites(host, disordered, self.swap_size, self._rng)
                 transform_initial = False
-                mc_structure = _RemoveKSites(self.indices, int(k), self._rng).apply_transformation(host)
+                mc_structure = _RemoveKSites(indices, int(k), self._rng).apply_transformation(host)
             else:
                 raise ValueError("algorithm must be one of {'independent', 'markov'}")
 

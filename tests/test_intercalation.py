@@ -237,3 +237,26 @@ def test_intercalation_markov_fully_occupied(Cu: Structure, emt_calculator: Calc
     res = calc.calc(Cu.copy())["0"]
     assert res["final_structure"].composition.formula == "Cu32"
     assert np.isnan(res["acceptance_ratio"])
+
+
+def test_intercalation_input_unchanged_and_reusable(Cu: Structure, emt_calculator: Calculator) -> None:
+    """calc() leaves the caller's structure untouched, so the same calculator can run twice with supercell."""
+    host = Cu.copy()
+    calc = IntercalationCalc(
+        emt_calculator,
+        nsteps=1,
+        temperature=1000,
+        concentration_range=[0.09, 0.10, 0.05],  # -> k = 3 of 32
+        species="Cu",
+        relax=False,
+        seed=42,
+        supercell=[2, 2, 2],
+        trajfile="ic_reuse.traj",
+    )
+    first = calc.calc(host)
+    assert len(host) == len(Cu)
+    second = calc.calc(host)
+    assert len(host) == len(Cu)
+    for res in (first["0"], second["0"]):
+        assert res["Num_removed"] == 3
+        assert res["final_structure"].composition.formula == "Cu29"
