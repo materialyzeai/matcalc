@@ -31,11 +31,12 @@ class OrderCalc(PropCalc):
     Order a disordered structure with Metropolis Monte Carlo.
 
     Given a structure with fractional site occupancies, ``OrderCalc`` builds a
-    random ordering whose species counts are commensurate with the input
+    random ordering whose species counts on each sublattice (disordered sites
+    holding the same set of species) are commensurate with the input
     occupancies (partial occupancy summing to < 1 is treated as vacancies),
     evaluates its total energy with the supplied PES calculator, then performs
     ``nsteps`` of Monte Carlo in which the species occupying two disordered sites
-    are swapped. Each proposal is accepted with the standard Metropolis
+    of the same sublattice are swapped. Each proposal is accepted with the standard Metropolis
     criterion ``min(1, exp(-ΔE / (kB·T)))``. Swaps exchange species between
     sites, so the overall composition is conserved throughout.
 
@@ -136,38 +137,45 @@ class OrderCalc(PropCalc):
 
         Returns:
             A list (one entry per disordered site) of the species to place at
-            that site, or ``None`` for a vacancy.
+            that site, or ``None`` for a vacancy. Each species is placed only on
+            the sublattice (see ``_sublattices``) that it occupies in ``structure``.
 
         Raises:
-            ValueError: If the total occupancy over the disordered sites is not
-                commensurate with an integer number of atoms (within ``tol``).
+            ValueError: If the total occupancy of a species over its sublattice is
+                not commensurate with an integer number of atoms (within ``tol``).
         """
-        n_sites = len(disordered_indices)
-        amounts: dict[Species | Element | DummySpecies, float] = {}
-        for idx in disordered_indices:
-            for sp, occ in structure[idx].species.items():
-                amounts[sp] = amounts.get(sp, 0.0) + occ
+        tokens: list[Species | Element | DummySpecies | None] = [None] * len(disordered_indices)
+        for positions in _sublattices(structure, disordered_indices):
+            n_sites = len(positions)
+            amounts: dict[Species | Element | DummySpecies, float] = {}
+            for pos in positions:
+                for sp, occ in structure[disordered_indices[pos]].species.items():
+                    amounts[sp] = amounts.get(sp, 0.0) + occ
 
-        counts: dict[Species | Element | DummySpecies, int] = {}
-        for sp, amt in amounts.items():
-            rounded = round(amt)
-            if abs(amt - rounded) > tol:
+            counts: dict[Species | Element | DummySpecies, int] = {}
+            for sp, amt in amounts.items():
+                rounded = round(amt)
+                if abs(amt - rounded) > tol:
+                    raise ValueError(
+                        f"Occupancy of {sp} over the disordered sublattice is {amt:.4f}, which is not "
+                        f"commensurate with an integer number of atoms. Use a supercell that makes the "
+                        f"composition integral before ordering."
+                    )
+                counts[sp] = rounded
+
+            n_atoms = sum(counts.values())
+            if n_atoms > n_sites:  # pragma: no cover
                 raise ValueError(
-                    f"Occupancy of {sp} over the disordered sublattice is {amt:.4f}, which is not "
-                    f"commensurate with an integer number of atoms. Use a supercell that makes the "
-                    f"composition integral before ordering."
+                    f"Rounded species count ({n_atoms}) exceeds the number of disordered sites ({n_sites})."
                 )
-            counts[sp] = rounded
 
-        n_atoms = sum(counts.values())
-        if n_atoms > n_sites:  # pragma: no cover
-            raise ValueError(f"Rounded species count ({n_atoms}) exceeds the number of disordered sites ({n_sites}).")
-
-        tokens: list[Species | Element | DummySpecies | None] = []
-        for sp, count in counts.items():
-            tokens.extend([sp] * count)
-        tokens.extend([None] * (n_sites - n_atoms))  # remaining sites are vacancies
-        rng.shuffle(tokens)
+            sublattice_tokens: list[Species | Element | DummySpecies | None] = []
+            for sp, count in counts.items():
+                sublattice_tokens.extend([sp] * count)
+            sublattice_tokens.extend([None] * (n_sites - n_atoms))  # remaining sites are vacancies
+            rng.shuffle(sublattice_tokens)
+            for pos, token in zip(positions, sublattice_tokens, strict=True):
+                tokens[pos] = token
         return tokens
 
     def _make_structure(
@@ -224,11 +232,24 @@ class OrderCalc(PropCalc):
         """
         rng = random.Random(seed)  # noqa: S311 — Monte Carlo sampling, not cryptographic
         tokens = self._initial_tokens(structure, disordered_indices, rng)
-        n_sites = len(tokens)
+        # Swaps stay within a sublattice. Sites of sublattices holding a single kind of token cannot swap;
+        # the kinds per sublattice are invariant under swaps, so this is computed once.
+        sublattices = _sublattices(structure, disordered_indices)
+        sublattice_of = {pos: positions for positions in sublattices for pos in positions}
+        swappable = [pos for positions in sublattices if len({tokens[p] for p in positions}) > 1 for pos in positions]
+        swappable.sort()
+
+        # Energies by ordering (encoded compactly as bytes), so that orderings proposed again, which is
+        # common once the chain settles, are not re-evaluated.
+        codes: dict[Species | Element | DummySpecies | None, int] = {}
+        evaluated: dict[bytes, float] = {}
 
         def energy(toks: list[Species | Element | DummySpecies | None]) -> float:
-            ordered = self._make_structure(structure, disordered_indices, toks)
-            return run_pes_calc(ordered, self.calculator).energy
+            key = bytes(codes.setdefault(tok, len(codes)) for tok in toks)
+            if key not in evaluated:
+                ordered = self._make_structure(structure, disordered_indices, toks)
+                evaluated[key] = run_pes_calc(ordered, self.calculator).energy
+            return evaluated[key]
 
         e_curr = energy(tokens)
         e_best = e_curr
@@ -242,12 +263,11 @@ class OrderCalc(PropCalc):
 
         for _ in range(self.nsteps):
             steps_run += 1
-            i = rng.randrange(n_sites)
-            # Pick a partner whose species differs, so the swap actually changes the ordering.
-            others = [k for k in range(n_sites) if tokens[k] != tokens[i]]
-            if not others:
+            if not swappable:
                 raise ValueError("Disordered sites hold only one species; no swaps are possible.")
-            j = rng.choice(others)
+            i = swappable[rng.randrange(len(swappable))]
+            # Pick a partner on the same sublattice whose species differs, so the swap changes the ordering.
+            j = rng.choice([k for k in sublattice_of[i] if tokens[k] != tokens[i]])
 
             tokens[i], tokens[j] = tokens[j], tokens[i]
             e_new = energy(tokens)
@@ -350,3 +370,22 @@ class OrderCalc(PropCalc):
             result, _ = self._check_and_prelax(best_structure, result, **(self.relax_calc_kwargs or {}))
 
         return result
+
+
+def _sublattices(structure: Structure, disordered_indices: list[int]) -> list[list[int]]:
+    """Group the disordered sites into sublattices of sites that can hold the same species.
+
+    Sites are grouped by the set of species they hold, so that e.g. Li/vacancy and Ni/Mn sites form
+    separate sublattices while sites with different Li occupancies share one.
+
+    Args:
+        structure: The disordered input structure.
+        disordered_indices: Indices of the sites with partial occupancy.
+
+    Returns:
+        Positions in ``disordered_indices`` of the sites on each sublattice, in order of first appearance.
+    """
+    groups: dict[frozenset, list[int]] = {}
+    for pos, idx in enumerate(disordered_indices):
+        groups.setdefault(frozenset(structure[idx].species), []).append(pos)
+    return list(groups.values())

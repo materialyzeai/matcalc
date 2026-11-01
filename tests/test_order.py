@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
-from pymatgen.core import Lattice, Structure
+from pymatgen.core import Composition, Lattice, Structure
 
-from matcalc import OrderCalc
+from matcalc import OrderCalc, _order
 
 if TYPE_CHECKING:
     from matgl.ext.ase import PESCalculator
@@ -142,6 +142,42 @@ def test_order_calc_single_species_no_swap(matpes_calculator: PESCalculator) -> 
     )
     with pytest.raises(ValueError, match="only one species"):
         OrderCalc(matpes_calculator, nsteps=1).calc(single_species)
+
+
+def test_order_calc_sublattices(matpes_calculator: PESCalculator) -> None:
+    """Species stay on their own sublattice: Li/vacancy and Ni/Mn on different rocksalt sites."""
+    disordered = Structure.from_spacegroup(
+        "Fm-3m", Lattice.cubic(4.2), [{"Li": 0.5}, {"Ni": 0.5, "Mn": 0.5}], [[0, 0, 0], [0.5, 0.5, 0.5]]
+    )
+    result = OrderCalc(matpes_calculator, nsteps=10, seed=0, n_lowest=3).calc(disordered)
+
+    for structure in result["lowest_structures"]:
+        assert structure.composition == Composition("Li2Ni2Mn2")
+        for site in structure:
+            # The rocksalt sites at (0, 0, 0) and (1/2, 1/2, 1/2) differ in the parity of 2 * sum(frac_coords).
+            on_li_sublattice = round(2 * site.frac_coords.sum()) % 2 == 0
+            assert on_li_sublattice == (site.specie.symbol == "Li")
+
+
+def test_order_calc_reuses_energies(
+    disordered_CuAu: Structure, matpes_calculator: PESCalculator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Orderings proposed again are not re-evaluated, and the chain is unchanged."""
+    reference = OrderCalc(matpes_calculator, nsteps=30, seed=3).calc(disordered_CuAu)
+
+    n_calls = 0
+    run_pes_calc = _order.run_pes_calc
+
+    def counting_run_pes_calc(*args: Any, **kwargs: Any) -> Any:
+        nonlocal n_calls
+        n_calls += 1
+        return run_pes_calc(*args, **kwargs)
+
+    monkeypatch.setattr(_order, "run_pes_calc", counting_run_pes_calc)
+    result = OrderCalc(matpes_calculator, nsteps=30, seed=3).calc(disordered_CuAu)
+    # An 8-site Cu4Au4 cell has only 70 orderings, so 30 proposals revisit several of them.
+    assert n_calls < 31
+    assert result["energies"] == reference["energies"]
 
 
 def test_order_calc_relax_structure(disordered_CuAu: Structure, matpes_calculator: PESCalculator) -> None:
