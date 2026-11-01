@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
+from ase.calculators.emt import EMT
 
 from matcalc import MEP, NEBCalc
 
@@ -164,3 +165,48 @@ def test_neb_calc_images_pbc(Cu: Structure, matpes_calculator: PESCalculator) ->
     assert result["converged"]
     assert path_length(result) < 3
     assert 0.3 < result["barrier"] < 1.5
+
+
+class _CountingEMT(EMT):
+    """EMT that records the positions of every evaluation."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.evaluated: list[np.ndarray] = []
+
+    def calculate(self, *args: Any, **kwargs: Any) -> None:
+        super().calculate(*args, **kwargs)
+        self.evaluated.append(self.atoms.positions.copy())
+
+
+@pytest.fixture
+def cu_vacancy_hop(Cu: Structure) -> tuple[Structure, Structure]:
+    """A Cu atom hopping into a neighboring vacancy at the origin of a 2x2x2 supercell."""
+    start = Cu.make_supercell(2, in_place=False)
+    start.remove_sites([0])
+    hop = int(np.argmin([site.distance_from_point([0, 0, 0]) for site in start]))
+    end = start.copy()
+    end.replace(hop, "Cu", [0, 0, 0])
+    return start, end
+
+
+def test_neb_calc_image_order(cu_vacancy_hop: tuple[Structure, Structure]) -> None:
+    """Unpadded image keys are ordered numerically, so image10 is last, not third."""
+    start, end = cu_vacancy_hop
+    images = start.interpolate(end, nimages=10)
+    with pytest.warns(RuntimeWarning, match="did not converge"):
+        result = NEBCalc(EMT(), max_steps=0).calc({f"image{i}": s for i, s in enumerate(images)})
+    for actual, expected in zip(result["mep"].get_structures(), images, strict=True):
+        np.testing.assert_allclose(actual.cart_coords, expected.cart_coords, atol=1e-8)
+
+
+def test_neb_calc_endpoints_evaluated_once(cu_vacancy_hop: tuple[Structure, Structure]) -> None:
+    """The fixed endpoints are evaluated once, not on every NEB step."""
+    start, end = cu_vacancy_hop
+    calc = _CountingEMT()
+    with pytest.warns(RuntimeWarning, match="did not converge"):
+        result = NEBCalc(calc, fmax=1e-6, max_steps=5).calc_images(start, end, n_images=3)
+    for endpoint in (start, end):
+        assert sum(np.allclose(pos, endpoint.cart_coords) for pos in calc.evaluated) == 1
+    reaction_energy = EMT().get_potential_energy(end.to_ase_atoms()) - EMT().get_potential_energy(start.to_ase_atoms())
+    assert result["reaction_energy"] == pytest.approx(reaction_energy)
