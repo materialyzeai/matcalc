@@ -387,7 +387,7 @@ class PESCalculator(Calculator):
     def __init__(
         self,
         potential: LMPStaticCalculator,
-        stress_unit: Literal["eV/A3", "GPa"] = "GPa",
+        stress_unit: Literal["eV/A3", "GPa"] = "eV/A3",
         stress_weight: float = 1.0,
         **kwargs: Any,
     ) -> None:
@@ -396,7 +396,8 @@ class PESCalculator(Calculator):
 
         Args:
             potential: MAML ``LMPStaticCalculator`` instance.
-            stress_unit: ``"GPa"`` or ``"eV/A3"`` for returned stress units.
+            stress_unit: ``"eV/A3"`` (default; the ASE convention that matcalc relies on) or
+                ``"GPa"`` for returned stress units.
             stress_weight: Multiplier on stress after unit conversion (default 1.0).
             **kwargs: Forwarded to ``ase.calculators.calculator.Calculator``.
         """

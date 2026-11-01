@@ -193,6 +193,8 @@ def test_pescalculator_stress_convention(monkeypatch: pytest.MonkeyPatch) -> Non
         assert atoms.get_stress() == pytest.approx(expected * factor)
         # Full tensor is symmetric with xy (index 4 in LAMMPS order) in the [0, 1] slot.
         assert atoms.get_stress(voigt=False)[0, 1] == pytest.approx(-4.0 * factor)
+    # Default must be ASE's eV/A^3: RelaxCalc cell filters and ElasticityCalc assume it.
+    assert PESCalculator(potential=None).stress_weight == pytest.approx(1 / eVA3ToGPa)  # type: ignore[arg-type]
 
 
 def test_load_universal_path(tmp_path: Path) -> None:
