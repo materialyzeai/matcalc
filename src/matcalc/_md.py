@@ -8,8 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from ase import Atoms, units
-from ase.io import read as ase_read
-from ase.io.trajectory import TrajectoryWriter
+from ase.io.trajectory import Trajectory, TrajectoryWriter
 from ase.md import Langevin
 from ase.md.andersen import Andersen
 from ase.md.bussi import Bussi
@@ -107,8 +106,8 @@ class MDCalc(PropCalc):
             andersen_prob (float): Collision probability for Andersen thermostat. Default to 1.0e-2.
             ttime (float): Characteristic time scale for the thermostat in ASE units (fs). Default to 25.0.
             pfactor (float): Barostat differential equation constant. Default to 75.0**2.0.
-            external_stress (float | np.ndarray | None): External stress applied to the system.
-                If not provided, defaults to 0.0.
+            external_stress (float | np.ndarray | None): External stress for the "npt"/"npt_nose_hoover"
+                ensembles (a scalar is a pressure). If not provided, defaults to ``pressure``.
             compressibility_au (float | None): Material compressibility in Å³/eV. Default to None.
             tchain (int): The number of thermostat variables in the Nose-Hoover thermostat. Default to 3.
                 Only used by IsotropicMTKNPT and MTKNPT.
@@ -191,7 +190,7 @@ class MDCalc(PropCalc):
         taut = self.taut if self.taut is not None else 100 * self.timestep * units.fs
         taup = self.taup if self.taup is not None else 1000 * self.timestep * units.fs
         mask = self.mask if self.mask is not None else np.array([(1, 0, 0), (0, 1, 0), (0, 0, 1)])
-        external_stress = self.external_stress if self.external_stress is not None else 0.0
+        external_stress = self.external_stress if self.external_stress is not None else self.pressure
         ensemble = self.ensemble.lower()
 
         if ensemble == "nve":
@@ -377,6 +376,10 @@ class MDCalc(PropCalc):
         # Convert the structure to an ASE atoms object,
         # which is required for subsequent molecular dynamics (MD) simulation.
         atoms = to_ase_atoms(structure_in)
+        if self.ensemble.lower() in ("npt", "npt_nose_hoover"):
+            # NPT rotates the cell into upper-triangular form; do it before the velocities are set so that
+            # ``set_zero_rotation`` acts on the positions that are actually simulated.
+            self._upper_triangular_cell(atoms)
 
         # Initialize the atomic velocities based on the Maxwell-Boltzmann distribution
         # at the specified temperature, ensuring proper kinetic energy.
@@ -400,28 +403,37 @@ class MDCalc(PropCalc):
         else:
             traj_path = str(self.trajfile)
 
+        # Frames already in an appended-to trajectory belong to earlier runs and are excluded below.
+        n_prev = 0
+        if self.append_trajectory and os.path.isfile(traj_path) and os.path.getsize(traj_path) > 0:
+            with Trajectory(traj_path) as reader:
+                n_prev = len(reader)
+
         mode = "a" if self.append_trajectory else "w"
-        with TrajectoryWriter(traj_path, mode, atoms) as ase_traj:
-            md.attach(ase_traj.write, interval=self.loginterval)
-            # Run the MD simulation for the specified number of steps.
-            md.run(self.steps)
+        try:
+            with TrajectoryWriter(traj_path, mode, atoms) as ase_traj:
+                md.attach(ase_traj.write, interval=self.loginterval)
+                # Run the MD simulation for the specified number of steps.
+                md.run(self.steps)
 
-        # Read back all frames.
-        all_frames = ase_read(traj_path, index=":")
+            # Read back only the frames needed: the averaging window and the final frame.
+            with Trajectory(traj_path) as reader:
+                n_total = len(reader)
+                # Drop equilibration_frames from the start of this run, then take the trailing ``frames`` window.
+                indices = list(range(n_prev, n_total))[self.equilibration_frames :][-self.frames :]
+                traj = [reader[i] for i in indices]
+                final_atoms = traj[-1] if traj else reader[n_total - 1]
+        finally:
+            if use_temp:
+                os.unlink(traj_path)
 
-        if use_temp:
-            os.unlink(traj_path)
+        result["final_structure"] = to_pmg_structure(final_atoms)
 
-        result["final_structure"] = to_pmg_structure(all_frames[-1])  # type: ignore[arg-type]
-
-        # Drop equilibration_frames from the start, then take the trailing ``frames`` window.
-        eq_skipped = all_frames[self.equilibration_frames :] if self.equilibration_frames else all_frames
-        traj = eq_skipped[-self.frames :]
         n_avg = len(traj)
         if n_avg == 0:
             raise ValueError(
                 f"No frames left to average after dropping {self.equilibration_frames=} "
-                f"and taking the last {self.frames=}; got {len(all_frames)} total frames."
+                f"and taking the last {self.frames=}; got {n_total - n_prev} total frames."
             )
 
         # Calculate the average potential, kinetic and total energies over the selected window.

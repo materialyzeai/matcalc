@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+from ase import units
 from ase.io import read
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
 
@@ -258,3 +259,59 @@ def test_no_frames_to_average(Si: Structure, matpes_calculator: PESCalculator) -
     )
     with pytest.raises(ValueError, match="No frames left to average after dropping"):
         md_calc.calc(Si)
+
+
+@pytest.mark.parametrize("ensemble", ["npt", "npt_nose_hoover"])
+def test_npt_uses_pressure(Si_atoms: Atoms, matpes_calculator: PESCalculator, ensemble: str) -> None:
+    """The Nose-Hoover NPT ensembles honor ``pressure`` unless ``external_stress`` is given."""
+    pressure = 1.0 * units.GPa
+    md = MDCalc(matpes_calculator, ensemble=ensemble, pressure=pressure)._initialize_md(Si_atoms.copy())  # noqa: SLF001
+    np.testing.assert_allclose(md.externalstress, [-pressure] * 3 + [0.0] * 3)
+
+    md = MDCalc(matpes_calculator, ensemble=ensemble, pressure=pressure, external_stress=0.0)._initialize_md(  # noqa: SLF001
+        Si_atoms.copy()
+    )
+    np.testing.assert_allclose(md.externalstress, 0.0)
+
+
+def test_append_trajectory_window(Si: Structure, matpes_calculator: PESCalculator, tmp_path: Path) -> None:
+    """Frames from earlier runs in an appended trajectory are not averaged or returned."""
+    traj_file = tmp_path / "md.traj"
+    md_calc = MDCalc(
+        matpes_calculator,
+        ensemble="nve",
+        steps=2,
+        frames=10,
+        equilibration_frames=1,
+        relax_structure=False,
+        trajfile=traj_file,
+        append_trajectory=True,
+        seed=0,
+    )
+    first = md_calc.calc(Si)
+    second = md_calc.calc(first["final_structure"])
+
+    # Each run writes steps + 1 frames; the first one is dropped as equilibration.
+    assert len(read(traj_file, index=":")) == 6
+    assert len(first["trajectory"]) == len(second["trajectory"]) == 2
+    expected = np.mean([a.get_total_energy() for a in read(traj_file, index="4:")])
+    assert second["total_energy"] == pytest.approx(expected)
+
+
+def test_npt_zero_rotation(Si_atoms: Atoms, matpes_calculator: PESCalculator) -> None:
+    """``set_zero_rotation`` holds for the (rotated) upper-triangular cell that NPT simulates."""
+    atoms = Si_atoms.repeat(2)
+    assert atoms.cell[1, 0] != 0  # NPT has to rotate this cell
+    md_calc = MDCalc(
+        matpes_calculator,
+        ensemble="npt",
+        steps=1,
+        frames=2,
+        relax_structure=False,
+        set_zero_rotation=True,
+        seed=0,
+    )
+    first = md_calc.calc(atoms)["trajectory"][0]
+    rel_pos = first.get_positions() - first.get_center_of_mass()
+    angular_momentum = np.cross(rel_pos, first.get_momenta()).sum(axis=0)
+    np.testing.assert_allclose(angular_momentum, 0.0, atol=1e-8)
