@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from matcalc._relaxation import RelaxCalc
 from matcalc._stability import EnergeticsCalc
 
 if TYPE_CHECKING:
@@ -135,3 +136,38 @@ def test_energetics_empty_reference_structure_list(
             use_gs_reference=False,
             relax_structure=False,
         ).calc(Si_atoms)
+
+
+def test_energetics_reference_relaxations_cached(
+    Li2O: Structure,
+    matpes_calculator: PESCalculator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Elemental references are relaxed once per calculator, not on every ``calc`` call."""
+    n_ref_relaxations = 0
+    orig_calc_many = RelaxCalc.calc_many
+
+    def counting_calc_many(self: RelaxCalc, structures: list, *args: Any, **kwargs: Any) -> Any:
+        nonlocal n_ref_relaxations
+        n_ref_relaxations += len(structures)
+        return orig_calc_many(self, structures, *args, **kwargs)
+
+    monkeypatch.setattr(RelaxCalc, "calc_many", counting_calc_many)
+
+    energetics_calc = EnergeticsCalc(matpes_calculator, relax_structure=False)
+    first = energetics_calc.calc(Li2O)
+    assert n_ref_relaxations == 2  # one MatPES reference structure each for Li and O
+    second = energetics_calc.calc(Li2O)
+    assert n_ref_relaxations == 2
+    assert second["formation_energy_per_atom"] == pytest.approx(first["formation_energy_per_atom"], abs=1e-6)
+
+
+def test_energetics_missing_element_ref(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    """A composition element absent from elemental_refs raises a KeyError naming it."""
+    with pytest.raises(KeyError, match="No elemental reference for 'O'"):
+        EnergeticsCalc(
+            matpes_calculator,
+            elemental_refs={"Li": {"energy_per_atom": -1.9}},
+            use_gs_reference=True,
+            relax_structure=False,
+        ).calc(Li2O)
