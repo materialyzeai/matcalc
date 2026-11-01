@@ -236,8 +236,34 @@ def test_lazy_matgl_models(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_aliases() -> None:
     # Every alias must resolve to a canonical name in the registry.
-    for v in MODEL_ALIASES.values():
-        assert v in MODEL_REGISTRY, f"Alias target {v!r} is not a canonical model name."
+    for alias, target in MODEL_ALIASES.items():
+        assert target in MODEL_REGISTRY, f"Alias target {target!r} is not a canonical model name."
+        # Lookups lower-case the input, so a non-lower-case alias key would be unreachable.
+        assert alias == alias.lower(), f"Alias key {alias!r} must be lower case."
+        assert _resolve_canonical(alias.upper()) == target
+    # An alias must not shadow a different canonical name's case-folded spelling.
+    for canonical in MODEL_REGISTRY:
+        assert _resolve_canonical(canonical.lower()) == canonical
+    # Removed names must not silently resolve to something else.
+    for removed in _REMOVED_MODELS:
+        assert _resolve_canonical(removed) is None
+
+
+def test_fp_loader_workflow_matches_registry() -> None:
+    """``.github/workflows/test-fp-loaders.yml`` must only smoke-test canonical names of its own provider."""
+    import json
+
+    from ruamel.yaml import YAML
+
+    from matcalc.utils import _PROVIDER_INSTALL_EXTRA
+
+    workflow = YAML(typ="safe").load(DIR.parent / ".github" / "workflows" / "test-fp-loaders.yml")
+    extra_to_provider = {extra: provider for provider, extra in _PROVIDER_INSTALL_EXTRA.items()}
+    for entry in workflow["jobs"]["test-fp-loaders"]["strategy"]["matrix"]["include"]:
+        provider = extra_to_provider[entry["extras"]]
+        for name in json.loads(entry["models"]):
+            assert name in MODEL_REGISTRY, f"{entry['name']}: {name!r} is not a canonical model name."
+            assert MODEL_REGISTRY[name]["provider"] == provider, f"{name!r} is not a {provider!r} model."
 
 
 def test_resolve_canonical_variants() -> None:
