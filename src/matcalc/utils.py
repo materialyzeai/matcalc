@@ -52,7 +52,6 @@ MODEL_REGISTRY: dict[str, dict[str, Any]] = {
     # MatGL — QET
     "QET-MatPES-PBE-2025.2": {"provider": "matgl", "path": "QET-PES-MatPES-PBE-2025.2"},
     "QET-MatPES-r2SCAN-2025.2": {"provider": "matgl", "path": "QET-PES-MatPES-r2SCAN-2025.2"},
-    "QET-MatQ": {"provider": "matgl", "path": "QET-PES-MatQ"},
     # MatGL — CHGNet
     "CHGNet-MatPES-PBE-2026.9-1M": {"provider": "matgl", "path": "CHGNet-PES-MatPES-PBE-1M-2026.9"},
     "CHGNet-MatPES-r2SCAN-2026.9-1M": {"provider": "matgl", "path": "CHGNet-PES-MatPES-r2SCAN-1M-2026.9"},
@@ -240,7 +239,6 @@ MODEL_ALIASES: dict[str, str] = {
     "m3gnet-pes-matpes-r2scan-2025.2": "M3GNet-MatPES-r2SCAN-2025.2",
     "qet-pes-matpes-pbe-2025.2": "QET-MatPES-PBE-2025.2",
     "qet-pes-matpes-r2scan-2025.2": "QET-MatPES-r2SCAN-2025.2",
-    "qet-pes-matq": "QET-MatQ",
     "chgnet-pes-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-2026.9-1M",
     "chgnet-pes-matpes-r2scan-1m-2026.9": "CHGNet-MatPES-r2SCAN-2026.9-1M",
     "chgnet-matpes-pbe-1m-2026.9": "CHGNet-MatPES-PBE-2026.9-1M",
@@ -297,6 +295,7 @@ _REMOVED_MODELS: dict[str, str] = {
     "m3gnet-pes-matpes-pbe-2025.1": "MatGL no longer distributes it; use the retrained M3GNet-MatPES-PBE-2025.2.",
     "petmad-1.0.0": "it loaded the latest pet-mad model, not version 1.0.0; use PET-MAD-PBEsol-1.0.2-S.",
     "dpa3-lam-2025.3.14": "its checkpoint is not distributed and fails with deepmd-kit 3.2; use a DPA3-OpenLAM model.",
+    "qet-matq": "use QET-MatPES-r2SCAN-2025.2 or QET-MatPES-PBE-2025.2.",
 }
 
 
