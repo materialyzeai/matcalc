@@ -74,7 +74,7 @@ class VoltageCalc(PropCalc):
         intercalation_calc_kwargs: dict[str, Any] | None = None,
         trajfile: str = "voltage_mc.traj",
         store_intercalation: bool = True,
-        write_voltage_profile: bool | str | os.PathLike = False,
+        write_voltage_profile: bool | str | os.PathLike = True,
     ) -> None:
         """Initialize the VoltageCalc.
 
@@ -112,7 +112,7 @@ class VoltageCalc(PropCalc):
                 ``"intercalation"`` key. Default is True.
             write_voltage_profile: Write the per-level energies and step voltages as CSV. True writes
                 ``voltage_profile.csv``, a path selects the file, False disables writing.
-                Default is False.
+                Default is True.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.species = species

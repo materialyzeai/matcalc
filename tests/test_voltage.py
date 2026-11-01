@@ -130,8 +130,11 @@ def test_voltage_relaxed_reference(Cu3Au: Structure, Cu: Structure, emt_calculat
 
 
 def test_voltage_write_profile(Cu3Au: Structure, emt_calculator: Calculator) -> None:
-    """write_voltage_profile writes one CSV row per ion count."""
-    emt_voltage_calc(emt_calculator, removal_range=(0.0, 1 / 3), write_voltage_profile=True).calc(Cu3Au)
+    """By default a CSV with one row per ion count is written; False disables it."""
+    emt_voltage_calc(emt_calculator, removal_range=(0.0, 1 / 3), write_voltage_profile=False).calc(Cu3Au)
+    assert not Path("voltage_profile.csv").exists()
+
+    emt_voltage_calc(emt_calculator, removal_range=(0.0, 1 / 3)).calc(Cu3Au)
 
     with Path("voltage_profile.csv").open() as f:
         rows = list(csv.DictReader(f))
