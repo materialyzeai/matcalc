@@ -5,8 +5,11 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
+import numpy as np
 import phonopy
 import pytest
 from numpy.testing import assert_allclose
@@ -15,8 +18,6 @@ from phonopy.file_IO import read_v_e
 from matcalc import QHACalc
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from ase import Atoms
     from matgl.ext.ase import PESCalculator
     from pymatgen.core import Structure
@@ -535,3 +536,39 @@ def test_qha_multiple_pressures(
     ind = result["temperatures"].tolist().index(300)
     assert result["qha_results"][0]["gibbs_free_energies"][ind] == pytest.approx(-13.974636239457125, rel=1e-1)
     assert result["qha_results"][1]["gibbs_free_energies"][ind] == pytest.approx(-12.604639023450272, rel=1e-1)
+
+
+def test_qha_temperature_grid_not_multiple_of_step(Si_atoms: Atoms, matpes_calculator: PESCalculator) -> None:
+    """t_max - t_min not a multiple of t_step used to misalign the temperature grid (IndexError)."""
+    qha_calc = QHACalc(
+        calculator=matpes_calculator,
+        t_step=10,
+        t_max=95,
+        scale_factors=[0.98, 0.99, 1.00, 1.01, 1.02],
+        fmax=0.1,
+        relax_structure=False,
+        store_ha_phonon=False,
+        phonon_calc_kwargs={"supercell_matrix": ((2, 0, 0), (0, 2, 0), (0, 0, 2))},
+    )
+    result = qha_calc.calc(Si_atoms)
+    # phonopy's convention: the grid stops at the last multiple of t_step not above t_max.
+    assert_allclose(result["temperatures"], np.arange(0, 91, 10))
+    assert len(result["gibbs_free_energies"]) == len(result["temperatures"])
+    assert len(result["thermal_expansion_coefficients"]) == len(result["temperatures"])
+    assert "ha" not in result
+
+
+def test_qha_pressure_suffix(tmp_path: Path, matpes_calculator: PESCalculator) -> None:
+    """Multi-pressure output files get the pressure suffix on the file name, not on a dotted parent dir."""
+    qha_calc = QHACalc(
+        calculator=matpes_calculator,
+        pressure=[0.0, 1.0],
+        write_thermal_expansion=tmp_path / "run.v1" / "alpha.dat",
+        write_gibbs_temperature=tmp_path / "run.v1" / "gibbs",
+    )
+    qha = MagicMock()
+    qha_calc._write_output_files(qha, pressure=1.0)  # noqa: SLF001
+    alpha_file = qha.write_thermal_expansion.call_args.kwargs["filename"]
+    gibbs_file = qha.write_gibbs_temperature.call_args.kwargs["filename"]
+    assert Path(alpha_file) == tmp_path / "run.v1" / "alpha_P1.0GPa.dat"
+    assert Path(gibbs_file) == tmp_path / "run.v1" / "gibbs_P1.0GPa"
