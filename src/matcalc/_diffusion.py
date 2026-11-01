@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from ase import units
+from pymatgen.core import Element
+from scipy import constants
 
 from ._base import PropCalc
 from ._lammps import LAMMPSMDCalc
@@ -49,6 +51,7 @@ class DiffusionCalc(PropCalc):
         calculator: Calculator | str,
         *,
         specie: str,
+        charge: float | None = None,
         temperature: float,
         timestep: float,
         loginterval: int,
@@ -71,6 +74,10 @@ class DiffusionCalc(PropCalc):
         Args:
             calculator: ASE calculator instance or universal model name.
             specie: Symbol of the mobile ion species, e.g. ``"Li"``.
+            charge: Charge of the mobile ion in units of e, for the Nernst-Einstein conductivity. None
+                takes the oxidation state of ``specie`` in the input structure if it is decorated, else the
+                most likely oxidation state for its composition (e.g. +1 for Cu in Cu2Se), else its first
+                common oxidation state with a warning.
             temperature: Simulation temperature in Kelvin, also used for the conductivity. For a supplied
                 trajectory, the temperature it was run at.
             timestep: MD time step in femtoseconds. For a supplied trajectory, the step it was run with.
@@ -105,6 +112,7 @@ class DiffusionCalc(PropCalc):
         self._calculator_arg = calculator
         self.backend = backend
         self.specie = specie
+        self.charge = charge
         self.temperature = temperature
         self.ensemble: _ASE_ENSEMBLES = ensemble
         self.timestep = timestep
@@ -184,6 +192,8 @@ class DiffusionCalc(PropCalc):
         from pymatgen.analysis.diffusion.analyzer import DiffusionAnalyzer
 
         result = super().calc(structure)
+        # Resolved before MD so that an undeterminable charge fails fast.
+        charge = self._mobile_ion_charge(to_pmg_structure(result["final_structure"]))
         if "trajectory" not in result:
             md_calc = self._build_md_calc()
             if isinstance(md_calc, LAMMPSMDCalc):
@@ -200,10 +210,44 @@ class DiffusionCalc(PropCalc):
             step_skip=self.loginterval,
             **self.analyzer_kwargs,
         )
-        result["diffusivity"] = float(analyzer.diffusivity)
-        result["conductivity"] = float(analyzer.conductivity)
+        diffusivity = float(analyzer.diffusivity)
+        # Nernst-Einstein with the tracer diffusivity. DiffusionAnalyzer.conductivity takes the charge of an
+        # undecorated element from its last subshell occupancy, e.g. 10 for Ag/Cu, 4 for O and 5 for F.
+        n_mobile = sum(site.specie.symbol == self.specie for site in trajectory[0])
+        volume = trajectory[0].volume * 1e-24  # cm^3
+        conductivity = (
+            1000 * n_mobile / volume * charge**2 * constants.e**2 * diffusivity / (constants.k * self.temperature)
+        )
+        result["diffusivity"] = diffusivity
+        result["conductivity"] = float(conductivity)
         result["_units"] = self._merge_units(
             result.get("_units"),
             {"diffusivity": "cm^2/s", "conductivity": "mS/cm"},
         )
         return result
+
+    def _mobile_ion_charge(self, structure: Structure) -> float:
+        """Charge of the mobile ion for the conductivity, as described for ``charge`` in ``__init__``."""
+        if self.charge is not None:
+            return self.charge
+        oxi_states = {
+            getattr(site.specie, "oxi_state", None) for site in structure if site.specie.symbol == self.specie
+        }
+        if len(oxi_states) == 1 and (oxi_state := oxi_states.pop()):
+            return oxi_state
+        try:
+            guesses = structure.composition.element_composition.oxi_state_guesses(max_sites=-50)
+        except ValueError:  # reduced composition above 50 atoms
+            guesses = ()
+        if guesses and guesses[0].get(self.specie):
+            return guesses[0][self.specie]
+        common = Element(self.specie).common_oxidation_states
+        if not common:
+            raise ValueError(f"Cannot determine the charge of {self.specie}; pass it as charge.")
+        warnings.warn(
+            f"No charge-balanced oxidation states for {structure.composition.reduced_formula}; using the "
+            f"common oxidation state {common[0]} of {self.specie} for the conductivity. Pass charge to override.",
+            UserWarning,
+            stacklevel=3,
+        )
+        return common[0]
