@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import difflib
+import os
 import sys
 import warnings
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import numpy as np
 from ase import Atoms
 from ase.calculators.calculator import Calculator
 from pymatgen.core import Molecule, Structure
@@ -403,7 +405,6 @@ class PESCalculator(Calculator):
         """
         from ase.calculators.calculator import all_changes, all_properties
         from maml.apps.pes import EnergyForceStress
-        from pymatgen.io.ase import AseAtomsAdaptor
 
         properties = properties or all_properties
         system_changes = system_changes or all_changes
@@ -413,10 +414,15 @@ class PESCalculator(Calculator):
         efs_calculator = EnergyForceStress(ff_settings=self.potential)
         energy, forces, stresses = efs_calculator.calculate([structure])[0]
 
+        # maml returns the LAMMPS pressure tensor in GPa, ordered (xx, yy, zz, xy, xz, yz).
+        # ASE stress has the opposite sign (positive = tensile) and Voigt order
+        # (xx, yy, zz, yz, xz, xy).
+        stress = -np.asarray(stresses)[[0, 1, 2, 5, 4, 3]]
+
         self.results = {
             "energy": energy,
             "forces": forces,
-            "stress": stresses * self.stress_weight,
+            "stress": stress * self.stress_weight,
         }
 
     @staticmethod
@@ -614,7 +620,7 @@ class PESCalculator(Calculator):
         return DP(model=model_path, **kwargs)
 
     @staticmethod
-    def load_universal(name: str | Calculator, **kwargs: Any) -> Calculator:
+    def load_universal(name: str | os.PathLike[str] | Calculator, **kwargs: Any) -> Calculator:
         """
         Load a foundation potential calculator by its canonical name.
 
@@ -629,7 +635,7 @@ class PESCalculator(Calculator):
         fine-tuned potential) is loaded with MatGL.
 
         Args:
-            name: Canonical model name, alias, raw MatGL model name or directory, or an
+            name: Canonical model name, alias, raw MatGL model name or directory (str or Path), or an
                 existing ASE calculator instance.
             **kwargs: Provider-specific options. These override the defaults stored
                 in the registry entry (e.g. ``device="cuda"`` for ORB / FAIRChem).
@@ -642,6 +648,8 @@ class PESCalculator(Calculator):
             ImportError: If the model is recognized but the provider's optional
                 dependency is not installed.
         """
+        if isinstance(name, os.PathLike):  # e.g. Path to a saved MatGL model directory
+            name = os.fspath(name)
         if not isinstance(name, str):  # already an ASE Calculator
             return name
 

@@ -166,6 +166,44 @@ def test_pescalculator_calculate() -> None:
     assert list(stresses.shape) == [6]
 
 
+@pytest.mark.skipif(not find_spec("maml"), reason="maml is not installed")
+def test_pescalculator_stress_convention(monkeypatch: pytest.MonkeyPatch) -> None:
+    """maml returns the LAMMPS pressure tensor (GPa, xx yy zz xy xz yz); ASE wants -p in Voigt order."""
+    import maml.apps.pes
+    import numpy as np
+
+    from matcalc.units import eVA3ToGPa
+
+    lammps_pressure = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])  # xx yy zz xy xz yz
+
+    class FakeEFS:  # stands in for maml's LAMMPS-backed EnergyForceStress
+        def __init__(self, ff_settings: object) -> None:
+            pass
+
+        def calculate(self, structures: list) -> list:
+            return [(-1.0, np.zeros((len(structures[0]), 3)), lammps_pressure)]
+
+    monkeypatch.setattr(maml.apps.pes, "EnergyForceStress", FakeEFS)
+    atoms = Atoms("Cu", positions=[(0, 0, 0)], cell=[2.5] * 3, pbc=True)
+    expected = -np.array([1.0, 2.0, 3.0, 6.0, 5.0, 4.0])  # xx yy zz yz xz xy
+    for unit, factor in (("GPa", 1.0), ("eV/A3", 1 / eVA3ToGPa)):
+        atoms.calc = PESCalculator(potential=None, stress_unit=unit)  # type: ignore[arg-type]
+        assert atoms.get_stress() == pytest.approx(expected * factor)
+        # Full tensor is symmetric with xy (index 4 in LAMMPS order) in the [0, 1] slot.
+        assert atoms.get_stress(voigt=False)[0, 1] == pytest.approx(-4.0 * factor)
+
+
+def test_load_universal_path(tmp_path: Path) -> None:
+    """A ``Path`` (not just a ``str``) to a saved MatGL model directory must load, not be returned as-is."""
+    import matgl
+
+    model_dir = tmp_path / "finetuned"
+    matgl.load_model("TensorNet-PES-MatPES-PBE-2025.2").save(model_dir)
+    assert isinstance(PESCalculator.load_universal(model_dir), Calculator)
+    with pytest.raises(ValueError, match="Unrecognized"):
+        PESCalculator.load_universal(tmp_path / "missing")
+
+
 def test_aliases() -> None:
     # Every alias must resolve to a canonical name in the registry.
     for v in MODEL_ALIASES.values():
