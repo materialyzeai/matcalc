@@ -324,3 +324,72 @@ def test_adsorption_calc_adslabs_custom_site_dict(
     top_slab_z = float(np.max(results[0]["final_slab"].cart_coords[:, 2]))
     ads = adslab.cart_coords[len(adslab) - len(CO2) :]
     assert float(np.min(ads[:, 2])) > top_slab_z
+
+
+def test_adsorption_calc_slab_relaxed_energy(Pt_slab: Slab, matpes_calculator: PESCalculator) -> None:
+    """With relax_slab, the slab energy is that of the relaxed slab, not of the input slab."""
+    ad_calc = AdsorptionCalc(calculator=matpes_calculator, relax_slab=True, max_steps=100)
+    res = ad_calc.calc_slab(Pt_slab)
+
+    def energy(structure: Structure) -> float:
+        atoms = to_ase_atoms(structure)
+        atoms.calc = matpes_calculator
+        return float(atoms.get_potential_energy())
+
+    assert res["slab_energy"] == pytest.approx(energy(res["final_slab"]), abs=1e-3)
+    assert res["slab_energy"] < energy(Pt_slab) - 1e-2
+    assert res["slab_energy_per_atom"] == pytest.approx(res["slab_energy"] / len(Pt_slab))
+
+
+def test_adsorption_calc_adslabs_keeps_slab_gen_kwargs(
+    Pt_bulk: Structure, CO2: Molecule, matpes_calculator: PESCalculator
+) -> None:
+    """calc_adslabs does not mutate the caller's slab_gen_kwargs, so reusing it for another Miller index does not
+    carry over the max_normal_search default of the first one."""
+    ad_calc = AdsorptionCalc(calculator=matpes_calculator, relax_slab=False, relax_bulk=False, relax_adsorbate=False)
+    slab_gen_kwargs = {"center_slab": True}
+    ad_calc.calc_adslabs(
+        adsorbate=CO2,
+        bulk=Pt_bulk,
+        miller_index=(1, 1, 1),
+        min_slab_size=10.0,
+        min_vacuum_size=10.0,
+        adsorption_sites="hollow",
+        slab_gen_kwargs=slab_gen_kwargs,
+        dry_run=True,
+    )
+    assert slab_gen_kwargs == {"center_slab": True}
+
+
+def test_adsorption_calc_reuses_slab_and_adsorbate(
+    Pt_bulk: Structure,
+    CO2: Molecule,
+    matpes_calculator: PESCalculator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """calc does not recompute the clean slab and adsorbate that calc_adslabs already computed once for all sites."""
+    ad_calc = AdsorptionCalc(
+        calculator=matpes_calculator, relax_slab=False, relax_bulk=False, relax_adsorbate=False, max_steps=5
+    )
+    adslabs = ad_calc.calc_adslabs(
+        adsorbate=CO2,
+        bulk=Pt_bulk,
+        miller_index=(1, 1, 1),
+        min_slab_size=10.0,
+        min_vacuum_size=10.0,
+        adsorption_sites="hollow",
+        fixed_height=4.0,
+        dry_run=True,
+    )
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("recomputed")
+
+    monkeypatch.setattr(ad_calc, "calc_slab", fail)
+    monkeypatch.setattr(ad_calc, "calc_adsorbate", fail)
+    for adslab in adslabs:
+        res = ad_calc.calc(adslab)
+        assert res["slab_energy_per_atom"] == pytest.approx(adslab["slab_energy"] / len(adslab["slab"]))
+        assert res["adsorption_energy"] == pytest.approx(
+            res["adslab_energy"] - adslab["slab_energy"] - adslab["adsorbate_energy"]
+        )
