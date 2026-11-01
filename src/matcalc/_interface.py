@@ -129,15 +129,17 @@ class InterfaceCalc(PropCalc):
     ) -> list[dict[str, Any]]:
         """Calculate all possible coherent interfaces between two bulk structures.
 
+        The bulks are relaxed first (if relax_bulk), and the interfaces are built from the relaxed bulks, so that the
+        substrate (and the film before its coherency strain) match the bulk reference energies.
+
         Parameters:
             film_bulk (Structure): The bulk structure of the film material.
             substrate_bulk (Structure): The bulk structure of the substrate material.
-            film_miller (tuple[int, int, int]): The Miller index for the film surface.
-            substrate_miller (tuple[int, int, int]): The Miller index for the substrate surface.
+            film_miller (tuple[int, int, int]): The Miller index for the film surface, in the lattice of film_bulk.
+            substrate_miller (tuple[int, int, int]): The Miller index for the substrate surface, in the lattice of
+                substrate_bulk.
             zslgen (ZSLGenerator | None, optional): An instance of ZSLGenerator to use for generating
                 supercells.
-            zsl_kwargs (dict | None, optional): Additional keyword arguments to pass to the
-                ZSLGenerator.
             cib_kwargs (dict | None, optional): Additional keyword arguments to pass to the
                 CoherentInterfaceBuilder.
             **kwargs (Any): Additional keyword arguments passed to calc_many.
@@ -145,9 +147,13 @@ class InterfaceCalc(PropCalc):
         Returns:
                 dict: A list of dictionaries containing the calculated film, substrate, interface.
         """
+        # Relax the bulks in their input cells, which the Miller indices refer to.
+        film = self.calc_bulk(film_bulk)
+        substrate = self.calc_bulk(substrate_bulk)
+
         cib = CoherentInterfaceBuilder(
-            film_structure=film_bulk,
-            substrate_structure=substrate_bulk,
+            film_structure=film["final_bulk"],
+            substrate_structure=substrate["final_bulk"],
             film_miller=film_miller,
             substrate_miller=substrate_miller,
             zslgen=zslgen,
@@ -178,12 +184,6 @@ class InterfaceCalc(PropCalc):
             if not placed:
                 groups.append([i])
         unique_interfaces = [g[0] for g in groups]
-
-        film_bulk = film_bulk.to_conventional()
-        substrate_bulk = substrate_bulk.to_conventional()
-
-        film = self.calc_bulk(film_bulk)
-        substrate = self.calc_bulk(substrate_bulk)
 
         interfaces = [
             {
