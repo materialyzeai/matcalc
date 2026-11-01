@@ -6,8 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pymatgen.core import Structure
-from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.io.ase import MSONAtoms
 from pymatgen.io.lammps.data import LammpsData
 from pymatgen.io.lammps.inputs import LammpsRun
 from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
@@ -19,6 +18,7 @@ if TYPE_CHECKING:
     from typing import Any, Literal
 
     from ase import Atoms
+    from pymatgen.core import Structure
 
 LAMMPS_TEMPLATES_DIR = Path(__file__).parent / "lammps_templates"
 
@@ -218,16 +218,19 @@ class LAMMPSMDCalc(PropCalc):
 
         subprocess.run(["lmp", "-in", self.infile], check=True, cwd=directory)  # noqa: S603, S607
 
-        # Create a list to record the state of atoms at each simulation step.
+        # Create a list to record the state of atoms at each simulation step. Atoms are built directly from
+        # the dump arrays; going through a pymatgen Structure per frame is ~70x slower for long trajectories.
         traj = []
         frame_steps = []
         for snapshot in parse_lammps_dumps(str(directory / self.trajfile)):
-            lattice = snapshot.box.to_lattice()
-            coords = snapshot.data[["x", "y", "z"]].to_numpy()
-            species = snapshot.data["element"].tolist()
-            struct = Structure(lattice, species, coords, coords_are_cartesian=True)
-
-            traj.append(AseAtomsAdaptor.get_atoms(struct))
+            traj.append(
+                MSONAtoms(
+                    symbols=snapshot.data["element"].tolist(),
+                    positions=snapshot.data[["x", "y", "z"]].to_numpy(),
+                    cell=snapshot.box.to_lattice().matrix,
+                    pbc=True,
+                )
+            )
             frame_steps.append(snapshot.timestep)
         traj = traj[self.equilibration_frames :]
         frame_steps = frame_steps[self.equilibration_frames :]
