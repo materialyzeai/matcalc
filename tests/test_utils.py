@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import shutil
+import subprocess
+import sys
 from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -202,6 +204,32 @@ def test_load_universal_path(tmp_path: Path) -> None:
     assert isinstance(PESCalculator.load_universal(model_dir), Calculator)
     with pytest.raises(ValueError, match="Unrecognized"):
         PESCalculator.load_universal(tmp_path / "missing")
+
+
+def test_import_does_not_load_matgl() -> None:
+    """``import matcalc`` must not import MatGL or query the HF Hub for its model list."""
+    code = "import sys, matcalc; assert 'matgl' not in sys.modules, 'matgl imported eagerly'"
+    subprocess.run([sys.executable, "-c", code], check=True)  # noqa: S603
+
+
+def test_lazy_matgl_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    import matgl
+
+    from matcalc.utils import _LazyMatGLModels
+
+    calls = []
+
+    def fake_list() -> list[str]:
+        calls.append(1)
+        return ["Foo-PES-Bar", "Foo-Bandgap"]
+
+    monkeypatch.setattr(matgl, "get_available_pretrained_models", fake_list)
+    models = _LazyMatGLModels()
+    assert not calls
+    assert "Foo-PES-Bar" in models
+    assert "Foo-Bandgap" not in models
+    assert set(models) == {"Foo-PES-Bar"}
+    assert len(calls) == 1
 
 
 def test_aliases() -> None:
