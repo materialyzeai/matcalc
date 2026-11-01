@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 from ase.filters import ExpCellFilter
+from pymatgen.core.elasticity import ElasticTensor
 
 from matcalc import ElasticityCalc
 
@@ -122,3 +124,56 @@ def test_check_and_prelax_raises_on_non_convergence(
     )
     with pytest.raises(RuntimeError, match="Pre-relaxation did not converge"):
         elast_calc.calc(Li2O)
+
+
+def test_elastic_calc_symmetry(Cu: Structure, matpes_calculator: PESCalculator) -> None:
+    """symmetry=True must reconstruct the strain states removed by the symmetry reduction.
+
+    For a conventional cubic cell the reduction drops entire strain states (e.g. all yy strains,
+    which are equivalent to xx), which used to raise a KeyError in the fit.
+    """
+    kwargs = {"fmax": 0.05, "units_GPa": True, "relax_calc_kwargs": {"cell_filter": ExpCellFilter}}
+    ref = ElasticityCalc(matpes_calculator, **kwargs).calc(Cu)
+    sym = ElasticityCalc(matpes_calculator, symmetry=True, **kwargs).calc(Cu)
+    assert sym["elastic_tensor"].voigt == pytest.approx(ref["elastic_tensor"].voigt, abs=0.05)
+    assert sym["bulk_modulus_vrh"] == pytest.approx(ref["bulk_modulus_vrh"], abs=0.05)
+
+
+@pytest.mark.parametrize("structure_name", ["Cu", "Si"])
+def test_elastic_calc_r2_no_spurious_warning(
+    structure_name: str, request: pytest.FixtureRequest, matpes_calculator: PESCalculator
+) -> None:
+    """Default strains on simple cubic solids give clean linear fits and must not trigger the R² warning.
+
+    Stress components that vanish by symmetry only carry numerical noise (or response that is even in
+    strain), so their per-component R² is meaningless and must not drag the score down.
+    """
+    structure = request.getfixturevalue(structure_name)
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        result = ElasticityCalc(matpes_calculator, relax_calc_kwargs={"cell_filter": ExpCellFilter}).calc(structure)
+    assert result["r2_score_mean"] > 0.99
+    assert not [w for w in record if "strain-stress fits" in str(w.message)]
+
+    # Strains far outside the linear regime must still be flagged.
+    with pytest.warns(RuntimeWarning, match="strain-stress fits"):
+        result = ElasticityCalc(
+            matpes_calculator,
+            norm_strains=(-0.15, -0.08, 0.08, 0.15),
+            shear_strains=(-0.3, -0.15, 0.15, 0.3),
+            relax_structure=False,
+        ).calc(result["final_structure"])
+    assert result["r2_score_mean"] < 0.95
+
+
+def test_elastic_calc_residuals_units(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """residuals_sum is a sum of squared stresses, so it converts with the square of the stress factor."""
+    kwargs = {"relax_structure": False, "norm_strains": 0.004, "shear_strains": (-0.01, 0.01, 0.02)}
+    res_ev = ElasticityCalc(matpes_calculator, **kwargs).calc(Si)
+    res_gpa = ElasticityCalc(matpes_calculator, units_GPa=True, **kwargs).calc(Si)
+    gpa_per_ev_a3 = 1 / ElasticTensor.GPa_to_eV_A3
+    assert res_ev["residuals_sum"] > 0
+    assert res_gpa["residuals_sum"] == pytest.approx(res_ev["residuals_sum"] * gpa_per_ev_a3**2, rel=1e-3)
+    assert res_gpa["bulk_modulus_vrh"] == pytest.approx(res_ev["bulk_modulus_vrh"] * gpa_per_ev_a3, rel=1e-3)
+    assert res_ev["_units"]["residuals_sum"] == "(eV/A^3)^2"
+    assert res_gpa["_units"]["residuals_sum"] == "GPa^2"
