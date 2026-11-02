@@ -53,6 +53,27 @@ def test_relaxer_precedence(matpes_calculator: PESCalculator) -> None:
     assert relaxer.relax_cell
 
 
+@pytest.mark.parametrize(
+    ("prev", "expected"),
+    [
+        (None, {"x": "eV"}),
+        ({"_units": {"a": "A", "x": "meV"}, "a": 1.0}, {"a": "A", "x": "eV"}),
+        ({"a": "A"}, {"a": "A", "x": "eV"}),
+        # A result dict with no upstream ``_units``: its entries are values, not units.
+        ({"final_structure": object(), "structure": object(), "foo": 1.0}, {"x": "eV"}),
+        ({"_units": None, "a": 1.0}, {"x": "eV"}),
+    ],
+)
+def test_merge_units(prev: dict | None, expected: dict) -> None:
+    assert PropCalc._merge_units(prev, {"x": "eV"}) == expected  # noqa: SLF001
+
+
+def test_units_exclude_result_values(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    result = RelaxCalc(matpes_calculator, relax_atoms=False, relax_cell=False).calc({"structure": Li2O, "foo": 1.0})
+    assert all(isinstance(unit, str) for unit in result["_units"].values())
+    assert {"final_structure", "structure", "foo"}.isdisjoint(result["_units"])
+
+
 class _Captured(Exception):  # noqa: N818
     """Raised by the patched RelaxCalc.__init__ to stop the calculation once its arguments are known."""
 
