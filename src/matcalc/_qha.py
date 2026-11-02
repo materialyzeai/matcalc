@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -50,7 +51,8 @@ class QHACalc(PropCalc):
         relax_structure: Relax initial structure before the QHA volume scan.
         relax_calc_kwargs: Kwargs merged into all ``RelaxCalc`` uses.
         phonon_calc_kwargs: Kwargs merged into ``PhononCalc``.
-        scale_factors: Volume scale factors for the QHA mesh.
+        scale_factors: Linear (lattice-parameter) scale factors for the QHA mesh; volumes scale as
+            ``scale_factor**3``.
         imaginary_freq_tol, on_imaginary_modes, fix_imaginary_attempts: Passed to ``PhononCalc``.
         store_ha_phonon: Whether to store per-scale-factor harmonic approximation results in
             the output dict under the ``"ha"`` key.
@@ -114,7 +116,8 @@ class QHACalc(PropCalc):
             relax_structure: Relax input once before scanning ``scale_factors``.
             relax_calc_kwargs: Extra kwargs for every ``RelaxCalc``.
             phonon_calc_kwargs: Extra kwargs for each ``PhononCalc``.
-            scale_factors: Volume scale factors applied to the relaxed structure.
+            scale_factors: Linear (lattice-parameter) scale factors applied to the relaxed structure;
+                volumes scale as ``scale_factor**3``.
             imaginary_freq_tol: Imaginary-mode threshold (THz) for ``PhononCalc``.
             on_imaginary_modes: ``"warn"`` or ``"error"``.
             fix_imaginary_attempts: Imaginary-mode retries per scale factor in ``PhononCalc``.
@@ -250,9 +253,12 @@ class QHACalc(PropCalc):
         if self.write_energy_volume is not None:
             _write_energy_volume(self.write_energy_volume, properties["volumes"], properties["electronic_energies"])
 
-        temperatures = np.arange(self.t_min, self.t_max + self.t_step, self.t_step)
-        # PhonopyQHA needs one extra temperature point for finite-difference derivatives.
-        temperatures_ext = np.append(temperatures, temperatures[-1] + self.t_step)
+        # Use the temperature grid phonopy computed the thermal properties on. It ends one t_step past
+        # the requested grid since PhonopyQHA needs one extra point for finite-difference derivatives.
+        # Rebuilding it with np.arange can differ by one point (e.g. when t_max - t_min is not a
+        # multiple of t_step), which misaligns the free energies with the temperatures.
+        temperatures_ext = properties["temperatures"]
+        temperatures = temperatures_ext[:-1]
 
         qha_results: list[dict] = []
         for pressure in self.pressures:
@@ -314,7 +320,7 @@ class QHACalc(PropCalc):
 
         return result | output_dict
 
-    def _collect_properties(self, structure: Structure) -> dict[str, list]:
+    def _collect_properties(self, structure: Structure) -> dict[str, Any]:
         """Helper to collect properties like volumes, electronic energies, and thermal properties.
 
         Args:
@@ -323,7 +329,8 @@ class QHACalc(PropCalc):
         Returns:
             Dict of lists keyed by ``volumes``, ``electronic_energies``, ``free_energies``,
             ``entropies``, ``heat_capacities``, ``scaled_structures``, and ``ha``
-            (per-scale-factor ``PhononCalc`` result dicts).
+            (per-scale-factor ``PhononCalc`` result dicts; empty unless ``store_ha_phonon``),
+            plus ``temperatures``, the phonopy temperature grid (K) of the thermal properties.
         """
         volumes = []
         electronic_energies = []
@@ -332,13 +339,14 @@ class QHACalc(PropCalc):
         heat_capacities = []
         scaled_structures = []
         ha = []
+        temperatures = np.array([])
+        relaxer = RelaxCalc(self.calculator, **self._fixed_cell_relax_calc_kwargs)
         for scale_factor in self.scale_factors:
             # Apply linear strain
             scaled_structure = self._scale_structure(structure, scale_factor)
 
             # Relax at fixed volume
             logger.info("Scale factor %.3f: relaxing at fixed volume", scale_factor)
-            relaxer = RelaxCalc(self.calculator, **self._fixed_cell_relax_calc_kwargs)
             relaxed_result = relaxer.calc(scaled_structure)
 
             # Resolve the phonon write path for this scale factor
@@ -371,7 +379,9 @@ class QHACalc(PropCalc):
                     f"Somehow the volume changed during relaxation. This is a bug! Before: {scaled_structure.volume}. "
                     f"After: {volume}"
                 )
-            ha.append(phonon_result)
+            if self.store_ha_phonon:
+                # Holding on to every PhononCalc result (incl. the Phonopy object) costs memory.
+                ha.append(phonon_result)
             scaled_structures.append(phonon_result["final_structure"])
             volumes.append(phonon_result["phonon"].primitive.volume)
             norm_factor = len(phonon_result["phonon"].primitive) / len(phonon_result["phonon"].unitcell)
@@ -380,6 +390,7 @@ class QHACalc(PropCalc):
             free_energies.append(thermal_properties["free_energy"])
             entropies.append(thermal_properties["entropy"])
             heat_capacities.append(thermal_properties["heat_capacity"])
+            temperatures = thermal_properties["temperatures"]
         return {
             "volumes": volumes,
             "electronic_energies": electronic_energies,
@@ -388,6 +399,7 @@ class QHACalc(PropCalc):
             "heat_capacities": heat_capacities,
             "scaled_structures": scaled_structures,
             "ha": ha,
+            "temperatures": temperatures,
         }
 
     def _scale_structure(self, structure: Structure, scale_factor: float) -> Structure:
@@ -449,9 +461,9 @@ class QHACalc(PropCalc):
             """Insert a pressure suffix before the file extension, only for multi-pressure runs."""
             if pressure is None or len(self.pressures) == 1:
                 return path
-            s = str(path)
-            stem, _, ext = s.rpartition(".")
-            return f"{stem}_P{pressure}GPa.{ext}" if stem else f"{s}_P{pressure}GPa"
+            # Only the file name is suffixed, never a dot in a parent directory.
+            file_path = Path(path)
+            return file_path.with_name(f"{file_path.stem}_P{pressure}GPa{file_path.suffix}")
 
         # write_* are Optional[str | os.PathLike]; None means "do not write".
         if self.write_helmholtz_volume is not None:
