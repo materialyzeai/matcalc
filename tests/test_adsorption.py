@@ -393,3 +393,17 @@ def test_adsorption_calc_reuses_slab_and_adsorbate(
         assert res["adsorption_energy"] == pytest.approx(
             res["adslab_energy"] - adslab["slab_energy"] - adslab["adsorbate_energy"]
         )
+
+
+def test_adsorption_calc_bulk_relaxation(Pt_bulk: Structure, matpes_calculator: PESCalculator) -> None:
+    """The bulk goes through PropCalc._check_and_prelax (an unconverged relaxation raises), and calc_bulk
+    records the documented final_bulk / bulk_energy / n_bulk_atoms attributes."""
+    rattled = Pt_bulk.copy().perturb(0.2, seed=0)
+    with pytest.raises(RuntimeError, match="Pre-relaxation did not converge"):
+        AdsorptionCalc(calculator=matpes_calculator, max_steps=1).calc_bulk(rattled)
+
+    ad_calc = AdsorptionCalc(calculator=matpes_calculator, max_steps=100)
+    bulk_opt = ad_calc.calc_bulk(Pt_bulk)
+    assert ad_calc.final_bulk == bulk_opt["final_structure"]
+    assert ad_calc.bulk_energy == pytest.approx(bulk_opt["energy"])
+    assert ad_calc.n_bulk_atoms == len(Pt_bulk)
