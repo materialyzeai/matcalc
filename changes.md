@@ -6,6 +6,15 @@ nav_order: 2
 
 # Change Log
 
+## Unreleased
+1. **PR #251 New `IntercalationCalc`, `MCCalc` and `VoltageCalc` for Monte Carlo deintercalation and voltage profiles** by @mkphuthi
+   - `MCCalc` runs canonical Metropolis Monte Carlo over any transformation exposing `apply_transformation(structure)`, scoring each proposal by single point or relaxation (`relax`). Returns the final accepted state with `acceptance_ratio`, `min_energy` and `min_structure`, and writes a trajectory every `save_freq` steps. `ensemble="grand_canonical"` is reserved and raises `NotImplementedError`.
+   - `IntercalationCalc` removes `species` (or explicit `indices`, optionally in a `supercell`) one ion at a time over `removal_range`, the inclusive fraction of sites removed (default `(0.0, 1.0)`; e.g. `(0.0, 0.5)` to delithiate up to 50%), and runs an `MCCalc` per ion count. `algorithm="independent"` draws each proposal from the pristine host; `algorithm="markov"` runs a composition-conserving swap chain (species/vacancy or binary species, via `disordered_structure`). Levels with a single configuration (nothing or every candidate site removed) are scored once without MC steps. Per-level results are written to `results.json.gz`.
+   - With `relax=False`, every configuration is scored with a single-point energy and `relax_calc_kwargs` is ignored with a warning.
+   - `write_results` (default True) controls the `results.json.gz` file.
+   - `VoltageCalc` wraps `IntercalationCalc` to compute voltage profiles: every ion count in `removal_range` is sampled and the lowest energies, with a working-ion metal reference relaxed with the same model (default: the MatPES-PBE elemental reference), give raw step voltages between consecutive ion counts plus the convex-hull profile, average voltage, capacity and energy density from pymatgen's `InsertionElectrode`; the per-level energies and step voltages are written to `voltage_profile.csv` by default (`write_voltage_profile=False` disables it).
+   - All three are slow (a full energy evaluation or relaxation per proposal, no caching or parallelism) and intended for benchmarking only, e.g. quantifying the error in intercalation properties across models from the same seed.
+
 ## v0.7.0
 1. **PR #271 New `DiffusionCalc` for diffusivity and ionic conductivity** by @rul048
    - Wraps pymatgen's `DiffusionAnalyzer`; runs MD via `MDCalc` or `LAMMPSMDCalc`, or analyses an existing `trajectory` in the input dict (e.g. after `MDCalc` in a `ChainedCalc`). Requires the new `diffusion` extra.

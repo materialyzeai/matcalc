@@ -1,0 +1,191 @@
+"""Tests for MCCalc class."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import numpy as np
+import pytest
+from ase.io import read
+
+from matcalc import MCCalc
+from matcalc._intercalation import _RemoveKSites
+
+if TYPE_CHECKING:
+    from ase.calculators.calculator import Calculator
+    from pymatgen.core import Structure
+
+SINGLE_POINT_ENERGY = 3.1541968844142314
+
+
+def remove_three(structure: Structure, seed: int = 42) -> _RemoveKSites:
+    """Transformation removing 3 random Cu sites without replacement (fixed composition)."""
+    return _RemoveKSites(structure.indices_from_symbol("Cu"), 3, np.random.default_rng(seed))
+
+
+def test_mc_single_point(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """Single-point canonical sampling removes 3 Cu and returns the standard result schema."""
+    mc = MCCalc(
+        emt_calculator,
+        remove_three(Cu_supercell),
+        transform_initial=True,
+        nsteps=5,
+        temperature=1000,
+        save_freq=1,
+        relax=False,
+        seed=42,
+        trajfile="mc.traj",
+    )
+    results = mc.calc(Cu_supercell)
+
+    assert set(results) >= {"final_structure", "energy", "forces", "stress", "acceptance_ratio"}
+    assert results["final_structure"].composition.formula == "Cu29"
+    assert results["energy"] == pytest.approx(SINGLE_POINT_ENERGY, rel=1e-6)
+    assert results["acceptance_ratio"] == pytest.approx(0.6)
+    assert results["min_energy"] <= results["energy"]
+    assert len(mc.trajectory) == 6  # 1 initial frame + nsteps frames at save_freq=1
+
+
+def test_mc_relaxation(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """The single relaxation test; all other Monte Carlo tests use single point for speed."""
+    mc = MCCalc(
+        emt_calculator,
+        remove_three(Cu_supercell),
+        transform_initial=True,
+        nsteps=2,
+        temperature=1000,
+        save_freq=1,
+        relax=True,
+        seed=42,
+        trajfile="mc_relax.traj",
+        relax_calc_kwargs={"relax_cell": False, "max_steps": 20, "fmax": 0.1},
+    )
+    results = mc.calc(Cu_supercell)
+
+    assert results["final_structure"].composition.formula == "Cu29"
+    assert results["energy"] == pytest.approx(3.193023988898929, rel=1e-5)
+
+    # Relaxation lowers the energy of the same seeded configuration: with the same transformation seed,
+    # the first frame of a single-point run is the unrelaxed counterpart of the first relaxed frame.
+    single_point = MCCalc(
+        emt_calculator,
+        remove_three(Cu_supercell),
+        transform_initial=True,
+        nsteps=1,
+        relax=False,
+        seed=42,
+        trajfile="mc_sp.traj",
+    )
+    single_point.calc(Cu_supercell)
+    assert mc.trajectory[0].get_potential_energy() < single_point.trajectory[0].get_potential_energy()
+
+
+def test_mc_fixed_composition(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """transform_initial=True keeps every sampled configuration at the same composition."""
+    mc = MCCalc(
+        emt_calculator,
+        remove_three(Cu_supercell),
+        transform_initial=True,
+        nsteps=5,
+        temperature=1000,
+        save_freq=1,
+        relax=False,
+        seed=7,
+        trajfile="mc_fixed.traj",
+    )
+    mc.calc(Cu_supercell)
+
+    assert {atoms.get_chemical_formula() for atoms in mc.trajectory} == {"Cu29"}
+
+
+def test_mc_reproducible_seed(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """Identical seeds give identical results; a different seed diverges."""
+
+    def run(seed: int) -> dict:
+        return MCCalc(
+            emt_calculator,
+            remove_three(Cu_supercell, seed=seed),
+            transform_initial=True,
+            nsteps=5,
+            temperature=1000,
+            save_freq=5,
+            relax=False,
+            seed=seed,
+            trajfile="mc_seed.traj",
+        ).calc(Cu_supercell)
+
+    first, repeat, other = run(42), run(42), run(123)
+    assert first["energy"] == pytest.approx(repeat["energy"])
+    assert first["acceptance_ratio"] == repeat["acceptance_ratio"]
+    assert first["energy"] != pytest.approx(other["energy"])
+
+
+def test_mc_grand_canonical_not_implemented(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """The reserved grand-canonical ensemble raises NotImplementedError."""
+    mc = MCCalc(
+        emt_calculator,
+        remove_three(Cu_supercell),
+        transform_initial=True,
+        ensemble="grand_canonical",
+        nsteps=1,
+        relax=False,
+        seed=42,
+        trajfile="mc_gc.traj",
+    )
+    with pytest.raises(NotImplementedError):
+        mc.calc(Cu_supercell)
+
+
+def test_mc_invalid_ensemble(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """An unrecognized ensemble raises ValueError."""
+    mc = MCCalc(
+        emt_calculator,
+        remove_three(Cu_supercell),
+        transform_initial=True,
+        ensemble="bogus",  # type: ignore[arg-type]
+        nsteps=1,
+        relax=False,
+        seed=42,
+        trajfile="mc_bad.traj",
+    )
+    with pytest.raises(ValueError, match="canonical"):
+        mc.calc(Cu_supercell)
+
+
+def test_mc_single_point_ignores_relax_kwargs(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """With relax=False, relax_calc_kwargs warn and are ignored, so max_steps cannot trigger a relaxation."""
+    with pytest.warns(UserWarning, match="ignored when relax=False"):
+        mc = MCCalc(
+            emt_calculator,
+            remove_three(Cu_supercell),
+            transform_initial=True,
+            nsteps=5,
+            temperature=1000,
+            save_freq=1,
+            relax=False,
+            seed=42,
+            trajfile="mc_sp_kwargs.traj",
+            relax_calc_kwargs={"max_steps": 50, "fmax": 0.01},
+        )
+    results = mc.calc(Cu_supercell)
+
+    # Same seeded run as test_mc_single_point, so the same single-point energy.
+    assert results["energy"] == pytest.approx(SINGLE_POINT_ENERGY, rel=1e-6)
+
+
+def test_mc_zero_steps(Cu_supercell: Structure, emt_calculator: Calculator) -> None:
+    """nsteps=0 scores only the initial configuration and writes it to the trajectory."""
+    mc = MCCalc(
+        emt_calculator,
+        remove_three(Cu_supercell),
+        transform_initial=True,
+        nsteps=0,
+        relax=False,
+        seed=42,
+        trajfile="mc_zero.traj",
+    )
+    results = mc.calc(Cu_supercell)
+
+    assert results["energy"] == pytest.approx(mc.trajectory[0].get_potential_energy())
+    assert np.isnan(results["acceptance_ratio"])
+    assert len(read("mc_zero.traj", index=":")) == 1

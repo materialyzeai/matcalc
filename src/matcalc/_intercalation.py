@@ -1,0 +1,466 @@
+"""Intercalation and voltage-profile calculations via Monte Carlo."""
+
+from __future__ import annotations
+
+import warnings
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
+
+import numpy as np
+from monty.serialization import dumpfn
+from pymatgen.core import Structure
+from pymatgen.transformations.site_transformations import RemoveSitesTransformation
+from tqdm import tqdm
+
+from ._base import PropCalc
+from ._mc import MCCalc
+from .utils import to_pmg_structure
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from ase import Atoms
+    from ase.calculators.calculator import Calculator
+
+# scipy.linalg.logm (called by ASE's FrechetCellFilter on every relaxation step) emits a
+# benign RuntimeWarning whenever its error estimate is non-zero, even at ~1e-13. Silence it.
+warnings.filterwarnings("ignore", message="logm result may be inaccurate")
+
+# Number of species on a binary (species <-> species) active site.
+_BINARY_SPECIES = 2
+
+
+# Tolerance for deciding that a removal-range bound falls on a whole number of ions.
+_ROUNDING_TOL = 1e-8
+
+
+def _check_removal_range(removal_range: tuple[float, float]) -> None:
+    """Validate an inclusive (start, stop) removal-fraction range.
+
+    Args:
+        removal_range: Fractions of the candidate sites to remove.
+
+    Raises:
+        ValueError: Unless ``0 <= start <= stop <= 1``.
+    """
+    start, stop = removal_range
+    if not 0 <= start <= stop <= 1:
+        raise ValueError(f"removal_range must satisfy 0 <= start <= stop <= 1, got {tuple(removal_range)}")
+
+
+def removal_counts(n_sites: int, removal_range: tuple[float, float]) -> np.ndarray:
+    """Whole numbers of ions to remove, one ion at a time, within an inclusive removal-fraction range.
+
+    Bounds are rounded inward (``ceil(start * n_sites)`` to ``floor(stop * n_sites)``) so that no
+    level lies outside the requested range; a warning is issued when a bound moves.
+
+    Args:
+        n_sites: Number of candidate working-ion sites.
+        removal_range: Inclusive (start, stop) fractions of the sites to remove.
+
+    Returns:
+        Increasing integer array of ion counts to remove.
+
+    Raises:
+        ValueError: If the range is invalid or contains no whole number of ions.
+    """
+    _check_removal_range(removal_range)
+    start, stop = removal_range
+    k_min = int(np.ceil(start * n_sites - _ROUNDING_TOL))
+    k_max = int(np.floor(stop * n_sites + _ROUNDING_TOL))
+    if k_min > k_max:
+        raise ValueError(f"removal_range {tuple(removal_range)} contains no whole number of {n_sites} sites")
+    if abs(k_min - start * n_sites) > _ROUNDING_TOL or abs(k_max - stop * n_sites) > _ROUNDING_TOL:
+        warnings.warn(
+            f"removal_range {tuple(removal_range)} does not fall on whole ions for {n_sites} sites; "
+            f"sampling {k_min / n_sites:.4g} to {k_max / n_sites:.4g} ({k_min} to {k_max} ions) instead.",
+            stacklevel=3,
+        )
+    return np.arange(k_min, k_max + 1)
+
+
+class _RemoveKSites:
+    """
+    Transformation that removes ``k`` randomly chosen sites from a fixed candidate set.
+
+    Sites are drawn without replacement so that exactly ``k`` distinct sites are removed on
+    every call. Intended to be driven by :class:`MCCalc` with ``transform_initial=True`` so that
+    each proposal removes ``k`` ions from the pristine structure (fixed-concentration sampling).
+    """
+
+    def __init__(self, indices: Sequence[int], k: int, rng: np.random.Generator) -> None:
+        """
+        Initialize the transformation.
+
+        Args:
+            indices: Candidate site indices eligible for removal.
+            k: Number of sites to remove on each call.
+            rng: Random number generator used to choose which sites to remove.
+        """
+        self.indices = indices
+        self.k = k
+        self.rng = rng
+
+    def apply_transformation(self, structure: Structure) -> Structure:
+        """
+        Return a copy of ``structure`` with ``k`` randomly chosen sites removed.
+
+        Args:
+            structure: The structure to deintercalate.
+
+        Returns:
+            A new structure with the selected sites removed.
+        """
+        indices_to_remove = self.rng.choice(self.indices, self.k, replace=False)
+        return RemoveSitesTransformation(indices_to_remove).apply_transformation(structure)
+
+
+class _SwapSites:
+    """
+    Composition-conserving swap move on a configurable sublattice (a true MCMC move).
+
+    Given an ``ordered_structure`` (the fully occupied host) and a ``disordered_structure``
+    (the *same cell* with partial occupancy marking the configurable sublattice), each call
+    relocates ``n_swaps`` (``l``) occupants among the active sites:
+
+    - **species ↔ vacancy** (active site has one species with occupancy < 1): ``l`` occupied
+      sites are vacated and ``l`` vacant sites are filled, conserving the species count.
+    - **species ↔ species** (active site has two species summing to 1): ``l`` pairs exchange
+      identity, conserving each species count.
+
+    Because the move is a local perturbation of the *current* configuration and conserves
+    composition, driving it with :class:`MCCalc` and ``transform_initial=False`` yields a true
+    canonical Markov chain. The two structures must share the same lattice and sites; the
+    disordered structure's partially occupied (``not site.is_ordered``) sites define the
+    active sublattice.
+    """
+
+    def __init__(
+        self,
+        ordered_structure: Structure,
+        disordered_structure: Structure,
+        n_swaps: int,
+        rng: np.random.Generator,
+        *,
+        tol: float = 1.0,
+    ) -> None:
+        """
+        Initialize the swap transformation.
+
+        Args:
+            ordered_structure: The fully occupied host providing the active-site positions and
+                inert framework.
+            disordered_structure: The same cell with partial occupancy marking the configurable
+                sublattice (its ``not site.is_ordered`` sites define the active sublattice and states).
+            n_swaps: Number of sites to swap on each call (``l``).
+            rng: Random number generator used to choose which sites to swap.
+            tol: Distance tolerance in Å for mapping current sites onto the active sublattice.
+
+        Raises:
+            ValueError: If the structures differ in size, there are no active sites, or the
+                active sites have an unsupported number of species.
+        """
+        if len(ordered_structure) != len(disordered_structure):
+            raise ValueError("ordered_structure and disordered_structure must have the same sites")
+        self.lattice = ordered_structure.lattice
+        self.n_swaps = n_swaps
+        self.rng = rng
+        self.tol = tol
+
+        self.active_idx = [i for i, site in enumerate(disordered_structure) if not site.is_ordered]
+        if not self.active_idx:
+            raise ValueError("disordered_structure has no disordered (active) sites")
+        self.active_fcoords = ordered_structure.frac_coords[self.active_idx]
+
+        elements = [el.symbol for el in disordered_structure[self.active_idx[0]].species.elements]
+        if len(elements) == 1:
+            self.species_a: str = elements[0]  # species <-> vacancy
+            self.species_b: str | None = None
+        elif len(elements) == _BINARY_SPECIES:
+            self.species_a, self.species_b = elements  # species <-> species
+        else:
+            raise ValueError("active sites must have one (species/vacancy) or two (binary species)")
+
+    def _match(self, fcoords: np.ndarray) -> np.ndarray:
+        """Map fractional coords to the nearest active-sublattice positions (list indices 0..M-1)."""
+        dists = self.lattice.get_all_distances(fcoords, self.active_fcoords)
+        nearest = dists.argmin(axis=1)
+        if (dists[np.arange(len(fcoords)), nearest] > self.tol).any():
+            raise ValueError("could not map a site onto the active sublattice within tolerance")
+        return nearest
+
+    def apply_transformation(self, structure: Structure) -> Structure:
+        """
+        Return a copy of ``structure`` with ``n_swaps`` sites swapped on the active sublattice.
+
+        Args:
+            structure: The current configuration (an ordered structure at the target composition).
+
+        Returns:
+            A new configuration differing by the swap move, with composition conserved.
+        """
+        if self.species_b is None:
+            return self._swap_vacancy(structure)
+        return self._swap_binary(structure)
+
+    def _swap_vacancy(self, structure: Structure) -> Structure:
+        occ_current = [i for i, site in enumerate(structure) if site.specie.symbol == self.species_a]
+        occ_pos = self._match(structure.frac_coords[occ_current])
+        pos_to_current = dict(zip(occ_pos.tolist(), occ_current, strict=True))
+        occupied = sorted(pos_to_current)
+        vacant = [p for p in range(len(self.active_idx)) if p not in pos_to_current]
+        if self.n_swaps > min(len(occupied), len(vacant)):
+            raise ValueError(f"n_swaps={self.n_swaps} exceeds available occupied/vacant active sites")
+
+        chosen_occ = self.rng.choice(occupied, self.n_swaps, replace=False)
+        chosen_vac = self.rng.choice(vacant, self.n_swaps, replace=False)
+
+        new = structure.copy()
+        new.remove_sites(sorted((pos_to_current[int(p)] for p in chosen_occ), reverse=True))
+        for p in chosen_vac:
+            new.append(self.species_a, self.active_fcoords[int(p)], coords_are_cartesian=False)
+        return new
+
+    def _swap_binary(self, structure: Structure) -> Structure:
+        assert self.species_b is not None  # noqa: S101  # only called when apply_transformation found a binary site
+        swap_current = [i for i, site in enumerate(structure) if site.specie.symbol in (self.species_a, self.species_b)]
+        pos = self._match(structure.frac_coords[swap_current])
+        pos_to_current = {int(p): ci for p, ci in zip(pos.tolist(), swap_current, strict=True)}
+        a_positions = [p for p, ci in pos_to_current.items() if structure[ci].specie.symbol == self.species_a]
+        b_positions = [p for p, ci in pos_to_current.items() if structure[ci].specie.symbol == self.species_b]
+        if self.n_swaps > min(len(a_positions), len(b_positions)):
+            raise ValueError(f"n_swaps={self.n_swaps} exceeds available {self.species_a}/{self.species_b} sites")
+
+        chosen_a = self.rng.choice(a_positions, self.n_swaps, replace=False)
+        chosen_b = self.rng.choice(b_positions, self.n_swaps, replace=False)
+
+        new = structure.copy()
+        for p in chosen_a:
+            new.replace(pos_to_current[int(p)], self.species_b)
+        for p in chosen_b:
+            new.replace(pos_to_current[int(p)], self.species_a)
+        return new
+
+
+def _build_disordered(structure: Structure, species: str | None) -> Structure:
+    """
+    Build a disordered structure marking the ``species`` sublattice as active (species/vacancy).
+
+    Args:
+        structure: The fully occupied host structure.
+        species: Symbol of the active (swappable) species.
+
+    Returns:
+        A copy with the ``species`` sites given partial occupancy (active) and the rest left
+        fully occupied (inert framework).
+
+    Raises:
+        ValueError: If ``species`` is not set.
+    """
+    if species is None:
+        raise ValueError("algorithm='markov' without disordered_structure requires species")
+    occupancies = [{species: 0.5} if site.specie.symbol == species else site.species for site in structure]
+    return Structure(structure.lattice, occupancies, structure.frac_coords)
+
+
+class IntercalationCalc(PropCalc):
+    """
+    Calculator for intercalation and voltage-profile predictions via Monte Carlo.
+
+    For every whole number ``k`` of intercalating ions whose removed fraction lies in
+    ``removal_range``, ``k`` ions are removed from the (optionally supercelled) host structure and
+    the resulting configurations are sampled with an :class:`MCCalc` Metropolis-Hastings run at fixed
+    composition. The accepted energies are used downstream to predict voltage profiles. A
+    trajectory is written per concentration level and the per-level results are serialized to
+    ``results.json.gz`` unless ``write_results=False``.
+
+    Note:
+        This implementation is deliberately simple and slow: every Monte Carlo proposal is scored
+        with a full energy evaluation (and a relaxation if ``relax=True``) and there is no caching or
+        parallelism. It is intended for benchmarking only, e.g. quantifying the error in
+        intercalation properties across models by sampling from the same seed, not for production
+        voltage-profile calculations.
+
+    Args:
+        calculator: An ASE calculator object used to perform energy and force
+            calculations. If a string is provided, the corresponding universal calculator is loaded.
+    """
+
+    def __init__(
+        self,
+        calculator: Calculator | str,
+        nsteps: int,
+        temperature: float,
+        *,
+        removal_range: tuple[float, float] = (0.0, 1.0),
+        save_freq: int = 100,
+        trajfile: str | None = None,
+        supercell: Sequence[int] | None = None,
+        relax: bool = True,
+        species: str | None = None,
+        indices: Sequence[int] | None = None,
+        algorithm: Literal["independent", "markov"] = "independent",
+        disordered_structure: Structure | None = None,
+        swap_size: int = 1,
+        seed: int | None = None,
+        relax_calc_kwargs: dict[str, Any] | None = None,
+        write_results: bool | str = True,
+    ) -> None:
+        """
+        Initialize the IntercalationCalc.
+
+        Args:
+            calculator: An ASE calculator object used to perform energy and force
+                calculations. If a string is provided, the corresponding universal calculator is loaded.
+            nsteps: Number of Monte Carlo steps to run at each concentration level. Levels with a
+                single possible configuration (nothing removed, or every candidate site removed) are
+                scored once without Monte Carlo steps.
+            temperature: Temperature in Kelvin used in the Metropolis-Hastings acceptance test.
+            removal_range: Inclusive (start, stop) fractions of the candidate sites to remove, e.g.
+                ``(0.0, 0.5)`` to delithiate up to 50%. Every whole number of ions in the range is
+                sampled, one ion at a time; bounds that do not fall on a whole number are rounded
+                inward with a warning. Default is ``(0.0, 1.0)``.
+            save_freq: Append a frame to the trajectory every ``save_freq`` Monte Carlo steps.
+                Default is 100.
+            trajfile: Base trajectory filename. A ``_k{k}`` suffix is inserted before the
+                extension for each concentration level. Defaults to a timestamped name.
+            supercell: Optional supercell scaling applied to the input structure before site
+                indices are resolved. Only valid together with ``species``. Default is None.
+            relax: Whether to relax each configuration before scoring it. If False a single
+                point energy is used. Default is True.
+            species: Symbol of the intercalating species to remove. Mutually exclusive with
+                ``indices``. Default is None.
+            indices: Explicit site indices eligible for removal. Mutually exclusive with
+                ``species``. Default is None.
+            algorithm: Sampling algorithm. ``"independent"`` draws each proposal afresh from the
+                pristine host (fixed-concentration independent sampling); ``"markov"`` runs a true
+                Metropolis Markov chain of local swap moves (requires ``species`` or
+                ``disordered_structure``). Default is ``"independent"``.
+            disordered_structure: For ``algorithm="markov"``, a structure on the same cell as the
+                (supercelled) host whose partially occupied sites define the active sublattice. If omitted,
+                one is built from ``species`` (species/vacancy). Default is None.
+            swap_size: Number of sites swapped per Markov step (``l``). Default is 1.
+            seed: Seed for the random number generator, for reproducible sampling. Default is None.
+            relax_calc_kwargs: Additional keyword arguments passed to :class:`RelaxCalc` when
+                ``relax`` is True; they override the defaults (``optimizer="FIRE"``, ``fmax=0.02``,
+                ``max_steps=200``). Ignored, with a warning, when ``relax`` is False. Default is None.
+            write_results: Where to serialize the per-level results: True writes ``results.json.gz``
+                in the working directory, a string selects the path, and False disables writing.
+                Default is True.
+        """
+        if not relax and relax_calc_kwargs:
+            warnings.warn(
+                "relax_calc_kwargs is ignored when relax=False; every configuration is scored with a "
+                "single-point energy.",
+                stacklevel=2,
+            )
+        self.calculator = calculator  # type: ignore[assignment]
+        self.nsteps = nsteps
+        self.temperature = temperature
+        _check_removal_range(removal_range)
+        self.removal_range = removal_range
+        self.write_results = "results.json.gz" if write_results is True else write_results
+        self.supercell = supercell
+        self.save_freq = save_freq
+        self.trajfile = trajfile or f"traj-{datetime.now(tz=UTC).strftime('%H%Mhrs_%d-%m-%Y')}.traj"
+        self.species = species
+        self.indices = indices
+        self.algorithm = algorithm
+        self.disordered_structure = disordered_structure
+        self.swap_size = swap_size
+        self.relax = relax
+        self.relax_calc_kwargs = relax_calc_kwargs or {}
+        self.seed = seed
+        self._rng = np.random.default_rng(self.seed)
+
+    def calc(
+        self,
+        structure: Structure | Atoms | dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Run the Monte Carlo deintercalation sweep over the requested concentrations.
+
+        Args:
+            structure: The fully occupied host structure to deintercalate, or a dict carrying
+                one under ``final_structure`` / ``structure``.
+
+        Returns:
+            A dictionary keyed by concentration index, each value being the accepted
+            configuration's :class:`MCCalc` results augmented with ``Num_removed`` and
+            ``concentration``.
+
+        Raises:
+            ValueError: If neither or both of ``species`` and ``indices`` are provided, or if
+                ``supercell`` is combined with explicit ``indices``.
+        """
+        result = super().calc(structure)
+        host = to_pmg_structure(result["final_structure"])
+
+        if self.indices is None and self.species is None:
+            raise ValueError("Provide one of indices or species")
+        # Resolve candidate sites locally: storing them on self would make a second calc() call see
+        # explicit indices and reject the supercell.
+        if self.species is not None and self.indices is None:
+            if self.supercell:
+                # Structure.make_supercell works in place; copy so the caller's structure is untouched.
+                host = host.copy().make_supercell(self.supercell)
+            indices: Sequence[int] = host.indices_from_symbol(self.species)
+        elif self.indices is not None and self.supercell is not None:
+            raise ValueError("Provide supercell as input structure if specifying supercell argument")
+        else:
+            assert self.indices is not None  # noqa: S101  # checked above; satisfies type checker
+            indices = self.indices
+
+        disordered = None
+        if self.algorithm == "markov":
+            disordered = self.disordered_structure or _build_disordered(host, self.species)
+
+        n_indices = len(indices)
+        ks = removal_counts(n_indices, self.removal_range)
+
+        results = {}
+        for ik, k in enumerate(tqdm(ks, desc="concentration levels")):
+            concentration = k / n_indices
+            traj_path = Path(self.trajfile)
+            k_trajfile = str(traj_path.with_name(f"{traj_path.stem}_k{int(k)}{traj_path.suffix}"))
+
+            # With nothing removed, or every candidate site removed, there is a single configuration:
+            # nothing to remove or swap, so score it once instead of repeating the same calculation.
+            nsteps = 0 if k in (0, n_indices) else self.nsteps
+
+            if self.algorithm == "independent":
+                # Independent fixed-concentration sampling: each proposal removes k from the pristine host.
+                transformation: Any = _RemoveKSites(indices, int(k), self._rng)
+                transform_initial = True
+                mc_structure = host
+            elif self.algorithm == "markov":
+                # True Markov chain: seed a configuration at concentration k, then swap-move locally.
+                assert disordered is not None  # noqa: S101  # set above when algorithm == "markov"
+                transformation = _SwapSites(host, disordered, self.swap_size, self._rng)
+                transform_initial = False
+                mc_structure = _RemoveKSites(indices, int(k), self._rng).apply_transformation(host)
+            else:
+                raise ValueError("algorithm must be one of {'independent', 'markov'}")
+
+            mc = MCCalc(
+                self.calculator,
+                transformation,
+                transform_initial=transform_initial,
+                nsteps=nsteps,
+                temperature=self.temperature,
+                save_freq=self.save_freq,
+                trajfile=k_trajfile,
+                relax=self.relax,
+                seed=self.seed,
+                relax_calc_kwargs=self.relax_calc_kwargs if self.relax else None,
+            )
+            mc_results = mc.calc(mc_structure)
+            results[f"{ik}"] = mc_results | {
+                "Num_removed": int(k),
+                "concentration": concentration,
+            }
+
+        if self.write_results:
+            dumpfn(results, self.write_results)
+        return results

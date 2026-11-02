@@ -20,6 +20,7 @@ import os
 from typing import TYPE_CHECKING
 
 import pytest
+from ase.calculators.emt import EMT
 from pymatgen.core import Lattice, Structure
 from pymatgen.util.testing import PymatgenTest
 
@@ -91,9 +92,21 @@ def Si_atoms() -> Atoms:
 
 
 @pytest.fixture(scope="session")
+def Cu_supercell(Cu: Structure) -> Structure:
+    """2x2x2 supercell of fcc Cu (32 atoms) as session-scoped fixture."""
+    return Cu * (2, 2, 2)
+
+
+@pytest.fixture(scope="session")
 def matpes_calculator() -> PESCalculator:
     """TensorNet calculator as session-scoped fixture."""
     return matcalc.load_fp(MATPES_MODEL)
+
+
+@pytest.fixture(scope="session")
+def emt_calculator() -> EMT:
+    """ASE EMT calculator as session-scoped fixture (fast, for Monte Carlo tests)."""
+    return EMT()
 
 
 @pytest.fixture(autouse=True)
