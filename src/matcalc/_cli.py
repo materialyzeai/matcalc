@@ -99,8 +99,9 @@ def main() -> None:
         "--model",
         dest="model",
         type=str,
-        default="TensorNet-MatPES-PBE-2025.2",
-        help="Canonical model name or alias to use.",
+        default="TensorNet-MatPES-r2SCAN-2025.2",
+        help="Canonical model name or alias to use. Defaults to TensorNet-MatPES-r2SCAN-2025.2 "
+        "(use '-m pbe' for the PBE-trained TensorNet-MatPES-PBE-2025.2).",
     )
 
     p_calc.add_argument(

@@ -214,3 +214,12 @@ def test_calculate_property_passes_model_name(LiFePO4: Structure, monkeypatch: p
             )
         )
     assert received == ["TensorNet-MatPES-PBE-2025.2"]
+
+
+def test_main_default_model_is_r2scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without -m, 'matcalc calc' uses the r2SCAN TensorNet foundation potential, not a PBE one."""
+    received: list[str] = []
+    monkeypatch.setattr("matcalc._cli.calculate_property", lambda args: received.append(args.model))
+    monkeypatch.setattr(sys, "argv", ["matcalc", "calc", "-s", "structure.cif"])
+    main()
+    assert received == ["TensorNet-MatPES-r2SCAN-2025.2"]
