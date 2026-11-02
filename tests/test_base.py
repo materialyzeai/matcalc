@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import inspect
+import os
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from joblib import cpu_count, parallel_config
+from joblib.parallel import LokyBackend
 
 from matcalc import (
     AdsorptionCalc,
@@ -18,7 +22,7 @@ from matcalc import (
     PhononCalc,
     SurfaceCalc,
 )
-from matcalc._base import PropCalc
+from matcalc._base import PropCalc, _worker_thread_cap
 from matcalc._relaxation import RelaxCalc
 
 if TYPE_CHECKING:
@@ -130,3 +134,67 @@ def test_check_and_prelax_raises_on_unrelaxed_cell(Li2O: Structure, matpes_calcu
     result, structure = calc._check_and_prelax(expanded, {})  # noqa: SLF001
     assert result["is_converged"] is True
     assert structure.volume < expanded.volume
+
+
+class _EnvProbe(PropCalc):
+    """Reports the worker's thread-limit env; fails on the string "bad"."""
+
+    def calc(self, structure: Any) -> dict[str, Any]:
+        if structure == "bad":
+            raise ValueError("bad structure")
+        return {"omp": os.environ.get("OMP_NUM_THREADS"), "pid": os.getpid()}
+
+
+@pytest.fixture
+def no_thread_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    for var in LokyBackend.MAX_NUM_THREADS_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr("matcalc._base.cpu_count", lambda: 8)
+    return monkeypatch
+
+
+@pytest.mark.parametrize(
+    ("env", "n_jobs", "kwargs", "expected"),
+    [
+        ({}, 4, {}, None),  # joblib already sets cpu_count // n_workers
+        ({"OMP_NUM_THREADS": "8"}, 4, {}, 2),
+        ({"OMP_NUM_THREADS": "8"}, -1, {}, 1),
+        ({"OMP_NUM_THREADS": "8"}, -5, {}, 2),  # 8 + 1 - 5 = 4 workers
+        ({"OMP_NUM_THREADS": "8", "MKL_NUM_THREADS": "1"}, 2, {}, 1),  # never raise an inherited limit
+        ({"OMP_NUM_THREADS": "2"}, 4, {}, None),  # inherited limit already fits
+        ({"OMP_NUM_THREADS": "8"}, 1, {}, None),
+        ({"OMP_NUM_THREADS": "8"}, None, {}, None),
+        ({"OMP_NUM_THREADS": "8"}, 4, {"backend": "threading"}, None),
+        ({"OMP_NUM_THREADS": "8"}, 4, {"prefer": "threads"}, None),
+    ],
+)
+def test_worker_thread_cap(
+    no_thread_env: pytest.MonkeyPatch, env: dict[str, str], n_jobs: int | None, kwargs: dict, expected: int | None
+) -> None:
+    for var, val in env.items():
+        no_thread_env.setenv(var, val)
+    assert _worker_thread_cap(n_jobs, kwargs) == expected
+
+
+def test_worker_thread_cap_respects_parallel_config(no_thread_env: pytest.MonkeyPatch) -> None:
+    no_thread_env.setenv("OMP_NUM_THREADS", "8")
+    with parallel_config(n_jobs=4):
+        assert _worker_thread_cap(None, {}) == 2
+    with parallel_config(backend="loky", inner_max_num_threads=3):
+        assert _worker_thread_cap(4, {}) is None
+    with parallel_config(backend="threading"):
+        assert _worker_thread_cap(4, {}) is None
+
+
+def test_calc_many_caps_inherited_worker_threads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An inherited OMP_NUM_THREADS must not be copied into every loky worker."""
+    monkeypatch.setenv("OMP_NUM_THREADS", str(cpu_count()))
+    results = _EnvProbe().calc_many(["ok", "bad", "ok", "ok"], n_jobs=2, allow_errors=True)
+    assert inspect.isgenerator(results)
+    results = list(results)
+    assert results[1] is None
+    assert {r["omp"] for r in results if r is not None} == {str(max(1, cpu_count() // 2))}
+    assert os.getpid() not in {r["pid"] for r in results if r is not None}
+
+    with pytest.raises(ValueError, match="bad structure"):
+        list(_EnvProbe().calc_many(["ok", "bad"], n_jobs=2))
