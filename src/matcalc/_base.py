@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import abc
+import os
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from joblib import Parallel, delayed
+from joblib import Parallel, cpu_count, delayed, parallel_config
+from joblib.parallel import LokyBackend, get_active_backend
 
 from .units import eVA3ToGPa
 from .utils import PESCalculator
@@ -19,6 +22,39 @@ if TYPE_CHECKING:
     from pymatgen.core import Structure
 
     from ._relaxation import RelaxCalc
+
+
+def _worker_thread_cap(n_jobs: int | None, parallel_kwargs: dict[str, Any]) -> int | None:
+    """Per-worker thread limit needed to keep loky workers from oversubscribing the CPU.
+
+    joblib's loky backend sets ``OMP_NUM_THREADS``, ``MKL_NUM_THREADS``, ... to ``cpu_count() // n_workers`` in its
+    workers, which is what keeps torch's intra-op thread pool in check. It does so only for variables that are
+    *unset* in the parent: an inherited value (e.g. ``OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK`` in a job script) is
+    passed to every worker unchanged, so n_workers processes each run that many torch threads.
+
+    Args:
+        n_jobs: ``n_jobs`` as passed to ``calc_many``.
+        parallel_kwargs: Extra ``joblib.Parallel`` kwargs; an explicit backend choice is left alone.
+
+    Returns:
+        ``min(cpu_count() // n_workers, inherited limits)`` if an inherited limit would oversubscribe the default
+        loky backend, else ``None`` (joblib's own behavior is kept).
+    """
+    if parallel_kwargs.keys() & {"backend", "prefer", "require"}:
+        return None
+    backend, config_n_jobs = get_active_backend()
+    if not isinstance(backend, LokyBackend) or backend.inner_max_num_threads is not None:
+        return None
+    n_jobs = config_n_jobs if n_jobs is None else n_jobs
+    if n_jobs is None or n_jobs in (0, 1):
+        return None
+    n_cpu = cpu_count()
+    n_workers = max(n_cpu + 1 + n_jobs, 1) if n_jobs < 0 else n_jobs
+    cap = max(1, n_cpu // n_workers)
+    inherited = [int(val) for var in backend.MAX_NUM_THREADS_VARS if (val := os.environ.get(var, "")).isdigit()]
+    if not inherited or max(inherited) <= cap:
+        return None
+    return max(1, min(cap, *inherited))
 
 
 class PropCalc(abc.ABC):
@@ -231,6 +267,12 @@ class PropCalc(abc.ABC):
         tolerance is enabled, calculation failures for individual structures result in returning
         `None` for those structures, without raising exceptions.
 
+        With the default (loky) backend, joblib limits each worker to ``cpu_count() // n_workers`` BLAS/OpenMP/torch
+        threads. If such a limit (e.g. ``OMP_NUM_THREADS``) is set to a larger value in the calling environment,
+        joblib would pass it through to every worker and oversubscribe the CPU, so it is lowered to
+        ``cpu_count() // n_workers`` in the workers. To choose the per-worker thread count yourself, wrap the call in
+        ``joblib.parallel_config(backend="loky", inner_max_num_threads=...)`` or pass ``backend``.
+
         Args:
             structures: Sequence of structures or structure dicts.
             n_jobs: ``joblib`` worker count; ``None`` uses joblib defaults.
@@ -243,7 +285,6 @@ class PropCalc(abc.ABC):
         Raises:
             Exception: Any error from ``calc`` when ``allow_errors`` is False.
         """
-        parallel = Parallel(n_jobs=n_jobs, return_as="generator", **kwargs)
 
         def _func(s: Structure | Atoms) -> dict | None:
             try:
@@ -253,7 +294,12 @@ class PropCalc(abc.ABC):
                     return None
                 raise
 
-        return parallel(delayed(_func)(s) for s in structures)
+        cap = _worker_thread_cap(n_jobs, kwargs)
+        # The worker env is fixed when Parallel starts its executor in __call__, so the config only needs to be active
+        # here; dispatching the remaining tasks from the returned generator reuses that executor.
+        with parallel_config(backend="loky", inner_max_num_threads=cap) if cap else nullcontext():
+            parallel = Parallel(n_jobs=n_jobs, return_as="generator", **kwargs)
+            return parallel(delayed(_func)(s) for s in structures)
 
 
 class ChainedCalc(PropCalc):
