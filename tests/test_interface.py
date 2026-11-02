@@ -261,3 +261,16 @@ def test_interface_calc_interface_only(Si: Structure, matpes_calculator: PESCalc
     res = interface_calc.calc({"interface": Si})
     assert res["num_atoms"] == len(Si)
     assert not {"interfacial_energy", "adhesion_energy", "film_slab_energy"} & res.keys()
+
+
+def test_interface_calc_bulk_relaxation(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """The bulk goes through PropCalc._check_and_prelax: an unconverged bulk relaxation raises, and with
+    relax_bulk=False the reference is a single point on the input bulk."""
+    rattled = Si.copy().perturb(0.2, seed=0)
+    with pytest.raises(RuntimeError, match="Pre-relaxation did not converge"):
+        InterfaceCalc(calculator=matpes_calculator, max_steps=1).calc_bulk(rattled)
+
+    out = InterfaceCalc(calculator=matpes_calculator, relax_bulk=False).calc_bulk(Si)
+    assert out["final_bulk"] == Si
+    assert out["bulk_energy"] == pytest.approx(matpes_calculator.get_potential_energy(to_ase_atoms(Si)))
+    assert out["bulk_energy_per_atom"] == pytest.approx(out["bulk_energy"] / len(Si))

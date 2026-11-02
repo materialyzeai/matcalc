@@ -85,25 +85,26 @@ class AdsorptionCalc(PropCalc):
 
         Returns:
             Dict with ``final_structure`` and ``energy`` (when available).
-        """
-        initial_bulk = to_pmg_structure(bulk)
 
+        Raises:
+            RuntimeError: If the bulk relaxation does not converge (see ``PropCalc._check_and_prelax``).
+        """
         if self.relax_bulk:
-            relaxer_bulk = self._relaxer(
+            bulk_opt, _ = self._check_and_prelax(
+                to_pmg_structure(bulk),
+                {},
+                relax=True,
                 fmax=self.fmax,
                 max_steps=self.max_steps,
-                relax_cell=self.relax_bulk,
-                relax_atoms=self.relax_bulk,
                 optimizer=self.optimizer,
             )
-
-            bulk_opt = relaxer_bulk.calc(initial_bulk)
         else:
-            bulk_opt = {
-                "final_structure": bulk,
-                "energy": bulk_energy if bulk_energy is not None else None,
-            }
+            bulk_opt = {"final_structure": bulk, "energy": bulk_energy}
 
+        final_bulk = to_pmg_structure(bulk_opt["final_structure"])
+        self.final_bulk = final_bulk
+        self.bulk_energy = bulk_opt["energy"]
+        self.n_bulk_atoms = len(final_bulk)
         return bulk_opt
 
     def calc_adsorbate(

@@ -107,3 +107,19 @@ def test_gb_calc_invalid_rotation_angle(Si: Structure, matpes_calculator: PESCal
             gb_plane=(1, 1, 2),
             rotation_angle=45.0,
         )
+
+
+def test_gb_calc_bulk_relaxation(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """The bulk goes through PropCalc._check_and_prelax: an unconverged bulk relaxation raises, and with
+    relax_bulk=False the reference is a single point on the input bulk."""
+    rattled = Si.copy().perturb(0.2, seed=0)
+    with pytest.raises(RuntimeError, match="Pre-relaxation did not converge"):
+        GBCalc(calculator=matpes_calculator, max_steps=1, relax_gb=False).calc({"grain_boundary": Si, "bulk": rattled})
+
+    results = GBCalc(calculator=matpes_calculator, relax_bulk=False, relax_gb=False).calc(
+        {"grain_boundary": Si, "bulk": Si}
+    )
+    assert results["final_bulk"] == Si
+    assert results["bulk_energy_per_atom"] == pytest.approx(
+        matpes_calculator.get_potential_energy(Si.to_ase_atoms()) / len(Si)
+    )

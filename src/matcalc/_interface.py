@@ -9,6 +9,7 @@ from pymatgen.analysis.interfaces.coherent_interfaces import CoherentInterfaceBu
 from pymatgen.core.structure_matcher import StructureMatcher
 
 from ._base import PropCalc
+from .backend import run_pes_calc
 
 if TYPE_CHECKING:
     from ase import Atoms
@@ -79,19 +80,23 @@ class InterfaceCalc(PropCalc):
 
         Returns:
             dict: "bulk", "bulk_energy" (eV), "bulk_energy_per_atom" (eV/atom) and "final_bulk".
+
+        Raises:
+            RuntimeError: If the bulk relaxation does not converge (see ``PropCalc._check_and_prelax``).
         """
-        bulk_opt = self._relaxer(
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            optimizer=self.optimizer,
-            relax_cell=self.relax_bulk,
-            relax_atoms=self.relax_bulk,
-        ).calc(bulk)
+        if self.relax_bulk:
+            bulk_opt, final_bulk = self._check_and_prelax(
+                bulk, {}, relax=True, fmax=self.fmax, max_steps=self.max_steps, optimizer=self.optimizer
+            )
+            energy = bulk_opt["energy"]
+        else:
+            sim = run_pes_calc(bulk, self.calculator)
+            energy, final_bulk = sim.energy, sim.structure
         return {
             "bulk": bulk,
-            "bulk_energy": bulk_opt["energy"],
-            "bulk_energy_per_atom": bulk_opt["energy"] / len(bulk),
-            "final_bulk": bulk_opt["final_structure"],
+            "bulk_energy": energy,
+            "bulk_energy_per_atom": energy / len(final_bulk),
+            "final_bulk": final_bulk,
         }
 
     def calc_slab(self, slab: Structure | Atoms) -> dict[str, Any]:
