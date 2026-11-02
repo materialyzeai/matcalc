@@ -201,3 +201,59 @@ def test_lammps_local_matgl_model(tmp_path: Path) -> None:
 def test_lammps_removed_model() -> None:
     with pytest.raises(ValueError, match="was removed"):
         LAMMPSMDCalc("M3GNet-MatPES-PBE-2025.1", relax_structure=False)
+
+
+def test_lammps_parse_outputs(Li2O: Structure, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dump and log parsing, exercised without LAMMPS by faking the ``lmp`` run."""
+    from pymatgen.io.ase import MSONAtoms
+
+    # Triclinic LAMMPS cell a = (4, 0, 0), b = (1, 5, 0), c = (0.5, 0, 6), written with bounding-box bounds.
+    cell = np.array([[4.0, 0.0, 0.0], [1.0, 5.0, 0.0], [0.5, 0.0, 6.0]])
+    symbols = ["O", "Li", "Li"]
+    positions = {step: np.arange(9, dtype=float).reshape(3, 3) / 10 + step for step in (0, 10, 20)}
+    energies = {0: (-15.0, 0.10), 10: (-14.8, 0.20), 20: (-14.6, 0.40)}
+
+    def fake_run(args: list[str], *, check: bool, cwd: Path) -> None:
+        assert args == ["lmp", "-in", calc.infile]
+        assert check
+        dump = []
+        for step, pos in positions.items():
+            dump += [
+                "ITEM: TIMESTEP",
+                str(step),
+                "ITEM: NUMBER OF ATOMS",
+                "3",
+                "ITEM: BOX BOUNDS xy xz yz pp pp pp",
+                "0.0 5.5 1.0",
+                "0.0 5.0 0.5",
+                "0.0 6.0 0.0",
+                "ITEM: ATOMS id element x y z",
+                *(f"{i + 1} {sym} {x} {y} {z}" for i, (sym, (x, y, z)) in enumerate(zip(symbols, pos, strict=True))),
+            ]
+        (Path(cwd) / calc.trajfile).write_text("\n".join(dump) + "\n")
+        log = [
+            "Per MPI rank memory allocation (min/avg/max) = 1 | 1 | 1 Mbytes",
+            "Step Time CPU PotEng KinEng TotEng Temp Press Volume Density",
+            *(f"{step} {step / 1000} 0 {pe} {ke} {pe + ke} 300 0 120 1" for step, (pe, ke) in energies.items()),
+            "Loop time of 0.1 on 1 procs for 20 steps with 3 atoms",
+        ]
+        (Path(cwd) / calc.logfile).write_text("\n".join(log) + "\n")
+
+    calc = LAMMPSMDCalc(calculator="TensorNet", relax_structure=False, steps=20, loginterval=10, frames=2)
+    monkeypatch.setattr("matcalc._lammps.subprocess.run", fake_run)
+    result = calc.calc(Li2O, directory=tmp_path)
+
+    assert len(result["trajectory"]) == 2
+    for atoms, step in zip(result["trajectory"], (10, 20), strict=True):
+        assert isinstance(atoms, MSONAtoms)
+        assert atoms.get_chemical_symbols() == symbols
+        assert atoms.pbc.all()
+        np.testing.assert_allclose(atoms.cell[:], cell)
+        np.testing.assert_allclose(atoms.positions, positions[step])
+    assert result["potential_energy"] == pytest.approx(-14.7)
+    assert result["kinetic_energy"] == pytest.approx(0.3)
+    assert result["total_energy"] == pytest.approx(-14.4)
+    final = result["final_structure"]
+    assert [site.species_string for site in final] == symbols
+    np.testing.assert_allclose(final.cart_coords, positions[20])
+    np.testing.assert_allclose(final.lattice.matrix, cell)

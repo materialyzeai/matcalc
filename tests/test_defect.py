@@ -137,9 +137,12 @@ def test_chemical_potential_limits(
     li2o2 = 2 * mu0["Li"] + 2 * mu0["O"] - 6.57
     mu_o = li2o2 - e_fu
 
+    # The two protocols relax the same structures independently; float32 model noise makes them differ by ~1e-5 eV
+    # between runs (seen on CI), so compare at 0.1 meV rather than pytest.approx's default 1e-6 relative.
+    tol = 1e-4
     assert limits == {
-        "Li-Li2O": {"Li": pytest.approx(mu0["Li"]), "O": pytest.approx(e_fu - 2 * mu0["Li"])},
-        "Li2O-Li2O2": {"Li": pytest.approx((e_fu - mu_o) / 2), "O": pytest.approx(mu_o)},
+        "Li-Li2O": {"Li": pytest.approx(mu0["Li"], abs=tol), "O": pytest.approx(e_fu - 2 * mu0["Li"], abs=tol)},
+        "Li2O-Li2O2": {"Li": pytest.approx((e_fu - mu_o) / 2, abs=tol), "O": pytest.approx(mu_o, abs=tol)},
     }
 
     # Round-off above the hull does not count as unstable.
