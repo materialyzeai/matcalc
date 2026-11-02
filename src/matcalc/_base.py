@@ -87,7 +87,16 @@ class PropCalc(abc.ABC):
         Returns:
             A merged dict suitable for use as the ``_units`` field.
         """
-        base: dict = prev.get("_units", prev) if isinstance(prev, dict) else {}
+        if not isinstance(prev, dict):
+            return dict(new)
+        if "_units" in prev:
+            base = prev["_units"] or {}
+        elif all(isinstance(v, str) for v in prev.values()):
+            # Already a ``_units`` mapping (unit strings only).
+            base = prev
+        else:
+            # A result dict without upstream units: none of its entries are units.
+            base = {}
         return {**base, **new}
 
     def _relaxer(self, **kwargs: Any) -> RelaxCalc:
@@ -283,6 +292,10 @@ class ChainedCalc(PropCalc):
     ) -> Generator[dict | None, None, None]:
         """Runs the sequence of PropCalc on many structures.
 
+        Each structure is run through the whole chain in a single job, so intermediate results are not shipped
+        between workers and a structure that fails at any step yields ``None`` (with ``allow_errors``) instead of
+        being fed to the next calculator.
+
         Args:
             structures: List or generator of Structures.
             n_jobs: The maximum number of concurrently running jobs. If -1 all CPUs are used. For n_jobs below -1,
@@ -292,12 +305,12 @@ class ChainedCalc(PropCalc):
             allow_errors: Whether to skip failed calculations. For these calculations, None will be returned. For
                 large scale calculations, you may want this to be True to avoid the entire calculation failing.
                 Defaults to False.
-            **kwargs: Passthrough to calc_many method of all PropCalcs.
+            **kwargs: Passthrough to ``joblib.Parallel``.
 
         Returns:
             Generator of dicts.
         """
-        results = structures  # type:ignore[assignment]
-        for prop_calc in self.prop_calcs:
-            results = prop_calc.calc_many(results, n_jobs=n_jobs, allow_errors=allow_errors, **kwargs)  # type:ignore[assignment]
-        return results  # type:ignore[return-value]
+        # Do not chain one ``Parallel`` generator per step: with n_jobs > 1 a step's batch-completion callback
+        # (run on the shared loky result thread) pulls from the previous step's generator and blocks waiting for
+        # results that only that same thread can deliver, i.e. a deadlock.
+        return super().calc_many(structures, n_jobs=n_jobs, allow_errors=allow_errors, **kwargs)

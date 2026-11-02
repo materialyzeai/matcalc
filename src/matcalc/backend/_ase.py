@@ -121,23 +121,18 @@ def run_ase(
     cell_filter_kwargs = cell_filter_kwargs or {}
     if relax_atoms:
         stream = io.StringIO()
-        with contextlib.redirect_stdout(stream):
-            original_atoms = atoms
-            if relax_cell:
-                atoms = cell_filter(atoms, **cell_filter_kwargs)  # type:ignore[operator]
-            opt = get_ase_optimizer(optimizer)(atoms)  # type:ignore[operator]
-            traj = Trajectory(traj_file, "w", original_atoms) if traj_file is not None else None
-            if traj is not None:
-                opt.attach(traj, interval=interval)
-            opt.run(fmax=fmax, steps=max_steps)
-            if traj is not None:
-                traj.close()
-            if opt.nsteps >= max_steps:
-                logger.warning("Maximum steps reached in structure relaxation.")
+        with contextlib.redirect_stdout(stream), contextlib.ExitStack() as stack:
+            opt_target = cell_filter(atoms, **cell_filter_kwargs) if relax_cell else atoms  # type:ignore[operator]
+            opt = get_ase_optimizer(optimizer)(opt_target)  # type:ignore[operator]
+            if traj_file is not None:
+                opt.attach(stack.enter_context(Trajectory(traj_file, "w", atoms)), interval=interval)
+            converged = opt.run(fmax=fmax, steps=max_steps)
 
-        if relax_cell:
-            atoms = atoms.atoms  # type:ignore[attr-defined]
-        if opt.nsteps >= max_steps:
+        # ``nsteps == max_steps`` does not imply non-convergence (the last step may converge), so rely on the
+        # optimizer's own verdict. Fall back to the step count for custom optimizers that return None.
+        if converged is None:
+            converged = opt.nsteps < max_steps
+        if not converged:
             max_force = np.linalg.norm(atoms.get_forces(), axis=1).max()
             logger.warning(
                 "Maximum steps reached in structure relaxation. Max|F| = %s eV/Å",
