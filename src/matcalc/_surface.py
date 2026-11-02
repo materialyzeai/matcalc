@@ -8,6 +8,7 @@ import numpy as np
 from pymatgen.core.surface import SlabGenerator
 
 from ._base import PropCalc
+from .backend import run_pes_calc
 
 if TYPE_CHECKING:
     from ase import Atoms
@@ -195,13 +196,14 @@ class SurfaceCalc(PropCalc):
 
         Returns:
             Dict with ``bulk_energy_per_atom`` (eV/atom) and ``final_bulk``.
+
+        Raises:
+            RuntimeError: If the bulk relaxation does not converge (see ``PropCalc._check_and_prelax``).
         """
-        bulk_opt = self._relaxer(
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            relax_cell=self.relax_bulk,
-            relax_atoms=self.relax_bulk,
-            optimizer=self.optimizer,
-        ).calc(bulk)
-        final_bulk = bulk_opt["final_structure"]
+        if not self.relax_bulk:
+            sim = run_pes_calc(bulk, self.calculator)
+            return {"bulk_energy_per_atom": sim.energy / len(sim.structure), "final_bulk": sim.structure}
+        bulk_opt, final_bulk = self._check_and_prelax(
+            bulk, {}, relax=True, fmax=self.fmax, max_steps=self.max_steps, optimizer=self.optimizer
+        )
         return {"bulk_energy_per_atom": bulk_opt["energy"] / len(final_bulk), "final_bulk": final_bulk}

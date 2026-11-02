@@ -125,3 +125,19 @@ def test_surface_calc_plain_structure_slab(Si: Structure, matpes_calculator: PES
     from_slab = surf_calc.calc({"slab": slab, "bulk": Si})
     from_plain = surf_calc.calc({"slab": plain, "bulk_energy_per_atom": from_slab["bulk_energy_per_atom"]})
     assert from_plain["surface_energy"] == pytest.approx(from_slab["surface_energy"])
+
+
+def test_surface_calc_bulk_relaxation(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """The bulk goes through PropCalc._check_and_prelax: an unconverged bulk relaxation raises, and with
+    relax_bulk=False the reference is a single point on the input bulk."""
+    rattled = Si.copy().perturb(0.2, seed=0)
+    with pytest.raises(RuntimeError, match="Pre-relaxation did not converge"):
+        SurfaceCalc(calculator=matpes_calculator, max_steps=1).calc_slabs(rattled, miller_index=(1, 0, 0))
+
+    bulk = Si.to_conventional()
+    static = SurfaceCalc(calculator=matpes_calculator, relax_bulk=False, relax_slab=False)
+    result = static.calc_slabs(bulk, miller_index=(1, 0, 0))[0]
+    assert result["final_bulk"] == bulk
+    assert result["bulk_energy_per_atom"] == pytest.approx(
+        matpes_calculator.get_potential_energy(bulk.to_ase_atoms()) / len(bulk)
+    )
