@@ -5,8 +5,10 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 from joblib import Parallel, delayed
 
+from .units import eVA3ToGPa
 from .utils import PESCalculator
 
 if TYPE_CHECKING:
@@ -160,9 +162,11 @@ class PropCalc(abc.ABC):
         relaxer = self._relaxer(**relax_kwargs)
         relax_result = relaxer.calc(structure)
         if not relax_result.get("is_converged", True):
+            # Report the stress too: with a cell relaxation, a small max|F| can coexist with an unrelaxed cell.
+            max_stress = float(np.abs(relax_result["stress"]).max()) * eVA3ToGPa
             raise RuntimeError(
-                f"Pre-relaxation did not converge: max|F| = {relax_result['max_force']:.4g} eV/A "
-                f"> fmax = {relaxer.fmax:.4g} eV/A after {relaxer.max_steps} steps. "
+                f"Pre-relaxation did not converge within {relaxer.max_steps} steps (fmax = {relaxer.fmax:.4g} eV/A): "
+                f"max|F| = {relax_result['max_force']:.4g} eV/A, max|stress| = {max_stress:.4g} GPa. "
                 "Subsequent property calculations assume an equilibrium structure and would "
                 "produce unreliable results; increase max_steps, loosen fmax, or relax the "
                 "structure separately before passing it in."

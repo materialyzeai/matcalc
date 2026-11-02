@@ -9,6 +9,7 @@ import pytest
 from ase.build import bulk
 from ase.calculators.calculator import Calculator
 from ase.calculators.emt import EMT
+from ase.constraints import FixAtoms
 from ase.io import Trajectory
 from ase.optimize.optimize import Optimizer
 
@@ -75,3 +76,22 @@ def test_run_ase_warns_once_when_not_converged(rattled_cu: Atoms, caplog: pytest
     warnings = _max_step_warnings(caplog)
     assert len(warnings) == 1
     assert "Max|F|" in warnings[0].getMessage()
+
+
+def test_run_ase_reports_convergence(rattled_cu: Atoms) -> None:
+    """``converged`` carries the optimizer's verdict for relaxations and is None for static calculations."""
+    assert run_ase(rattled_cu, EMT()).converged is None
+    assert run_ase(rattled_cu, EMT(), relax_atoms=True, max_steps=500, fmax=0.05).converged is True
+    assert run_ase(rattled_cu, EMT(), relax_atoms=True, max_steps=1, fmax=1e-6).converged is False
+
+
+def test_run_ase_converged_includes_cell(rattled_cu: Atoms) -> None:
+    """A strained cell with fixed atoms has zero forces but is not converged until the stress is relaxed."""
+    strained = rattled_cu.copy()
+    strained.set_cell(strained.cell * 1.05, scale_atoms=True)
+    strained.set_constraint(FixAtoms(indices=list(range(len(strained)))))
+    stopped = run_ase(strained, EMT(), relax_atoms=True, relax_cell=True, max_steps=1, fmax=0.05)
+    assert np.abs(stopped.forces).max() == 0
+    assert stopped.converged is False
+    relaxed = run_ase(strained, EMT(), relax_atoms=True, relax_cell=True, max_steps=500, fmax=0.05)
+    assert relaxed.converged is True
