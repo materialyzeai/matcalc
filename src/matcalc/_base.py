@@ -125,6 +125,8 @@ class PropCalc(abc.ABC):
         self,
         structure: Structure | Atoms,
         result: dict[str, Any],
+        *,
+        relax: bool | None = None,
         **relax_kwargs: Any,
     ) -> tuple[dict[str, Any], Structure | Atoms]:
         """Optionally relax ``structure`` and merge the relaxation result.
@@ -141,6 +143,8 @@ class PropCalc(abc.ABC):
         Args:
             structure: Input structure (already extracted from the result dict).
             result: The current result dict; relaxation outputs are merged in.
+            relax: Whether to relax. ``None`` (default) uses ``self.relax_structure``; calcs that gate the
+                relaxation on another flag (e.g. ``relax_bulk``) pass it explicitly.
             **relax_kwargs: Forwarded to ``RelaxCalc``. ``relax_calc_kwargs``
                 on the subclass (if any) takes precedence over these, mirroring
                 the existing per-calc convention.
@@ -157,7 +161,7 @@ class PropCalc(abc.ABC):
                 unrelaxed structure yields physically meaningless numbers, so
                 the chain is aborted rather than propagating bad inputs.
         """
-        if not getattr(self, "relax_structure", False):
+        if not (getattr(self, "relax_structure", False) if relax is None else relax):
             return result, structure
         relaxer = self._relaxer(**relax_kwargs)
         relax_result = relaxer.calc(structure)

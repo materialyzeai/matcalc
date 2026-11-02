@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 from pymatgen.core.surface import SlabGenerator
 
 from ._base import PropCalc
+from .backend import run_pes_calc
 
 if TYPE_CHECKING:
     from ase import Atoms
@@ -101,29 +103,24 @@ class SurfaceCalc(PropCalc):
         Returns:
             List of per-slab result dicts from ``calc_many``.
         """
-        bulk = bulk.to_conventional()
+        bulk_opt = self._calc_bulk(bulk.to_conventional())
+        final_bulk = bulk_opt["final_bulk"]
+        self.final_bulk = final_bulk
+        self.bulk_energy = bulk_opt["bulk_energy_per_atom"] * len(final_bulk)
+        self.n_bulk_atoms = len(final_bulk)
 
-        relaxer_bulk = self._relaxer(
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            relax_cell=self.relax_bulk,
-            relax_atoms=self.relax_bulk,
-            optimizer=self.optimizer,
-        )
-        bulk_opt = relaxer_bulk.calc(bulk)
-
+        # Cut the slabs from the relaxed bulk so that their in-plane lattice matches the bulk reference energy.
         slabgen = SlabGenerator(
-            initial_structure=bulk,
+            initial_structure=final_bulk,
             miller_index=miller_index,
             min_slab_size=min_slab_size,
             min_vacuum_size=min_vacuum_size,
             **(slab_gen_kwargs or {}),
         )
         slabs = [
-            {
+            bulk_opt
+            | {
                 "slab": slab.make_supercell((*inplane_supercell, 1)),
-                "bulk_energy_per_atom": bulk_opt["energy"] / len(bulk),
-                "final_bulk": bulk_opt["final_structure"],
                 "miller_index": miller_index,
             }
             for slab in slabgen.get_slabs(symmetrize=symmetrize, **(get_slabs_kwargs or {}))
@@ -147,28 +144,21 @@ class SurfaceCalc(PropCalc):
         Returns:
             Dict with ``final_slab``, ``slab_energy``, ``surface_energy``, and related bulk fields.
         """
-        if not (isinstance(structure, dict) and set(structure.keys()).intersection(("bulk", "bulk_energy_per_atom"))):
+        if not (
+            isinstance(structure, dict)
+            and "slab" in structure
+            and set(structure.keys()).intersection(("bulk", "bulk_energy_per_atom"))
+        ):
             raise ValueError(
                 "For surface calculations, structure must be a dict in one of the following formats: "
-                "{'slab': slab_struct, 'bulk': bulk_struct} or {'slab': slab_struct, 'bulk_energy': energy}."
+                "{'slab': slab_struct, 'bulk': bulk_struct} or {'slab': slab_struct, 'bulk_energy_per_atom': energy}."
             )
 
         result_dict = structure.copy()
 
-        if "bulk_energy_per_atom" in structure:
-            bulk_energy_per_atom = structure["bulk_energy_per_atom"]
-        else:
-            relaxer = self._relaxer(
-                fmax=self.fmax,
-                max_steps=self.max_steps,
-                relax_cell=self.relax_bulk,
-                relax_atoms=self.relax_bulk,
-                optimizer=self.optimizer,
-            )
-            bulk_opt = relaxer.calc(structure["bulk"])
-            bulk_energy_per_atom = bulk_opt["energy"] / len(bulk_opt["final_structure"])
-            result_dict["bulk_energy_per_atom"] = bulk_energy_per_atom
-            result_dict["final_bulk"] = bulk_opt["final_structure"]
+        if "bulk_energy_per_atom" not in structure:
+            result_dict |= self._calc_bulk(structure["bulk"])
+        bulk_energy_per_atom = result_dict["bulk_energy_per_atom"]
 
         slab = structure["slab"]
         relaxer = self._relaxer(
@@ -183,8 +173,11 @@ class SurfaceCalc(PropCalc):
         slab_energy = slab_opt["energy"]
 
         # Compute surface energy
-        # Assuming two surfaces: (E_slab - N_slab_atoms * E_bulk_per_atom) / (2 * area)
-        area = slab.surface_area
+        # Assuming two surfaces: (E_slab - N_slab_atoms * E_bulk_per_atom) / (2 * area), with area = |a x b|.
+        # The slab is relaxed at fixed cell, so the area of final_slab is that of the input slab, which may be a
+        # plain Structure or Atoms rather than a pymatgen Slab (with surface_area).
+        matrix = final_slab.lattice.matrix
+        area = float(np.linalg.norm(np.cross(matrix[0], matrix[1])))
         n_slab_atoms = len(final_slab)
         gamma = (slab_energy - n_slab_atoms * bulk_energy_per_atom) / (2 * area)
 
@@ -194,3 +187,23 @@ class SurfaceCalc(PropCalc):
             "slab_energy": slab_energy,
             "surface_energy": gamma,
         }
+
+    def _calc_bulk(self, bulk: Structure | Atoms) -> dict[str, Any]:
+        """Relax the bulk (cell and atoms) if relax_bulk, and compute its energy per atom.
+
+        Args:
+            bulk: Bulk structure.
+
+        Returns:
+            Dict with ``bulk_energy_per_atom`` (eV/atom) and ``final_bulk``.
+
+        Raises:
+            RuntimeError: If the bulk relaxation does not converge (see ``PropCalc._check_and_prelax``).
+        """
+        if not self.relax_bulk:
+            sim = run_pes_calc(bulk, self.calculator)
+            return {"bulk_energy_per_atom": sim.energy / len(sim.structure), "final_bulk": sim.structure}
+        bulk_opt, final_bulk = self._check_and_prelax(
+            bulk, {}, relax=True, fmax=self.fmax, max_steps=self.max_steps, optimizer=self.optimizer
+        )
+        return {"bulk_energy_per_atom": bulk_opt["energy"] / len(final_bulk), "final_bulk": final_bulk}

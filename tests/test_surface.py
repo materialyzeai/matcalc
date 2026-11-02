@@ -5,12 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from pymatgen.core import Structure
+from pymatgen.core.surface import SlabGenerator
 
 from matcalc import SurfaceCalc
 
 if TYPE_CHECKING:
     from matgl.ext.ase import PESCalculator
-    from pymatgen.core import Structure
 
 
 def test_surface_calc_basic(Si: Structure, matpes_calculator: PESCalculator) -> None:
@@ -95,3 +96,48 @@ def test_surface_calc_from_bulk_structure(Si: Structure, matpes_calculator: PESC
     # numbers the precomputed calc_slabs path produced (slab_result: same bulk+slab+settings).
     assert result["bulk_energy_per_atom"] == pytest.approx(slab_result["bulk_energy_per_atom"], abs=1e-3)
     assert result["surface_energy"] == pytest.approx(slab_result["surface_energy"], rel=1e-2)
+
+
+def test_surface_calc_slabs_from_relaxed_bulk(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """The slabs are cut from the relaxed bulk, so their in-plane lattice matches final_bulk (the energy
+    reference) rather than the (here strained) input bulk."""
+    strained = Si.copy()
+    strained.scale_lattice(Si.volume * 1.1)
+    surf_calc = SurfaceCalc(calculator=matpes_calculator, relax_slab=False, max_steps=100)
+    results = surf_calc.calc_slabs(strained, miller_index=(1, 0, 0), min_slab_size=10.0, min_vacuum_size=10.0)
+
+    final_bulk = results[0]["final_bulk"]
+    expected = SlabGenerator(final_bulk, (1, 0, 0), 10.0, 10.0).get_slabs()[0]
+    for res in results:
+        assert res["slab"].lattice.abc[:2] == pytest.approx(expected.lattice.abc[:2])
+    # The documented bulk attributes are set.
+    assert surf_calc.final_bulk is final_bulk
+    assert surf_calc.n_bulk_atoms == len(final_bulk)
+    assert surf_calc.bulk_energy == pytest.approx(results[0]["bulk_energy_per_atom"] * len(final_bulk))
+
+
+def test_surface_calc_plain_structure_slab(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """calc accepts a slab given as a plain Structure (no Slab.surface_area), with the area |a x b|."""
+    surf_calc = SurfaceCalc(calculator=matpes_calculator, relax_bulk=False, relax_slab=False)
+    slab = SlabGenerator(Si.to_conventional(), (1, 0, 0), 10.0, 10.0).get_slabs()[0]
+    plain = Structure(slab.lattice, slab.species, slab.frac_coords)
+
+    from_slab = surf_calc.calc({"slab": slab, "bulk": Si})
+    from_plain = surf_calc.calc({"slab": plain, "bulk_energy_per_atom": from_slab["bulk_energy_per_atom"]})
+    assert from_plain["surface_energy"] == pytest.approx(from_slab["surface_energy"])
+
+
+def test_surface_calc_bulk_relaxation(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """The bulk goes through PropCalc._check_and_prelax: an unconverged bulk relaxation raises, and with
+    relax_bulk=False the reference is a single point on the input bulk."""
+    rattled = Si.copy().perturb(0.2, seed=0)
+    with pytest.raises(RuntimeError, match="Pre-relaxation did not converge"):
+        SurfaceCalc(calculator=matpes_calculator, max_steps=1).calc_slabs(rattled, miller_index=(1, 0, 0))
+
+    bulk = Si.to_conventional()
+    static = SurfaceCalc(calculator=matpes_calculator, relax_bulk=False, relax_slab=False)
+    result = static.calc_slabs(bulk, miller_index=(1, 0, 0))[0]
+    assert result["final_bulk"] == bulk
+    assert result["bulk_energy_per_atom"] == pytest.approx(
+        matpes_calculator.get_potential_energy(bulk.to_ase_atoms()) / len(bulk)
+    )
