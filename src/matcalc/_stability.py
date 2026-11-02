@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -9,7 +10,7 @@ from monty.serialization import loadfn
 
 from ._base import PropCalc
 from .backend import run_pes_calc
-from .utils import to_pmg_structure
+from .utils import _resolve_canonical, to_pmg_structure
 
 if TYPE_CHECKING:
     from typing import Any
@@ -21,6 +22,40 @@ if TYPE_CHECKING:
 ELEMENTAL_REFS_DIR = Path(__file__).parent / "elemental_refs"
 
 
+def _infer_elemental_refs(calculator: Calculator | str) -> Literal["MatPES-PBE", "MatPES-r2SCAN"]:
+    """Pick the builtin MatPES elemental reference set matching the calculator's training functional.
+
+    The functional is read from the ``-r2SCAN`` / ``-PBE`` token of the model name (resolved to its canonical name
+    first, so aliases such as ``"r2scan"`` work). ``"MP-PBE"`` is never inferred; pass it explicitly.
+
+    Args:
+        calculator: ASE calculator instance or model name string, as passed to ``EnergeticsCalc``.
+
+    Returns:
+        ``"MatPES-r2SCAN"`` or ``"MatPES-PBE"``. Falls back to ``"MatPES-PBE"`` with a ``UserWarning`` when the
+        functional cannot be determined (a Calculator instance, or a name without a PBE/r2SCAN token).
+    """
+    if isinstance(calculator, str):
+        name = _resolve_canonical(calculator) or calculator
+        tokens = {t.lower() for t in Path(name).name.split("-")}
+        if "r2scan" in tokens:
+            return "MatPES-r2SCAN"
+        if "pbe" in tokens:  # Exact token, so PBEsol models are not matched.
+            return "MatPES-PBE"
+        source = f"model {name!r}"
+    else:
+        source = f"a {type(calculator).__name__} instance"
+    warnings.warn(
+        f"Cannot infer the DFT functional of {source}; using the 'MatPES-PBE' elemental references. Cohesive "
+        "energies (and formation energies with use_gs_reference=True) combine the MLIP energy with these DFT "
+        "references, so pass elemental_refs='MatPES-r2SCAN', 'MatPES-PBE' or 'MP-PBE' to match the potential's "
+        "training functional.",
+        UserWarning,
+        stacklevel=3,
+    )
+    return "MatPES-PBE"
+
+
 class EnergeticsCalc(PropCalc):
     """
     Handles formation energy per atom, cohesive energy per atom, and relaxed structures
@@ -28,7 +63,8 @@ class EnergeticsCalc(PropCalc):
 
     Attributes:
         calculator: ASE calculator (or universal model name) for energies and forces.
-        elemental_refs: Builtin ref key or custom dict mapping elements to reference data.
+        elemental_refs: Elemental reference data (loaded from the builtin set inferred from, or named by, the
+            ``elemental_refs`` argument, or the custom dict passed).
         use_gs_reference: If True, use tabulated DFT ground-state energies from refs.
         relax_structure: Whether to relax the input structure before energetics.
         relax_calc_kwargs: Optional kwargs forwarded to ``RelaxCalc``.
@@ -38,7 +74,7 @@ class EnergeticsCalc(PropCalc):
         self,
         calculator: Calculator | str,
         *,
-        elemental_refs: Literal["MP-PBE", "MatPES-PBE", "MatPES-r2SCAN"] | dict = "MatPES-PBE",
+        elemental_refs: Literal["MP-PBE", "MatPES-PBE", "MatPES-r2SCAN"] | dict | None = None,
         fmax: float = 0.1,
         optimizer: str = "FIRE",
         perturb_distance: float | None = None,
@@ -49,7 +85,14 @@ class EnergeticsCalc(PropCalc):
         """
         Args:
             calculator: ASE calculator or universal model name string.
-            elemental_refs: ``"MP-PBE"``, ``"MatPES-PBE"``, ``"MatPES-r2SCAN"``, or a custom dict.
+            elemental_refs: ``"MP-PBE"``, ``"MatPES-PBE"``, ``"MatPES-r2SCAN"``, a custom dict, or None (default).
+                None infers the set from the model name: ``"MatPES-r2SCAN"`` for r2SCAN-trained models and
+                ``"MatPES-PBE"`` for PBE-trained models. If the functional cannot be inferred (an ASE Calculator
+                instance, or a name without a PBE/r2SCAN token), ``"MatPES-PBE"`` is used and a ``UserWarning``
+                is emitted. The DFT ``energy_atomic`` (cohesive energy) and ``energy_per_atom``
+                (``use_gs_reference=True``) entries are only meaningful if they match the potential's training
+                functional. The default used to be ``"MatPES-PBE"`` regardless of the model; pass it explicitly to
+                keep that behavior.
             fmax: Force convergence tolerance (eV/Å) for relaxation.
             optimizer: ASE optimizer name for relaxation.
             perturb_distance: Random displacement (Å) before relaxation, or None.
@@ -61,6 +104,8 @@ class EnergeticsCalc(PropCalc):
         self.fmax = fmax
         self.optimizer = optimizer
         self.perturb_distance = perturb_distance
+        if elemental_refs is None:
+            elemental_refs = _infer_elemental_refs(calculator)
         if isinstance(elemental_refs, str):
             self.elemental_refs = loadfn(ELEMENTAL_REFS_DIR / f"{elemental_refs}-Element-Refs.json.gz")
         else:
