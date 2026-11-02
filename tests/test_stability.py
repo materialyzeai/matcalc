@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import math
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from monty.serialization import loadfn
 
 from matcalc._relaxation import RelaxCalc
-from matcalc._stability import EnergeticsCalc
+from matcalc._stability import ELEMENTAL_REFS_DIR, EnergeticsCalc, _infer_elemental_refs
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -171,3 +173,64 @@ def test_energetics_missing_element_ref(Li2O: Structure, matpes_calculator: PESC
             use_gs_reference=True,
             relax_structure=False,
         ).calc(Li2O)
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        ("TensorNet-MatPES-r2SCAN-2025.2", "MatPES-r2SCAN"),
+        ("r2scan", "MatPES-r2SCAN"),
+        ("MACE-OMat24-ft-MatPES-r2SCAN-0", "MatPES-r2SCAN"),
+        ("TensorNet-PES-MatPES-r2SCAN-2025.2", "MatPES-r2SCAN"),  # Raw MatGL name (load_universal fallback).
+        ("TensorNet-MatPES-PBE-2025.2", "MatPES-PBE"),
+        ("pbe", "MatPES-PBE"),
+        ("M3GNet-MatPES-PBE-2025.2", "MatPES-PBE"),
+    ],
+)
+def test_infer_elemental_refs_from_name(model: str, expected: str) -> None:
+    """The builtin reference set follows the training functional encoded in the model name."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _infer_elemental_refs(model) == expected
+
+
+@pytest.mark.parametrize("model", ["PET-MAD-PBEsol-1.0.2-S", "MACE-MPtrj-0b3-medium", "UMA-S-1.2"])
+def test_infer_elemental_refs_unknown_functional_warns(model: str) -> None:
+    """Names without an exact PBE/r2SCAN token (incl. PBEsol) fall back to MatPES-PBE with a warning."""
+    with pytest.warns(UserWarning, match="Cannot infer the DFT functional"):
+        assert _infer_elemental_refs(model) == "MatPES-PBE"
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [("TensorNet-MatPES-r2SCAN-2025.2", "MatPES-r2SCAN"), ("TensorNet-MatPES-PBE-2025.2", "MatPES-PBE")],
+)
+def test_energetics_infers_refs_from_model_name(
+    model: str,
+    expected: str,
+    matpes_calculator: PESCalculator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EnergeticsCalc(<model name>) loads the elemental references matching the model's functional."""
+    # Only the name matters for the inference; avoid loading a second model.
+    monkeypatch.setattr("matcalc._base.PESCalculator.load_universal", lambda _name: matpes_calculator)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        energetics_calc = EnergeticsCalc(model)
+    assert energetics_calc.elemental_refs == loadfn(ELEMENTAL_REFS_DIR / f"{expected}-Element-Refs.json.gz")
+
+
+def test_energetics_calculator_instance_warns(matpes_calculator: PESCalculator) -> None:
+    """A Calculator instance gives no functional to infer: MatPES-PBE refs with a UserWarning."""
+    with pytest.warns(UserWarning, match="Cannot infer the DFT functional"):
+        energetics_calc = EnergeticsCalc(matpes_calculator)
+    assert energetics_calc.elemental_refs == loadfn(ELEMENTAL_REFS_DIR / "MatPES-PBE-Element-Refs.json.gz")
+
+
+@pytest.mark.parametrize("refs", ["MatPES-r2SCAN", "MP-PBE"])
+def test_energetics_explicit_refs_respected(refs: str, matpes_calculator: PESCalculator) -> None:
+    """An explicit elemental_refs value is used as given, without inference or warning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        energetics_calc = EnergeticsCalc(matpes_calculator, elemental_refs=refs)  # type: ignore[arg-type]
+    assert energetics_calc.elemental_refs == loadfn(ELEMENTAL_REFS_DIR / f"{refs}-Element-Refs.json.gz")
