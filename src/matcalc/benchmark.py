@@ -6,7 +6,6 @@ import abc
 import gzip
 import json
 import logging
-import os
 import random
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -18,6 +17,7 @@ from matminer.featurizers.site import CrystalNNFingerprint
 from matminer.featurizers.structure import SiteStatsFingerprint
 from monty.json import MontyDecoder
 from monty.serialization import dumpfn, loadfn
+from pymatgen.core import Structure
 from scipy.optimize import curve_fit
 from tqdm import tqdm
 
@@ -73,6 +73,26 @@ def get_benchmark_data(name: str) -> list[Any]:
     )
     with gzip.open(local_path, "rt", encoding="utf-8") as f:
         return json.load(f, cls=MontyDecoder)
+
+
+def _check_checkpoint_ids(loaded_ids: list, expected_ids: list, path: Path) -> None:
+    """Ensure rows loaded from a checkpoint are a prefix of the benchmark rows (same ids, same order).
+
+    Args:
+        loaded_ids: Index values of the rows loaded from the checkpoint.
+        expected_ids: Index values of all benchmark rows, in run order.
+        path: Checkpoint path (for the error message).
+
+    Raises:
+        ValueError: If the checkpoint does not match the current benchmark (e.g., stale file from a run with a
+            different dataset, ``n_samples`` or ``seed``).
+    """
+    if loaded_ids != expected_ids[: len(loaded_ids)]:
+        raise ValueError(
+            f"Checkpoint {path} does not match this benchmark: its {len(loaded_ids)} rows are not the first rows "
+            f"of the current benchmark (of {len(expected_ids)}). It was likely written by a run with a different "
+            "dataset, n_samples or seed. Delete it or use a different checkpoint_file."
+        )
 
 
 class CheckpointFile:
@@ -133,7 +153,11 @@ class CheckpointFile:
             results: Rows to serialize to the checkpoint path.
         """
         logger.info("Saving %d entries to %s...", len(results), self.path)
-        dumpfn(results, self.path)
+        # Write to a temporary file with the same extension(s) and atomically move it into place, so that an
+        # interruption mid-write never leaves a truncated checkpoint that cannot be resumed from.
+        tmp_path = self.path.with_name(f".tmp.{self.path.name}")
+        dumpfn(results, tmp_path)
+        tmp_path.replace(self.path)
 
 
 class Benchmark(metaclass=abc.ABCMeta):
@@ -185,8 +209,9 @@ class Benchmark(metaclass=abc.ABCMeta):
         structures = []
         entries = get_benchmark_data(benchmark_name) if isinstance(benchmark_name, str) else loadfn(benchmark_name)
         if n_samples:
-            random.seed(seed)
-            entries = random.sample(entries, n_samples)
+            # Use a local RNG so that the global ``random`` state is not modified. This selects exactly the same
+            # samples as ``random.seed(seed); random.sample(...)``.
+            entries = random.Random(seed).sample(entries, n_samples)  # noqa: S311
 
         # We will first create a DataFrame from the required components from the raw benchmark entries.
         # We also create the list of structures in the order of the entries.
@@ -281,6 +306,11 @@ class Benchmark(metaclass=abc.ABCMeta):
         if checkpoint_file:
             checkpoint = CheckpointFile(checkpoint_file)
             results, ground_truth, structures = checkpoint.load(self.ground_truth, self.structures)
+            _check_checkpoint_ids(
+                [r.get(self.index_name) for r in results],
+                [r[self.index_name] for r in self.ground_truth],
+                checkpoint.path,
+            )
         else:
             results = []
             ground_truth = self.ground_truth
@@ -299,14 +329,13 @@ class Benchmark(metaclass=abc.ABCMeta):
                 r.update({k: v for k, v in d.items() if k not in self.properties})
 
             results.append(r)
-            if checkpoint and len(results) % checkpoint_freq == 0:
+            # Also persist the final partial batch if the checkpoint is kept, so that it is complete.
+            is_last = len(results) == len(self.ground_truth)
+            if checkpoint and (len(results) % checkpoint_freq == 0 or (is_last and not delete_checkpoint_on_finish)):
                 checkpoint.save(results)
 
-        if delete_checkpoint_on_finish and checkpoint_file:
-            try:
-                os.remove(checkpoint_file)
-            except FileNotFoundError:
-                pass
+        if checkpoint and delete_checkpoint_on_finish:
+            checkpoint.path.unlink(missing_ok=True)
 
         results_df = pd.DataFrame(results)
         if self.property_rename_map:
@@ -370,14 +399,13 @@ class EquilibriumBenchmark(Benchmark):
             ``EnergeticsCalc`` with MP-PBE elemental references relaxed per element.
         """
         self._prepare_elemental_refs(calculator)
-        return EnergeticsCalc(
-            calculator,
-            elemental_refs=self.elemental_refs,
-            use_gs_reference=True,
-            fmax=0.05,
-            perturb_distance=0.1,
-            **kwargs,
-        )
+        defaults: dict[str, Any] = {
+            "elemental_refs": self.elemental_refs,
+            "use_gs_reference": True,
+            "fmax": 0.05,
+            "perturb_distance": 0.1,
+        }
+        return EnergeticsCalc(calculator, **(defaults | kwargs))
 
     def process_result(self, result: dict | None, model_name: str) -> dict:
         """
@@ -453,10 +481,18 @@ class EquilibriumBenchmark(Benchmark):
             stats=("mean", "std_dev", "minimum", "maximum"),
         )
 
+        def _distance(model: Structure | float | None, dft: Structure | float | None) -> float:
+            # Failed calculations yield NaN (not a Structure) in the structure column.
+            if not (isinstance(model, Structure) and isinstance(dft, Structure)):
+                return np.nan
+            try:
+                return float(np.linalg.norm(np.array(ssf.featurize(model)) - np.array(ssf.featurize(dft))))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("EquilibriumBenchmark: fingerprint failed (%s): %s", type(exc).__name__, exc)
+                return np.nan
+
         results_df[f"d_{model_name}"] = [
-            np.linalg.norm(np.array(ssf.featurize(model)) - np.array(ssf.featurize(dft)))
-            if model is not None and dft is not None
-            else np.nan
+            _distance(model, dft)
             for model, dft in zip(results_df[f"structure_{model_name}"], results_df["structure_DFT"], strict=True)
         ]
 
@@ -621,7 +657,8 @@ class PhononBenchmark(Benchmark):
         Returns:
             ``PhononCalc`` instance.
         """
-        return PhononCalc(calculator, fmax=0.05, write_phonon=False, **kwargs)
+        defaults: dict[str, Any] = {"fmax": 0.05, "write_phonon": False}
+        return PhononCalc(calculator, **(defaults | kwargs))
 
     def process_result(self, result: dict | None, model_name: str) -> dict:
         """
@@ -632,11 +669,14 @@ class PhononBenchmark(Benchmark):
             model_name: Column suffix.
 
         Returns:
-            ``heat_capacity_{model_name}`` at fixed thermal-properties index (default grid).
+            ``heat_capacity_{model_name}`` at 300 K, interpolated on the thermal-properties temperature grid.
         """
+        if result is None:
+            return {f"heat_capacity_{model_name}": float("nan")}
+        thermal_properties = result["thermal_properties"]
         return {
-            f"heat_capacity_{model_name}": (
-                result["thermal_properties"]["heat_capacity"][30] if result is not None else float("nan")
+            f"heat_capacity_{model_name}": float(
+                np.interp(300, thermal_properties["temperatures"], thermal_properties["heat_capacity"])
             )
         }
 
@@ -678,8 +718,7 @@ class SofteningBenchmark:
             )
         self.data: dict[str, Any] = raw
         if n_samples:
-            random.seed(seed)
-            self.material_ids = random.sample(list(self.data.keys()), n_samples)
+            self.material_ids = random.Random(seed).sample(list(self.data.keys()), n_samples)  # noqa: S311
         else:
             self.material_ids = list(self.data.keys())
         self.kwargs = kwargs
@@ -736,6 +775,7 @@ class SofteningBenchmark:
         if checkpoint_file:
             checkpoint = CheckpointFile(checkpoint_file)
             results, material_ids = checkpoint.load(self.material_ids)
+            _check_checkpoint_ids([r.get("material_id") for r in results], self.material_ids, checkpoint.path)
 
         for material_id in material_ids:
             frames = self.data[material_id]
