@@ -112,3 +112,21 @@ def test_relax_calc_kwargs_override(
     with pytest.raises(_Captured):
         CASES[case](matpes_calculator, Si)
     assert {key: captured[key] for key in OVERRIDES} == OVERRIDES
+
+
+class _PrelaxCalc(_DummyCalc):
+    relax_structure = True
+
+
+def test_check_and_prelax_raises_on_unrelaxed_cell(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    """A cell relaxation stopped with ~zero forces but a large stress must not be passed downstream."""
+    expanded = Li2O.copy()
+    expanded.scale_lattice(1.1 * Li2O.volume)
+    calc = _PrelaxCalc(matpes_calculator, {"max_steps": 3, "relax_cell": True, "fmax": 0.1})
+    with pytest.raises(RuntimeError, match=r"Pre-relaxation did not converge.*GPa"):
+        calc._check_and_prelax(expanded, {})  # noqa: SLF001
+
+    calc = _PrelaxCalc(matpes_calculator, {"max_steps": 500, "relax_cell": True, "fmax": 0.1})
+    result, structure = calc._check_and_prelax(expanded, {})  # noqa: SLF001
+    assert result["is_converged"] is True
+    assert structure.volume < expanded.volume

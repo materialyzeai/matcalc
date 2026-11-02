@@ -9,6 +9,7 @@ from ase.filters import ExpCellFilter, FrechetCellFilter
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 
 from matcalc import RelaxCalc
+from matcalc.units import eVA3ToGPa
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -355,6 +356,34 @@ def test_relax_calc_convergence_keys(
 
     assert not_converged["is_converged"] is False
     assert not_converged["max_force"] > 1e-8
+
+
+@pytest.mark.parametrize("fix_atoms", [False, True])
+def test_relax_calc_is_converged_includes_stress(
+    Li2O: Structure,
+    matpes_calculator: PESCalculator,
+    fix_atoms: bool,
+) -> None:
+    """A cell relaxation stopped early with ~zero forces but a large stress is not converged."""
+    # Atoms sit on high-symmetry sites, so the forces stay ~0 while the expanded cell carries several GPa of stress.
+    expanded = Li2O.copy()
+    expanded.scale_lattice(1.1 * Li2O.volume)
+    kwargs = {"relax_atoms": True, "relax_cell": True, "fmax": 0.1, "fix_atoms": fix_atoms}
+
+    stopped = RelaxCalc(matpes_calculator, max_steps=3, **kwargs).calc(expanded)
+    assert stopped["max_force"] <= 0.1  # the old force-only criterion reported this as converged
+    assert np.abs(stopped["stress"]).max() * eVA3ToGPa > 1
+    assert stopped["is_converged"] is False
+
+    relaxed = RelaxCalc(matpes_calculator, max_steps=500, **kwargs).calc(expanded)
+    assert relaxed["is_converged"] is True
+    assert relaxed["volume"] < stopped["volume"]
+
+
+def test_relax_calc_is_converged_static_fallback(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    """Without an optimizer run, is_converged falls back to the force criterion."""
+    result = RelaxCalc(matpes_calculator, relax_atoms=False, relax_cell=False, fmax=0.1).calc(Li2O)
+    assert result["is_converged"] is (result["max_force"] <= 0.1)
 
 
 def test_relax_calc_many(

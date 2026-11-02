@@ -107,10 +107,17 @@ class RelaxCalc(PropCalc):
         Returns:
             Dict with ``final_structure``, ``energy`` (eV), ``forces`` (eV/A),
             ``stress`` (eV/A^3), ``max_force`` (eV/A, max per-atom force
-            magnitude), ``is_converged`` (True when ``max_force`` <= ``fmax``),
-            lattice parameters ``a``, ``b``, ``c`` (A), angles ``alpha``,
-            ``beta``, ``gamma`` (degrees), ``volume`` (A^3), and ``_units``
-            mapping each numeric output to its unit string.
+            magnitude), ``is_converged`` (see below), lattice parameters
+            ``a``, ``b``, ``c`` (A), angles ``alpha``, ``beta``, ``gamma``
+            (degrees), ``volume`` (A^3), and ``_units`` mapping each numeric
+            output to its unit string.
+
+            ``is_converged`` is the optimizer's verdict when a relaxation was
+            run, so with ``relax_cell=True`` it also requires the cell (stress)
+            to be converged; a cell relaxation that hits ``max_steps`` with
+            small atomic forces but a large residual stress is reported as not
+            converged. When no optimizer runs (static calculation), it falls
+            back to ``max_force <= fmax``.
         """
         result = super().calc(structure)
 
@@ -149,6 +156,9 @@ class RelaxCalc(PropCalc):
 
         lattice = r.structure.lattice
         max_force = float(np.linalg.norm(r.forces, axis=1).max())
+        # The optimizer's verdict covers the cell DOF (stress) and constraints; forces alone do not, e.g. a cell
+        # relaxation with fixed atoms has zero forces regardless of the residual stress.
+        is_converged = r.converged if r.converged is not None else max_force <= self.fmax
         result.update(
             {
                 "final_structure": r.structure,
@@ -156,7 +166,7 @@ class RelaxCalc(PropCalc):
                 "forces": r.forces,
                 "stress": r.stress,
                 "max_force": max_force,
-                "is_converged": max_force <= self.fmax,
+                "is_converged": is_converged,
                 "a": lattice.a,
                 "b": lattice.b,
                 "c": lattice.c,
