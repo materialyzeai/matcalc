@@ -256,3 +256,37 @@ def test_defect_calc_si(Si: Structure, matpes_calculator: PESCalculator) -> None
     assert result["defect_name"] == "v_Si"
     assert len(result["defect"]) == 7
     assert 1 < result["formation_energy"] < 6
+
+
+def test_relaxation_caches(Cu: Structure, matpes_calculator: PESCalculator, monkeypatch: pytest.MonkeyPatch) -> None:
+    relaxations: list[tuple[str, float]] = []
+    relax = RelaxCalc.calc
+
+    def counting_calc(self: RelaxCalc, structure: Structure) -> dict:
+        if len(structure) <= 8:  # bulk and elemental references, not defect supercells
+            relaxations.append((structure.composition.reduced_formula, self.fmax))
+        return relax(self, structure)
+
+    monkeypatch.setattr(RelaxCalc, "calc", counting_calc)
+    calc = DefectCalc(matpes_calculator, max_steps=5, relax_defect=False)
+    vacancy = Cu.make_supercell(2, in_place=False)
+    vacancy.remove_sites([0])
+    substitution = Cu.make_supercell(2, in_place=False)
+    substitution.replace(0, "Ni")
+    inputs = [
+        {"defect": vacancy, "element_changes": {"Cu": -1}, "bulk": Cu},
+        {"defect": substitution, "element_changes": {"Cu": -1, "Ni": 1}, "bulk": Cu},
+    ]
+
+    first = [calc.calc(d) for d in inputs]
+    # A bulk shared by several defects is relaxed once.
+    assert [formula for formula, _ in relaxations].count("Cu") == 1
+    assert first[0]["bulk_energy_per_atom"] == first[1]["bulk_energy_per_atom"]
+    n_ni = [formula for formula, _ in relaxations].count("Ni")
+    assert n_ni > 0
+
+    # Changing the relaxation settings also invalidates the elemental references, so that the bulk and
+    # chemical potentials always come from the same calculator and settings.
+    calc.fmax = 0.05
+    calc.calc(inputs[1])
+    assert relaxations[-n_ni - 1 :] == [("Cu", 0.05)] + [("Ni", 0.05)] * n_ni
