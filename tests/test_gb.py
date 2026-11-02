@@ -6,12 +6,12 @@ import math
 from typing import TYPE_CHECKING
 
 import pytest
+from pymatgen.core import Lattice, Structure
 
 from matcalc import GBCalc
 
 if TYPE_CHECKING:
     from matgl.ext.ase import PESCalculator
-    from pymatgen.core import Structure
 
 
 def test_gb_calc(Si: Structure, matpes_calculator: PESCalculator) -> None:
@@ -78,6 +78,22 @@ def test_gb_calc_invalid_input(Si: Structure, matpes_calculator: PESCalculator) 
         gb_calc.calc(Si)
     with pytest.raises(ValueError, match=match):
         gb_calc.calc({"grain_boundary": Si})
+
+
+def test_gb_calc_trigonal(matpes_calculator: PESCalculator) -> None:
+    """Rotation angles of a trigonal (hexagonal-lattice) crystal use the hexagonal CSL, not the tetragonal one.
+
+    The Sigma7 [001] twist of the hexagonal lattice is at 21.79°, which the tetragonal formulas do not produce.
+    """
+    tis2 = Structure.from_spacegroup(
+        "P-3m1", Lattice.hexagonal(3.4, 5.7), ["Ti", "S"], [[0, 0, 0], [1 / 3, 2 / 3, 0.25]]
+    )
+    gb_calc = GBCalc(calculator=matpes_calculator, relax_bulk=False, relax_gb=False)
+    results = gb_calc.calc_gb(
+        tis2, sigma=7, rotation_axis=(0, 0, 1), gb_plane=(0, 0, 1), rotation_angle=21.79, expand_times=1
+    )
+    assert results["grain_boundary"].rotation_angle == pytest.approx(21.786789, abs=1e-4)
+    assert math.isfinite(results["grain_boundary_energy"])
 
 
 def test_gb_calc_invalid_rotation_angle(Si: Structure, matpes_calculator: PESCalculator) -> None:

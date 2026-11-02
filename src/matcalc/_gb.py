@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from pymatgen.core.interface import GrainBoundaryGenerator
-from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 
 from ._base import PropCalc
 from .utils import to_pmg_structure
@@ -115,18 +114,8 @@ class GBCalc(PropCalc):
         structure = to_pmg_structure(structure)
         bulk_conventional = structure.to_conventional()
 
-        # Bulk relaxation
-        relax_bulk_calc = self._relaxer(
-            fmax=self.fmax,
-            max_steps=self.max_steps,
-            relax_cell=self.relax_bulk,
-            relax_atoms=self.relax_bulk,
-            optimizer=self.optimizer,
-        )
-
-        bulk_opt = relax_bulk_calc.calc(bulk_conventional)
-        final_bulk = bulk_opt["final_structure"]
-        bulk_energy_per_atom = bulk_opt["energy"] / len(final_bulk)
+        bulk_opt = self._calc_bulk(bulk_conventional)
+        final_bulk = bulk_opt["final_bulk"]
 
         # Use relaxed primitive so GB lattice parameters are consistent with the bulk energy.
         bulk_primitive = final_bulk.to_primitive()
@@ -135,13 +124,13 @@ class GBCalc(PropCalc):
             **(gb_generator_kwargs or {}),
         )
 
-        analyzer = SpacegroupAnalyzer(bulk_primitive)
-        lattice_type = analyzer.get_crystal_system()[0]
+        # Use the generator's lattice type ("c", "t", "o", "h" or "r"), not the first letter of the crystal system,
+        # which reads trigonal (hexagonal or rhombohedral lattice) as tetragonal ("t").
         c_a_ratio = gb_gen.get_ratio()
         angles = gb_gen.get_rotation_angle_from_sigma(
             sigma=sigma,
             r_axis=rotation_axis,
-            lat_type=lattice_type,
+            lat_type=gb_gen.lat_type,
             ratio=tuple(c_a_ratio) if c_a_ratio is not None else None,  # type: ignore[arg-type]
         )
 
@@ -169,13 +158,7 @@ class GBCalc(PropCalc):
             **(gb_from_parameters_kwargs or {}),
         )
 
-        return self.calc(
-            {
-                "grain_boundary": grain_boundary,
-                "bulk_energy_per_atom": bulk_energy_per_atom,
-                "final_bulk": final_bulk,
-            }
-        )
+        return self.calc({"grain_boundary": grain_boundary} | bulk_opt)
 
     def calc(
         self,
@@ -214,22 +197,9 @@ class GBCalc(PropCalc):
 
         result_dict = structure.copy()
 
-        if "bulk_energy_per_atom" in structure:
-            bulk_energy_per_atom = structure["bulk_energy_per_atom"]
-        else:
-            logger.info("Relaxing bulk structure with both atomic and cell degrees of freedom")
-            relaxer = self._relaxer(
-                fmax=self.fmax,
-                max_steps=self.max_steps,
-                relax_cell=self.relax_bulk,
-                relax_atoms=self.relax_bulk,
-                optimizer=self.optimizer,
-            )
-            bulk_opt = relaxer.calc(structure["bulk"])
-            final_bulk = bulk_opt["final_structure"]
-            bulk_energy_per_atom = bulk_opt["energy"] / len(final_bulk)
-            result_dict["bulk_energy_per_atom"] = bulk_energy_per_atom
-            result_dict["final_bulk"] = final_bulk
+        if "bulk_energy_per_atom" not in structure:
+            result_dict |= self._calc_bulk(structure["bulk"])
+        bulk_energy_per_atom = result_dict["bulk_energy_per_atom"]
 
         # Relax GB
         gb_struct = structure["grain_boundary"]
@@ -257,3 +227,23 @@ class GBCalc(PropCalc):
             "gb_relax_energy": gb_energy,
             "grain_boundary_energy": gamma_gb,
         }
+
+    def _calc_bulk(self, bulk: Structure | Atoms) -> dict[str, Any]:
+        """Relax the bulk (cell and atoms) if relax_bulk, and compute its energy per atom.
+
+        Args:
+            bulk: Bulk structure.
+
+        Returns:
+            Dict with ``bulk_energy_per_atom`` (eV/atom) and ``final_bulk``.
+        """
+        logger.info("Computing the bulk reference energy (relax_bulk=%s)", self.relax_bulk)
+        bulk_opt = self._relaxer(
+            fmax=self.fmax,
+            max_steps=self.max_steps,
+            relax_cell=self.relax_bulk,
+            relax_atoms=self.relax_bulk,
+            optimizer=self.optimizer,
+        ).calc(bulk)
+        final_bulk = bulk_opt["final_structure"]
+        return {"bulk_energy_per_atom": bulk_opt["energy"] / len(final_bulk), "final_bulk": final_bulk}
