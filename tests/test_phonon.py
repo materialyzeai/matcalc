@@ -322,3 +322,10 @@ def test_mc_rattle_min_distance(Si_atoms: Atoms) -> None:
     random_atoms.positions += np.random.RandomState(0).normal(0.0, 0.1 * np.sqrt(10), (len(atoms), 3))
     assert mc_atoms.get_all_distances(mic=True)[triu].min() > d_min - 0.2  # d_min - 2 * width
     assert random_atoms.get_all_distances(mic=True)[triu].min() < d_min - 0.2
+
+
+def test_phonon_calc_imaginary_mode_message(matpes_calculator: PESCalculator) -> None:
+    """The percentage of imaginary modes is reported with two decimals."""
+    phonon_calc = PhononCalc(calculator=matpes_calculator, on_imaginary_modes="error")
+    with pytest.raises(ValueError, match=r"1/3 \(33\.33%\) modes are imaginary"):
+        phonon_calc._check_imaginary_modes(np.array([-1.0, 1.0, 2.0]))  # noqa: SLF001

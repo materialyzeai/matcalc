@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from ase.filters import ExpCellFilter
 
-from matcalc import EOSCalc
+from matcalc import EOSCalc, RelaxCalc
 
 if TYPE_CHECKING:
     from ase import Atoms
@@ -79,3 +79,31 @@ def test_eos_calc_atoms(
     result = eos_calc.calc(Si_atoms)
 
     assert result["bulk_modulus_bm"] == pytest.approx(76.57813407426684, rel=1e-1)
+
+
+def test_eos_calc_keeps_user_cell_filter_kwargs(
+    Si: Structure,
+    matpes_calculator: PESCalculator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """User ``cell_filter_kwargs`` (e.g. a mask) must survive the constant-volume setting of the EOS points."""
+    captured: list[dict[str, Any]] = []
+    orig_init = RelaxCalc.__init__
+
+    def spy_init(self: RelaxCalc, calculator: Any, **kwargs: Any) -> None:
+        captured.append(kwargs)
+        orig_init(self, calculator, **kwargs)
+
+    monkeypatch.setattr(RelaxCalc, "__init__", spy_init)
+    mask = [1, 1, 0, 0, 0, 1]
+    result = EOSCalc(
+        matpes_calculator,
+        n_points=5,
+        relax_structure=False,
+        relax_calc_kwargs={"cell_filter_kwargs": {"mask": mask}},
+    ).calc(Si)
+
+    assert result["bulk_modulus_bm"] > 0
+    (eos_kwargs,) = captured
+    assert eos_kwargs["relax_cell"] is True
+    assert eos_kwargs["cell_filter_kwargs"] == {"mask": mask, "constant_volume": True}

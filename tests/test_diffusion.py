@@ -70,6 +70,82 @@ def test_existing_trajectory(
     assert result["_units"] == {"potential_energy": "eV", "diffusivity": "cm^2/s", "conductivity": "mS/cm"}
 
 
+def _hopping_trajectory(structure: Structure, specie: str) -> list[Structure]:
+    """Frames in which every ``specie`` ion moves so that its MSD rises by 0.01 A^2 per frame."""
+    mobile_indices = [i for i, site in enumerate(structure) if site.specie.symbol == specie]
+    trajectory = []
+    for i in range(16):
+        frame = structure.copy()
+        frame.translate_sites(mobile_indices, [np.sqrt(0.01 * i), 0, 0], frac_coords=False)
+        trajectory.append(frame)
+    return trajectory
+
+
+def _nernst_einstein(structure: Structure, specie: str, charge: float, diffusivity: float) -> float:
+    """Conductivity in mS/cm for a diffusivity in cm^2/s at 600 K."""
+    number_density = sum(site.specie.symbol == specie for site in structure) / (structure.volume * 1e-30)
+    return 10 * number_density * (charge * elementary_charge) ** 2 * (diffusivity * 1e-4) / (Boltzmann * 600)
+
+
+@pytest.mark.parametrize(
+    ("substitution", "oxi_states", "specie", "charge", "expected_charge"),
+    [
+        # pymatgen's DiffusionAnalyzer would use 10 (4d10) for Ag, 10 for Cu and 4 (2p4) for O.
+        ({"Li": "Ag"}, None, "Ag", None, 1),
+        ({"Li": "Cu"}, None, "Cu", None, 1),
+        ({}, None, "O", None, -2),
+        # Oxidation states of a decorated structure take precedence over the guess.
+        ({}, {"Li": 1, "O": -1}, "O", None, -1),
+        ({}, None, "Li", 2, 2),
+    ],
+)
+def test_conductivity_charge(
+    Li2O: Structure,
+    matpes_calculator: PESCalculator,
+    substitution: dict[str, str],
+    oxi_states: dict[str, int] | None,
+    specie: str,
+    charge: float | None,
+    expected_charge: float,
+) -> None:
+    structure = Li2O.copy()
+    structure.remove_oxidation_states()
+    structure.replace_species(substitution)
+    if oxi_states:
+        structure.add_oxidation_state_by_element(oxi_states)
+    calc = DiffusionCalc(
+        matpes_calculator,
+        specie=specie,
+        charge=charge,
+        temperature=600,
+        timestep=1,
+        loginterval=10,
+        analyzer_kwargs={"smoothed": False},
+    )
+    result = calc.calc({"final_structure": structure, "trajectory": _hopping_trajectory(structure, specie)})
+
+    diffusivity = 0.01 / (10 * 60)
+    assert result["diffusivity"] == pytest.approx(diffusivity)
+    assert result["conductivity"] == pytest.approx(_nernst_einstein(structure, specie, expected_charge, diffusivity))
+
+
+def test_conductivity_charge_fallback(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    """Without a charge-balanced guess (Li7O4), the common oxidation state is used with a warning."""
+    structure = Li2O.to_conventional()
+    structure.remove_oxidation_states()
+    structure.remove_sites([next(i for i, site in enumerate(structure) if site.specie.symbol == "Li")])
+    trajectory = _hopping_trajectory(structure, "Li")
+    kwargs = {"temperature": 600, "timestep": 1, "loginterval": 10, "analyzer_kwargs": {"smoothed": False}}
+    calc = DiffusionCalc(matpes_calculator, specie="Li", **kwargs)
+    with pytest.warns(UserWarning, match="common oxidation state 1 of Li"):
+        result = calc.calc({"final_structure": structure, "trajectory": trajectory})
+    assert result["conductivity"] == pytest.approx(_nernst_einstein(structure, "Li", 1, result["diffusivity"]))
+
+    calc = DiffusionCalc(matpes_calculator, specie="He", **kwargs)
+    with pytest.raises(ValueError, match="charge of He"):
+        calc.calc({"final_structure": structure, "trajectory": trajectory})
+
+
 def test_diffusion_defaults(matpes_calculator: PESCalculator) -> None:
     calc = DiffusionCalc(matpes_calculator, specie="Li", temperature=1000, timestep=1.0, loginterval=10)
     md_calc = calc._build_md_calc()  # noqa: SLF001
