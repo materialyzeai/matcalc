@@ -40,7 +40,7 @@ class EOSCalc(PropCalc):
         optimizer: Optimizer for optional relaxations.
         relax_structure: Relax initial structure before the EOS scan.
         n_points: Number of volume/strain samples.
-        max_abs_strain: Half-range of applied volumetric strain (symmetric scan).
+        max_abs_strain: Half-range of applied linear (isotropic) strain (symmetric scan).
         fmax: Force tolerance for relaxations.
         max_steps: Max optimizer steps per relaxation.
         allow_shape_change: Allow cell shape to change at fixed volume during EOS points.
@@ -66,7 +66,8 @@ class EOSCalc(PropCalc):
             calculator: ASE calculator or universal model name string.
             optimizer: ASE optimizer name or class for relaxations.
             max_steps: Maximum relaxation steps per structure.
-            max_abs_strain: Maximum absolute volumetric strain in the scan.
+            max_abs_strain: Maximum absolute linear (isotropic) strain in the scan; the volume
+                spans ``(1 ± max_abs_strain)**3`` times the reference volume.
             n_points: Number of strain points (including halves of the scan).
             fmax: Force convergence criterion (eV/Å).
             allow_shape_change: Relax cell shape at fixed volume for EOS points when True.
@@ -115,9 +116,13 @@ class EOSCalc(PropCalc):
 
         volumes, energies = [], []
 
-        # Don't relax the volume!
+        # Don't relax the volume! Keep any user cell-filter settings (e.g. ``mask``) on top of that.
         relax_calc_kwargs["relax_cell"] = bool(self.allow_shape_change)
-        relax_calc_kwargs["cell_filter_kwargs"] = {"constant_volume": True} if self.allow_shape_change else {}
+        relax_calc_kwargs["cell_filter_kwargs"] = (
+            {**(relax_calc_kwargs.get("cell_filter_kwargs") or {}), "constant_volume": True}
+            if self.allow_shape_change
+            else {}
+        )
         relaxer = RelaxCalc(self.calculator, **relax_calc_kwargs)
 
         temp_structure = structure_in.copy()
