@@ -253,9 +253,7 @@ try:
     # in ``load_universal`` for matgl models not yet registered as canonical names.
     import matgl
 
-    _MATGL_AVAILABLE: set[str] = {
-        m for m in matgl.get_available_pretrained_models() if "PES" in m and "ANI-1x-Subset-PES" not in m
-    }
+    _MATGL_AVAILABLE: set[str] = {m for m in matgl.get_available_pretrained_models() if "PES" in m}
 except ImportError:
     _MATGL_AVAILABLE = set()
 except Exception as _matgl_err:  # noqa: BLE001
