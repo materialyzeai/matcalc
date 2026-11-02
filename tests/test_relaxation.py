@@ -260,6 +260,7 @@ def test_relax_calc_perturb_distance(
     [
         (True, [0, 1, 2]),
         ([0], [0]),
+        (np.array([0, 1]), [0, 1]),
     ],
 )
 def test_relax_calc_fix_atoms(
@@ -287,6 +288,22 @@ def test_relax_calc_fix_atoms(
 
     for i in fixed_indices:
         assert disp[i] == pytest.approx(0.0, abs=1e-4)
+
+
+def test_relax_calc_cell_only(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    """relax_atoms=False with relax_cell=True relaxes the cell at fixed fractional coordinates."""
+    structure = Li2O.copy()
+    structure.perturb(distance=0.05, seed=0)
+    structure.scale_lattice(Li2O.volume * 1.1)
+
+    result = RelaxCalc(matpes_calculator, relax_atoms=False, relax_cell=True, fmax=0.01).calc(structure)
+    final_struct: Structure = result["final_structure"]
+
+    assert result["volume"] < 0.95 * structure.volume
+    frac_diff = final_struct.frac_coords - structure.frac_coords
+    assert np.abs(frac_diff - np.round(frac_diff)).max() < 1e-6
+    # Residual stress is small after the cell relaxation (eV/A^3; 0.01 eV/A^3 ~ 1.6 GPa).
+    assert np.abs(result["stress"]).max() < 0.01
 
 
 def test_relax_calc_fix_symmetry(

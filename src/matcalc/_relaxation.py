@@ -75,7 +75,9 @@ class RelaxCalc(PropCalc):
             interval: Steps between trajectory writes.
             fmax: Force convergence criterion (eV/Å).
             relax_atoms: Relax atomic positions.
-            relax_cell: Relax cell with ``cell_filter``.
+            relax_cell: Relax cell with ``cell_filter``. With ``relax_atoms=False``, the cell is relaxed at fixed
+                fractional coordinates (all atoms carry a ``FixAtoms`` constraint, so the reported ``forces`` and
+                ``max_force`` are zero).
             cell_filter: Cell filter class (default ``FrechetCellFilter``).
             cell_filter_kwargs: Kwargs for the cell filter.
             perturb_distance: Random displacement (Å) before relax, or None.
@@ -122,10 +124,19 @@ class RelaxCalc(PropCalc):
             structure_in = to_pmg_structure(structure_in).copy().perturb(distance=self.perturb_distance, seed=None)
 
         atoms = to_ase_atoms(structure_in)
+        # The backend only runs an optimizer (and hence the cell filter) when relax_atoms is True, so a cell-only
+        # relaxation is run as a full relaxation with every atom fixed (fractional coordinates follow the cell).
+        cell_only = self.relax_cell and not self.relax_atoms
+        fix_atoms = self.fix_atoms
+        if isinstance(fix_atoms, bool):
+            fixed = list(range(len(atoms))) if fix_atoms else []
+        else:  # sequence of indices (list, tuple or numpy array)
+            fixed = [int(i) for i in fix_atoms]
+        if cell_only:
+            fixed = list(range(len(atoms)))
         constraints: list[Any] = []
-        if self.fix_atoms:
-            indices = list(range(len(atoms))) if isinstance(self.fix_atoms, bool) else [int(i) for i in self.fix_atoms]
-            constraints.append(FixAtoms(indices=indices))
+        if fixed:
+            constraints.append(FixAtoms(indices=fixed))
 
         if self.fix_symmetry:
             constraints.append(FixSymmetry(atoms, symprec=self.symprec))
@@ -136,7 +147,7 @@ class RelaxCalc(PropCalc):
         r = run_pes_calc(
             atoms,
             self.calculator,
-            relax_atoms=self.relax_atoms,
+            relax_atoms=self.relax_atoms or cell_only,
             relax_cell=self.relax_cell,
             optimizer=self.optimizer,
             max_steps=self.max_steps,
