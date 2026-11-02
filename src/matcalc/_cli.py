@@ -50,16 +50,18 @@ def calculate_property(args: Any) -> None:
     """Run the selected PropCalc on input structure files (from parsed CLI args)."""
     if args.verbose:
         logging.basicConfig(level=logging.DEBUG, format="%(name)s %(levelname)s %(message)s")
-    calculator = mtc.load_fp(args.model)
     calc_cls = CLI_CALCS[args.property]
-    mod = calc_cls(calculator)
+    # Pass the model name rather than a loaded calculator: every PropCalc loads it via its calculator setter, and
+    # LAMMPSMDCalc only accepts a name (it is written into the LAMMPS input).
+    mod = calc_cls(args.model)
     results = []
     for f in args.structure:
         s = Structure.from_file(f)
         results.append(mod.calc(s))
     if args.outfile:
         if "json" not in args.outfile:
-            dumpfn(jsanitize(results), args.outfile)
+            # recursive_msonable keeps Structures etc. as reloadable dicts instead of their str() summaries.
+            dumpfn(jsanitize(results, recursive_msonable=True), args.outfile)
         else:
             dumpfn(results, args.outfile)
     else:
@@ -68,7 +70,7 @@ def calculate_property(args: Any) -> None:
 
 def clear_cache(args: Any) -> None:
     """Clear the MatCalc benchmark cache (from parsed CLI args)."""
-    mtc.clear_cache(confirm=args.yes)
+    mtc.clear_cache(confirm=not args.yes)
 
 
 def main() -> None:
@@ -79,7 +81,7 @@ def main() -> None:
         epilog="""Author: MatCalc Development Team""",
     )
 
-    subparsers = parser.add_subparsers()
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
     p_calc = subparsers.add_parser("calc", help="Calculate properties using universal calculators.")
 
