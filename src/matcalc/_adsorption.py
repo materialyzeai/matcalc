@@ -11,7 +11,6 @@ from pymatgen.core.adsorption import AdsorbateSiteFinder
 from pymatgen.core.surface import Slab, SlabGenerator
 
 from ._base import PropCalc
-from .backend._ase import get_ase_optimizer
 from .utils import to_ase_atoms, to_pmg_molecule, to_pmg_structure
 
 if TYPE_CHECKING:
@@ -165,7 +164,8 @@ class AdsorptionCalc(PropCalc):
         """
         Args:
             slab: Slab structure or atoms.
-            slab_energy: Optional total slab energy; if None, taken from calculator.
+            slab_energy: Optional total slab energy; if None, the energy of the final (relaxed if
+                ``relax_slab``) slab from the calculator.
 
         Returns:
             Dict with ``slab``, ``slab_energy``, ``slab_energy_per_atom``, ``final_slab``.
@@ -185,7 +185,9 @@ class AdsorptionCalc(PropCalc):
             }
 
         if slab_energy is None:
-            slab_energy = self.calculator.get_potential_energy(to_ase_atoms(slab))
+            slab_energy = (
+                slab_opt["energy"] if self.relax_slab else self.calculator.get_potential_energy(to_ase_atoms(slab))
+            )
 
         slab_energy_per_atom = slab_energy / len(slab) if slab_energy is not None else None
 
@@ -250,6 +252,7 @@ class AdsorptionCalc(PropCalc):
 
         # Generally want the surface perpendicular to z
         if slab_gen_kwargs is not None:
+            slab_gen_kwargs = dict(slab_gen_kwargs)  # do not mutate the caller's dict
             slab_gen_kwargs["max_normal_search"] = slab_gen_kwargs.get("max_normal_search", np.max(miller_index) + 1)
             slab_gen_kwargs["reorient_lattice"] = slab_gen_kwargs.get("reorient_lattice", True)
 
@@ -285,12 +288,9 @@ class AdsorptionCalc(PropCalc):
             slab: Slab = cast("Slab", slab_dict["slab"])
 
             if fixed_height is not None:
-                maxz = np.min(slab.cart_coords, axis=0)[2] + fixed_height
-                fix_idx = np.argwhere(slab.cart_coords[:, 2] < maxz).flatten()
-                slab.add_site_property(
-                    "selective_dynamics",
-                    [[False] * 3 if i in fix_idx else [True] * 3 for i in range(len(slab))],
-                )
+                z_coords = slab.cart_coords[:, 2]
+                fixed = z_coords < z_coords.min() + fixed_height
+                slab.add_site_property("selective_dynamics", [[not is_fixed] * 3 for is_fixed in fixed])
 
             slab_dict |= self.calc_slab(slab, slab_energy=slab_energy)
             slab_dict |= copy(adsorbate_dict)
@@ -345,7 +345,9 @@ class AdsorptionCalc(PropCalc):
         """
         Args:
             structure: Dict with ``adslab``, ``slab``, ``adsorbate``; optional ``slab_energy`` /
-                ``adsorbate_energy``.
+                ``adsorbate_energy``. If the dict also has ``final_slab`` / ``final_adsorbate`` (as those
+                from ``calc_adslabs`` do) with the corresponding energy, the clean slab / adsorbate is not
+                recomputed.
 
         Returns:
             Dict including ``adsorption_energy`` and merged slab/adsorbate fields.
@@ -370,24 +372,32 @@ class AdsorptionCalc(PropCalc):
 
         result_dict = structure.copy()
 
-        result_dict |= self.calc_adsorbate(
-            structure["adsorbate"],
-            adsorbate_energy=structure.get("adsorbate_energy"),
-        )
-
-        result_dict |= self.calc_slab(structure["slab"], slab_energy=structure.get("slab_energy"))
+        # calc_adslabs already relaxed the adsorbate and clean slab once for all sites; only redo them
+        # when their final structures and energies are not given.
+        if "final_adsorbate" not in structure or structure.get("adsorbate_energy") is None:
+            result_dict |= self.calc_adsorbate(
+                structure["adsorbate"],
+                adsorbate_energy=structure.get("adsorbate_energy"),
+            )
+        if "final_slab" not in structure or structure.get("slab_energy") is None:
+            result_dict |= self.calc_slab(structure["slab"], slab_energy=structure.get("slab_energy"))
+        else:
+            result_dict["slab_energy_per_atom"] = structure["slab_energy"] / len(structure["slab"])
 
         adslab = structure["adslab"]
 
         n_adsorbate_atoms = len(structure["adsorbate"])
         n_slab_atoms = len(adslab) - n_adsorbate_atoms
 
-        adslab_atoms = to_ase_atoms(adslab)
-        adslab_atoms.calc = self.calculator
-        opt = get_ase_optimizer(self.optimizer)(adslab_atoms)  # type:ignore[operator]
-        opt.run(fmax=self.fmax, steps=self.max_steps)
-        final_adslab = to_pmg_structure(adslab_atoms)
-        adslab_energy = adslab_atoms.get_potential_energy()
+        adslab_opt = self._relaxer(
+            fmax=self.fmax,
+            max_steps=self.max_steps,
+            relax_atoms=True,
+            relax_cell=False,
+            optimizer=self.optimizer,
+        ).calc(adslab)
+        final_adslab = adslab_opt["final_structure"]
+        adslab_energy = adslab_opt["energy"]
         ads_energy = (
             adslab_energy - n_slab_atoms * result_dict["slab_energy_per_atom"] - result_dict["adsorbate_energy"]
         )
