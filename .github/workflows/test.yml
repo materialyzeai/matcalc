@@ -32,6 +32,8 @@ jobs:
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
       PMG_MAPI_KEY: ${{ secrets.PMG_MAPI_KEY }}
+      # Wipe matgl/matcalc caches at pytest start so CI always exercises fresh downloads (see tests/conftest.py).
+      MATCALC_TEST_CLEAR_CACHE: "1"
 
     steps:
       - uses: actions/checkout@v5
