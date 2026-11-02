@@ -7,10 +7,16 @@ This file defines commonly used test fixtures. These are meant to be reused in u
 Given that the fixtures are unlikely to be modified by the underlying code, the fixtures are set with a scope of
 "session". In the event that future tests are written that modifies the fixtures, these can be set to the default scope
 of "function".
+
+Environment variables:
+- MATCALC_TEST_CLEAR_CACHE: set to 1/true/yes to wipe the matgl and matcalc caches (~/.cache/matgl,
+  ~/.cache/matcalc) at pytest start, forcing fresh model and benchmark downloads. CI sets this. It is off by default
+  so local runs reuse cached models and concurrent pytest sessions on one machine do not delete each other's files.
 """
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import pytest
@@ -28,18 +34,21 @@ if TYPE_CHECKING:
 import matgl
 
 MATPES_MODEL = "TensorNet-MatPES-PBE-2025.2"
+CLEAR_CACHE_ENV = "MATCALC_TEST_CLEAR_CACHE"
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Reset caches and pre-download the shared model once, in the controller only.
+    """Optionally reset caches, then pre-download the shared model once, in the controller only.
 
+    Caches are cleared only when ``MATCALC_TEST_CLEAR_CACHE`` is truthy (CI sets it to exercise fresh downloads).
     Under pytest-xdist, workers would otherwise clear the caches and download the same
     model concurrently while other workers are reading them.
     """
     if hasattr(config, "workerinput"):
         return
-    matgl.clear_cache(confirm=False)
-    matcalc.clear_cache(confirm=False)
+    if os.environ.get(CLEAR_CACHE_ENV, "").strip().lower() in {"1", "true", "yes"}:
+        matgl.clear_cache(confirm=False)
+        matcalc.clear_cache(confirm=False)
     matcalc.load_fp(MATPES_MODEL)
 
 

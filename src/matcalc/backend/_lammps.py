@@ -32,6 +32,7 @@ def run_lammps(
     calculator (Calculator): The calculator object to use for the calculation.
 
     Returns:
-    PESResult: Object containing potential energy, forces, and stress of the input structure.
+    SimulationResult: Object containing potential energy, forces, and stress of the input structure, and the
+    relaxation's convergence verdict in ``converged`` (None for a static calculation), as for ``run_ase``.
     """
     raise NotImplementedError("LAMMPS calculation is not yet implemented.")

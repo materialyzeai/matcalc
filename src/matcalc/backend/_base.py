@@ -8,7 +8,12 @@ if TYPE_CHECKING:
 
 
 class SimulationResult(NamedTuple):
-    """Container for results from PES calculators."""
+    """Container for results from PES calculators.
+
+    ``converged`` is the optimizer's own convergence verdict when a relaxation was run (for a cell relaxation this
+    covers the cell degrees of freedom, i.e. the stress, as well as the atomic forces) and ``None`` for a static
+    calculation.
+    """
 
     structure: Structure
     potential_energy: float
@@ -16,3 +21,4 @@ class SimulationResult(NamedTuple):
     energy: float
     forces: np.typing.NDArray[np.float64]
     stress: np.typing.NDArray[np.float64]
+    converged: bool | None = None

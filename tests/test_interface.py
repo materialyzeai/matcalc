@@ -94,6 +94,31 @@ def test_interface_calc_basic(Si: Structure, SiO2: Structure, matpes_calculator:
     _check_energy_identities(interface_res, interface_res["interface"])
 
 
+def test_interface_calc_interfaces_from_relaxed_bulk(
+    Si: Structure, SiO2: Structure, matpes_calculator: PESCalculator
+) -> None:
+    """The interfaces are built from the relaxed bulks, so a strained input substrate gives the same interface
+    lattice as the unstrained one (both relax to the same bulk)."""
+    strained = Si.copy()
+    strained.scale_lattice(Si.volume * 1.1)
+    interface_calc = InterfaceCalc(
+        calculator=matpes_calculator, interfacial_energy=False, relax_interface=False, fmax=0.01, max_steps=200
+    )
+
+    def min_area(substrate: Structure) -> float:
+        results = interface_calc.calc_interfaces(
+            film_bulk=SiO2,
+            substrate_bulk=substrate,
+            film_miller=(1, 0, 0),
+            substrate_miller=(1, 1, 1),
+            zslgen=ZSLGenerator(max_area=100),
+        )
+        return min(_area(res["interface"]) for res in results)
+
+    # The 10% volume strain would change the area by 6.5%.
+    assert min_area(strained) == pytest.approx(min_area(Si), rel=5e-3)
+
+
 def test_interface_calc_requires_dict(
     matpes_calculator: PESCalculator,
 ) -> None:

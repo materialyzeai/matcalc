@@ -233,7 +233,7 @@ results = prop_calc.calc(structure)
 A command-line interface allows computing properties for any structure file:
 
 ```shell
-# Compute elastic constants for a CIF file using the default TensorNet model
+# Compute elastic constants for a CIF file using the default model (TensorNet-MatPES-r2SCAN-2025.2)
 matcalc calc -p ElasticityCalc -s Li2O.cif
 
 # Use a specific model and write output to a JSON file

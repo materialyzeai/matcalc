@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import difflib
+import os
 import sys
 import warnings
+from collections.abc import Set as AbstractSet
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import numpy as np
 from ase import Atoms
 from ase.calculators.calculator import Calculator
 from pymatgen.core import Molecule, Structure
@@ -17,7 +20,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from .units import eVA3ToGPa
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     from maml.apps.pes import LMPStaticCalculator
     from pyace.basis import ACEBBasisSet, ACECTildeBasisSet, BBasisConfiguration
@@ -248,20 +251,43 @@ MODEL_ALIASES: dict[str, str] = {
     "chgnet-matpes-pbe-2025.2.10-2.7m-pes": "CHGNet-MatPES-PBE-2025.2.10",
 }
 
-try:
-    # Set of raw MatGL pretrained PES names. Used as a backward-compat escape hatch
-    # in ``load_universal`` for matgl models not yet registered as canonical names.
-    import matgl
 
-    _MATGL_AVAILABLE: set[str] = {m for m in matgl.get_available_pretrained_models() if "PES" in m}
-except ImportError:
-    _MATGL_AVAILABLE = set()
-except Exception as _matgl_err:  # noqa: BLE001
-    warnings.warn(
-        f"Unable to query pre-trained MatGL universal calculators: {_matgl_err!r}",
-        stacklevel=1,
-    )
-    _MATGL_AVAILABLE = set()
+class _LazyMatGLModels(AbstractSet[str]):
+    """Set of raw MatGL pretrained PES names, queried on first use.
+
+    Used as a backward-compat escape hatch in ``load_universal`` for MatGL models not yet
+    registered as canonical names. Listing them imports MatGL (torch, DGL) and queries the
+    Hugging Face Hub, so it is deferred until an unregistered name is actually looked up
+    rather than paid on every ``import matcalc`` (and in every joblib worker).
+    """
+
+    def __init__(self) -> None:
+        self._names: frozenset[str] | None = None
+
+    def _get(self) -> frozenset[str]:
+        if self._names is None:
+            try:
+                import matgl
+
+                self._names = frozenset(m for m in matgl.get_available_pretrained_models() if "PES" in m)
+            except ImportError:
+                self._names = frozenset()
+            except Exception as err:  # noqa: BLE001
+                warnings.warn(f"Unable to query pre-trained MatGL universal calculators: {err!r}", stacklevel=3)
+                self._names = frozenset()
+        return self._names
+
+    def __contains__(self, item: object) -> bool:
+        return item in self._get()
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._get())
+
+    def __len__(self) -> int:
+        return len(self._get())
+
+
+_MATGL_AVAILABLE = _LazyMatGLModels()
 
 UNIVERSAL_CALCULATORS = Enum(  # type: ignore[misc]
     "UNIVERSAL_CALCULATORS", {k: k for k in sorted(MODEL_REGISTRY)}
@@ -361,7 +387,7 @@ class PESCalculator(Calculator):
     def __init__(
         self,
         potential: LMPStaticCalculator,
-        stress_unit: Literal["eV/A3", "GPa"] = "GPa",
+        stress_unit: Literal["eV/A3", "GPa"] = "eV/A3",
         stress_weight: float = 1.0,
         **kwargs: Any,
     ) -> None:
@@ -370,7 +396,8 @@ class PESCalculator(Calculator):
 
         Args:
             potential: MAML ``LMPStaticCalculator`` instance.
-            stress_unit: ``"GPa"`` or ``"eV/A3"`` for returned stress units.
+            stress_unit: ``"eV/A3"`` (default; the ASE convention that matcalc relies on) or
+                ``"GPa"`` for returned stress units.
             stress_weight: Multiplier on stress after unit conversion (default 1.0).
             **kwargs: Forwarded to ``ase.calculators.calculator.Calculator``.
         """
@@ -403,7 +430,6 @@ class PESCalculator(Calculator):
         """
         from ase.calculators.calculator import all_changes, all_properties
         from maml.apps.pes import EnergyForceStress
-        from pymatgen.io.ase import AseAtomsAdaptor
 
         properties = properties or all_properties
         system_changes = system_changes or all_changes
@@ -413,10 +439,15 @@ class PESCalculator(Calculator):
         efs_calculator = EnergyForceStress(ff_settings=self.potential)
         energy, forces, stresses = efs_calculator.calculate([structure])[0]
 
+        # maml returns the LAMMPS pressure tensor in GPa, ordered (xx, yy, zz, xy, xz, yz).
+        # ASE stress has the opposite sign (positive = tensile) and Voigt order
+        # (xx, yy, zz, yz, xz, xy).
+        stress = -np.asarray(stresses)[[0, 1, 2, 5, 4, 3]]
+
         self.results = {
             "energy": energy,
             "forces": forces,
-            "stress": stresses * self.stress_weight,
+            "stress": stress * self.stress_weight,
         }
 
     @staticmethod
@@ -614,7 +645,7 @@ class PESCalculator(Calculator):
         return DP(model=model_path, **kwargs)
 
     @staticmethod
-    def load_universal(name: str | Calculator, **kwargs: Any) -> Calculator:
+    def load_universal(name: str | os.PathLike[str] | Calculator, **kwargs: Any) -> Calculator:
         """
         Load a foundation potential calculator by its canonical name.
 
@@ -629,7 +660,7 @@ class PESCalculator(Calculator):
         fine-tuned potential) is loaded with MatGL.
 
         Args:
-            name: Canonical model name, alias, raw MatGL model name or directory, or an
+            name: Canonical model name, alias, raw MatGL model name or directory (str or Path), or an
                 existing ASE calculator instance.
             **kwargs: Provider-specific options. These override the defaults stored
                 in the registry entry (e.g. ``device="cuda"`` for ORB / FAIRChem).
@@ -642,6 +673,8 @@ class PESCalculator(Calculator):
             ImportError: If the model is recognized but the provider's optional
                 dependency is not installed.
         """
+        if isinstance(name, os.PathLike):  # e.g. Path to a saved MatGL model directory
+            name = os.fspath(name)
         if not isinstance(name, str):  # already an ASE Calculator
             return name
 
@@ -651,7 +684,7 @@ class PESCalculator(Calculator):
             # straight through (covers any newly released models not yet in the
             # registry) so users on the bleeding edge are not blocked, or a local
             # MatGL model directory such as a fine-tuned potential.
-            if name in _MATGL_AVAILABLE or _is_matgl_model_dir(name):
+            if _is_matgl_model_dir(name) or name in _MATGL_AVAILABLE:
                 return PESCalculator.load_matgl(name, **kwargs)
             if (reason := _REMOVED_MODELS.get(name.lower())) is not None:
                 raise ValueError(f"{name!r} was removed: {reason}")

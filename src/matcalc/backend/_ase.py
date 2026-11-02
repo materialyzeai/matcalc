@@ -114,7 +114,8 @@ def run_ase(
         cell_filter_kwargs: Extra arguments for the cell filter.
 
     Returns:
-        SimulationResult with structure, energies, forces, and stress.
+        SimulationResult with structure, energies, forces, and stress. ``converged`` is the optimizer's verdict when
+        ``relax_atoms`` is True (including the cell degrees of freedom when ``relax_cell`` is True) and None otherwise.
     """
     atoms = to_ase_atoms(structure)
     atoms.calc = calculator
@@ -146,6 +147,7 @@ def run_ase(
             atoms.get_total_energy(),
             atoms.get_forces(),
             atoms.get_stress(voigt=False),
+            converged=bool(converged),
         )
 
     return SimulationResult(

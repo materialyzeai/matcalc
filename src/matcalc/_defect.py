@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import math
 from collections import Counter
@@ -90,7 +91,9 @@ class DefectCalc(PropCalc):
         self.chemical_potentials = chemical_potentials
         self.elemental_refs = elemental_refs
         self.relax_calc_kwargs = relax_calc_kwargs
+        # Elemental reference energies by symbol, valid for the calculator and settings in _reference_settings.
         self._reference_energies: dict[str, float] = {}
+        self._reference_settings: tuple | None = None
         # Relaxed bulks by input structure, valid for the calculator and settings in _bulk_cache_settings.
         self._bulk_cache: dict[tuple, dict[str, Any]] = {}
         self._bulk_cache_settings: tuple | None = None
@@ -158,6 +161,14 @@ class DefectCalc(PropCalc):
                 defect = supercell.copy()
                 defect.append(symbol, final_bulk.lattice.get_cartesian_coords(frac), coords_are_cartesian=True)
                 generated.append((f"{symbol}_i", defect, {symbol: 1}, defect[-1].frac_coords))
+
+        # Relax the elemental references needed here once, before calc_many copies this calculator to any
+        # parallel workers, which would otherwise each relax them again. Missing references raise per defect.
+        changed = {el for *_, changes, _ in generated for el in changes}
+        known = {el.symbol for el in final_bulk.composition} | set(self.chemical_potentials or {})
+        for symbol in sorted(changed - known):
+            with contextlib.suppress(Exception):
+                self._elemental_energy(symbol)
 
         totals = Counter(name for name, *_ in generated)
         seen: Counter[str] = Counter()
@@ -268,13 +279,7 @@ class DefectCalc(PropCalc):
         if "bulk_energy_per_atom" in structure and "final_bulk" in structure:
             bulk_energy_per_atom = structure["bulk_energy_per_atom"]
         else:
-            bulk_opt = self._relaxer(
-                fmax=self.fmax,
-                optimizer=self.optimizer,
-                max_steps=self.max_steps,
-                relax_cell=self.relax_bulk,
-                relax_atoms=self.relax_bulk,
-            ).calc(structure["bulk"])
+            bulk_opt = self._relax_bulk(structure["bulk"], conventional=False)
             bulk_energy_per_atom = bulk_opt["energy"] / len(bulk_opt["final_structure"])
             result |= {"final_bulk": bulk_opt["final_structure"], "bulk_energy_per_atom": bulk_energy_per_atom}
         host = to_pmg_structure(result["final_bulk"]).composition
@@ -322,26 +327,33 @@ class DefectCalc(PropCalc):
             ),
         }
 
-    def _relax_bulk(self, structure: Structure | Atoms) -> dict[str, Any]:
-        """Relax the conventional bulk, reusing the result for the same input and relaxation settings.
-
-        ``calc_chemical_potential_limits`` and ``calc_defects`` both need the relaxed bulk; the cache
-        relaxes it once and guarantees that both use the same bulk energy.
-        """
-        settings = (
+    def _relax_settings(self) -> tuple:
+        """Settings that determine the result of a relaxation, for invalidating cached results."""
+        return (
             self.calculator,  # compared by identity; holding it also prevents id reuse
-            self.relax_bulk,
             self.fmax,
             repr(self.optimizer),
             self.max_steps,
             repr(self.relax_calc_kwargs),
         )
+
+    def _relax_bulk(self, structure: Structure | Atoms, *, conventional: bool = True) -> dict[str, Any]:
+        """Relax the bulk, reusing the result for the same input and relaxation settings.
+
+        ``calc_chemical_potential_limits`` and ``calc_defects`` both need the relaxed bulk; the cache
+        relaxes it once and guarantees that both use the same bulk energy. ``calc`` relaxes a ``bulk``
+        as given (``conventional=False``), once for all defects that share it.
+        """
+        settings = (*self._relax_settings(), self.relax_bulk)
         if settings != self._bulk_cache_settings:
             self._bulk_cache = {}
             self._bulk_cache_settings = settings
-        bulk = to_pmg_structure(structure).to_conventional()
-        bulk.remove_oxidation_states()
+        bulk = to_pmg_structure(structure)
+        if conventional:
+            bulk = bulk.to_conventional()
+            bulk.remove_oxidation_states()
         key = (
+            conventional,
             tuple(site.species_string for site in bulk),
             bulk.lattice.matrix.tobytes(),
             bulk.frac_coords.tobytes(),
@@ -353,7 +365,7 @@ class DefectCalc(PropCalc):
                 max_steps=self.max_steps,
                 relax_cell=self.relax_bulk,
                 relax_atoms=self.relax_bulk,
-            ).calc(bulk)
+            ).calc(bulk if conventional else structure)
         # Copy the structure so that in-place edits by the caller cannot corrupt the cache.
         cached = self._bulk_cache[key]
         return cached | {"final_structure": cached["final_structure"].copy()}
@@ -371,6 +383,10 @@ class DefectCalc(PropCalc):
         return self._elemental_energy(symbol)
 
     def _elemental_energy(self, symbol: str) -> float:
+        settings = (*self._relax_settings(), self.elemental_refs)
+        if settings != self._reference_settings:
+            self._reference_energies = {}
+            self._reference_settings = settings
         if symbol not in self._reference_energies:
             refs = self.elemental_refs
             if isinstance(refs, str):

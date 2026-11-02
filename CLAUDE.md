@@ -16,6 +16,7 @@ pytest -n auto --dist worksteal tests             # parallel (pytest-xdist), as 
 pytest tests/test_elasticity.py                       # single file
 pytest tests/test_elasticity.py::test_elasticity_calc # single test
 pytest --cov=matcalc --cov-report=xml tests           # with coverage (CI invocation)
+MATCALC_TEST_CLEAR_CACHE=1 pytest tests               # wipe ~/.cache/{matgl,matcalc} first (CI sets this)
 
 # Lint / format / typecheck (these are the CI gates)
 ruff check src

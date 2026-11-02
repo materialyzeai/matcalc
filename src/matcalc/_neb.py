@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from ase.calculators.singlepoint import SinglePointCalculator
 from ase.io import Trajectory
 from ase.mep import NEB, NEBTools
 from ase.utils.forcecurve import fit_images
@@ -292,10 +294,16 @@ class NEBCalc(PropCalc):
                 "For NEB calculations, structure must be a dict containing the images with keys image00, image01, etc."
             )
         images: list[Atoms] = []
-        for _, image in sorted(structure.items(), key=lambda x: x[0]):
+        for _, image in sorted(structure.items(), key=lambda x: _natural_key(x[0])):
             atoms = to_ase_atoms(image)
             atoms.calc = self.calculator
             images.append(atoms)
+        if not self.kwargs.get("remove_rotation_and_translation"):
+            # The endpoints never move, but with a shared calculator NEB re-evaluates them on every step.
+            for atoms in (images[0], images[-1]):
+                atoms.calc = SinglePointCalculator(
+                    atoms, energy=atoms.get_potential_energy(), forces=atoms.get_forces(apply_constraint=False)
+                )
 
         self.neb = NEB(images, climb=self.climb, method=self.method, allow_shared_calculator=True, **self.kwargs)
         optimizer = self.optimizer(self.neb)  # type:ignore[operator]
@@ -334,3 +342,8 @@ class NEBCalc(PropCalc):
         result["mep"] = mep
         result["_units"] = self._merge_units(None, {"barrier": "eV", "reaction_energy": "eV", "forces": "eV/Å"})
         return result
+
+
+def _natural_key(key: str) -> list[int | str]:
+    """Sort key ordering embedded integers numerically, so ``image10`` follows ``image9``."""
+    return [int(token) if token.isdigit() else token for token in re.split(r"(\d+)", key)]

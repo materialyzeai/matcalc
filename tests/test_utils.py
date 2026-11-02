@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import shutil
+import subprocess
+import sys
 from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -166,10 +168,102 @@ def test_pescalculator_calculate() -> None:
     assert list(stresses.shape) == [6]
 
 
+@pytest.mark.skipif(not find_spec("maml"), reason="maml is not installed")
+def test_pescalculator_stress_convention(monkeypatch: pytest.MonkeyPatch) -> None:
+    """maml returns the LAMMPS pressure tensor (GPa, xx yy zz xy xz yz); ASE wants -p in Voigt order."""
+    import maml.apps.pes
+    import numpy as np
+
+    from matcalc.units import eVA3ToGPa
+
+    lammps_pressure = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])  # xx yy zz xy xz yz
+
+    class FakeEFS:  # stands in for maml's LAMMPS-backed EnergyForceStress
+        def __init__(self, ff_settings: object) -> None:
+            pass
+
+        def calculate(self, structures: list) -> list:
+            return [(-1.0, np.zeros((len(structures[0]), 3)), lammps_pressure)]
+
+    monkeypatch.setattr(maml.apps.pes, "EnergyForceStress", FakeEFS)
+    atoms = Atoms("Cu", positions=[(0, 0, 0)], cell=[2.5] * 3, pbc=True)
+    expected = -np.array([1.0, 2.0, 3.0, 6.0, 5.0, 4.0])  # xx yy zz yz xz xy
+    for unit, factor in (("GPa", 1.0), ("eV/A3", 1 / eVA3ToGPa)):
+        atoms.calc = PESCalculator(potential=None, stress_unit=unit)  # type: ignore[arg-type]
+        assert atoms.get_stress() == pytest.approx(expected * factor)
+        # Full tensor is symmetric with xy (index 4 in LAMMPS order) in the [0, 1] slot.
+        assert atoms.get_stress(voigt=False)[0, 1] == pytest.approx(-4.0 * factor)
+    # Default must be ASE's eV/A^3: RelaxCalc cell filters and ElasticityCalc assume it.
+    assert PESCalculator(potential=None).stress_weight == pytest.approx(1 / eVA3ToGPa)  # type: ignore[arg-type]
+
+
+def test_load_universal_path(tmp_path: Path) -> None:
+    """A ``Path`` (not just a ``str``) to a saved MatGL model directory must load, not be returned as-is."""
+    import matgl
+
+    model_dir = tmp_path / "finetuned"
+    matgl.load_model("TensorNet-PES-MatPES-PBE-2025.2").save(model_dir)
+    assert isinstance(PESCalculator.load_universal(model_dir), Calculator)
+    with pytest.raises(ValueError, match="Unrecognized"):
+        PESCalculator.load_universal(tmp_path / "missing")
+
+
+def test_import_does_not_load_matgl() -> None:
+    """``import matcalc`` must not import MatGL or query the HF Hub for its model list."""
+    code = "import sys, matcalc; assert 'matgl' not in sys.modules, 'matgl imported eagerly'"
+    subprocess.run([sys.executable, "-c", code], check=True)  # noqa: S603
+
+
+def test_lazy_matgl_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    import matgl
+
+    from matcalc.utils import _LazyMatGLModels
+
+    calls = []
+
+    def fake_list() -> list[str]:
+        calls.append(1)
+        return ["Foo-PES-Bar", "Foo-Bandgap"]
+
+    monkeypatch.setattr(matgl, "get_available_pretrained_models", fake_list)
+    models = _LazyMatGLModels()
+    assert not calls
+    assert "Foo-PES-Bar" in models
+    assert "Foo-Bandgap" not in models
+    assert set(models) == {"Foo-PES-Bar"}
+    assert len(calls) == 1
+
+
 def test_aliases() -> None:
     # Every alias must resolve to a canonical name in the registry.
-    for v in MODEL_ALIASES.values():
-        assert v in MODEL_REGISTRY, f"Alias target {v!r} is not a canonical model name."
+    for alias, target in MODEL_ALIASES.items():
+        assert target in MODEL_REGISTRY, f"Alias target {target!r} is not a canonical model name."
+        # Lookups lower-case the input, so a non-lower-case alias key would be unreachable.
+        assert alias == alias.lower(), f"Alias key {alias!r} must be lower case."
+        assert _resolve_canonical(alias.upper()) == target
+    # An alias must not shadow a different canonical name's case-folded spelling.
+    for canonical in MODEL_REGISTRY:
+        assert _resolve_canonical(canonical.lower()) == canonical
+    # Removed names must not silently resolve to something else.
+    for removed in _REMOVED_MODELS:
+        assert _resolve_canonical(removed) is None
+
+
+def test_fp_loader_workflow_matches_registry() -> None:
+    """``.github/workflows/test-fp-loaders.yml`` must only smoke-test canonical names of its own provider."""
+    import json
+
+    from ruamel.yaml import YAML
+
+    from matcalc.utils import _PROVIDER_INSTALL_EXTRA
+
+    workflow = YAML(typ="safe").load(DIR.parent / ".github" / "workflows" / "test-fp-loaders.yml")
+    extra_to_provider = {extra: provider for provider, extra in _PROVIDER_INSTALL_EXTRA.items()}
+    for entry in workflow["jobs"]["test-fp-loaders"]["strategy"]["matrix"]["include"]:
+        provider = extra_to_provider[entry["extras"]]
+        for name in json.loads(entry["models"]):
+            assert name in MODEL_REGISTRY, f"{entry['name']}: {name!r} is not a canonical model name."
+            assert MODEL_REGISTRY[name]["provider"] == provider, f"{name!r} is not a {provider!r} model."
 
 
 def test_resolve_canonical_variants() -> None:
