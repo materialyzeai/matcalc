@@ -108,17 +108,20 @@ class MDCalc(PropCalc):
             friction (float): Friction coefficient for nvt_langevin, in ASE internal inverse-time units (multiply a
                 value in 1/fs by ``1 / ase.units.fs``), passed to ``ase.md.Langevin`` unchanged. Default to
                 0.01 / units.fs, i.e. 0.01 fs^-1 (1 / friction = 100 fs, matching the default ``taut``). The
-                default in matcalc <= 0.7.0 was 1.0e-3, i.e. ~1e-4 fs^-1 (1 / friction ~ 10 ps), which
+                default before matcalc v0.8.0 was 1.0e-3, i.e. ~1e-4 fs^-1 (1 / friction ~ 10 ps), which
                 barely thermostats a run of a few thousand steps; pass ``friction=1.0e-3`` to reproduce it.
             andersen_prob (float): Per-atom, per-step collision probability for nvt_andersen (dimensionless; the
                 mean time between collisions of an atom is timestep / andersen_prob). Default to 1.0e-2.
             ttime (float): Characteristic time scale of the npt/npt_nose_hoover thermostat, in fs (converted to
-                ASE units internally). Default to 25.0.
+                ASE units internally). Default to 25.0. Note that, unlike ``taut``, ``taup``, ``friction`` and
+                ``pfactor``, this one is in fs rather than ASE units.
             pfactor (float | None): Barostat constant of the npt/npt_nose_hoover (Melchionna) dynamics, in ASE
                 internal units (eV/Å³ x ASE-time²), passed to ``ase.md.npt.NPT`` unchanged. For a barostat time
                 constant ptime and bulk modulus B, set ``pfactor = (ptime * units.fs) ** 2 * B * units.GPa``
                 (ptime in fs, B in GPa). Default to (75 fs)² x 100 GPa ~ 33.9, ASE's recommended ptime with a
-                typical solid bulk modulus. None disables the barostat (NVT Nose-Hoover). In matcalc <= 0.7.0
+                typical solid bulk modulus. None disables the barostat: the cell is then fixed and the run is
+                Melchionna Nose-Hoover NVT thermostatted with ``ttime``, not ``taut``; for NVT, prefer
+                ensemble="nvt"/"nvt_nose_hoover" (Nose-Hoover chain with ``taut``). Before matcalc v0.8.0
                 the value was multiplied by ``units.fs`` and defaulted to 75.0**2, i.e. 75**2 * units.fs ~ 553 in
                 ASE units, 16x the documented recipe (an effective ptime of ~300 fs at B = 100 GPa); pass
                 ``pfactor=75.0**2 * units.fs`` to reproduce it.
