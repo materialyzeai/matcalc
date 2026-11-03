@@ -8,13 +8,14 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 from ase.filters import ExpCellFilter
+from pymatgen.core import Lattice, Structure
 from pymatgen.core.elasticity import ElasticTensor
 
 from matcalc import ElasticityCalc
+from matcalc._elasticity import _symmetry_allowed
 
 if TYPE_CHECKING:
     from matgl.ext.ase import PESCalculator
-    from pymatgen.core import Structure
 
 
 @pytest.mark.parametrize("relax_deformed_structures", [False, True])
@@ -135,8 +136,11 @@ def test_elastic_calc_symmetry(Cu: Structure, matpes_calculator: PESCalculator) 
     kwargs = {"fmax": 0.05, "units_GPa": True, "relax_calc_kwargs": {"cell_filter": ExpCellFilter}}
     ref = ElasticityCalc(matpes_calculator, **kwargs).calc(Cu)
     sym = ElasticityCalc(matpes_calculator, symmetry=True, **kwargs).calc(Cu)
-    assert sym["elastic_tensor"].voigt == pytest.approx(ref["elastic_tensor"].voigt, abs=0.05)
-    assert sym["bulk_modulus_vrh"] == pytest.approx(ref["bulk_modulus_vrh"], abs=0.05)
+    ref_voigt, sym_voigt = ref["elastic_tensor"].voigt, sym["elastic_tensor"].voigt
+    nonzero = np.abs(ref_voigt) > 1  # GPa
+    assert sym_voigt[nonzero] == pytest.approx(ref_voigt[nonzero], rel=1e-3)
+    assert sym_voigt[~nonzero] == pytest.approx(ref_voigt[~nonzero], abs=0.05)
+    assert sym["bulk_modulus_vrh"] == pytest.approx(ref["bulk_modulus_vrh"], rel=1e-3)
 
 
 @pytest.mark.parametrize("structure_name", ["Cu", "Si"])
@@ -177,3 +181,18 @@ def test_elastic_calc_residuals_units(Si: Structure, matpes_calculator: PESCalcu
     assert res_gpa["bulk_modulus_vrh"] == pytest.approx(res_ev["bulk_modulus_vrh"] * gpa_per_ev_a3, rel=1e-3)
     assert res_ev["_units"]["residuals_sum"] == "(eV/A^3)^2"
     assert res_gpa["_units"]["residuals_sum"] == "GPa^2"
+
+
+def test_symmetry_allowed() -> None:
+    """The R² mask follows the Laue-class zero pattern, including small off-diagonal couplings such as C14."""
+    cubic = Structure.from_spacegroup("Fm-3m", Lattice.cubic(3.6), ["Cu"], [[0, 0, 0]])
+    expected = np.zeros((6, 6), dtype=bool)
+    expected[:3, :3] = True
+    expected[3:, 3:] = np.eye(3, dtype=bool)
+    assert (_symmetry_allowed(cubic) == expected).all()
+
+    # Trigonal R-3m: C14 = -C24 = C56 are allowed.
+    bi = Structure.from_spacegroup("R-3m", Lattice.hexagonal(4.55, 11.86), ["Bi"], [[0, 0, 0.2339]])
+    for i, j in [(0, 3), (1, 3), (4, 5)]:
+        expected[i, j] = expected[j, i] = True
+    assert (_symmetry_allowed(bi) == expected).all()

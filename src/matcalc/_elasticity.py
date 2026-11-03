@@ -76,7 +76,7 @@ class ElasticityCalc(PropCalc):
             relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
             r2_min: Minimum acceptable pooled R² of the per-component linear
                 strain-stress fits (see ``r2_score_mean``). A ``RuntimeWarning`` is emitted (and values
-                are still returned) when the mean R² drops below this. Set
+                are still returned) when the pooled R² drops below this. Set
                 negative to disable. Default 0.95.
         """
         self.calculator = calculator  # type: ignore[assignment]
@@ -112,7 +112,9 @@ class ElasticityCalc(PropCalc):
             ``bulk_modulus_vrh`` and ``youngs_modulus`` are returned in GPa if
             ``units_GPa=True``, otherwise in eV/A^3 (pymatgen's native units).
             ``residuals_sum`` (sum of squared stress residuals) is in the square of
-            those units. ``r2_score_mean`` is the pooled R² of the strain-stress fits.
+            those units. ``r2_score_mean`` is the pooled R² of the strain-stress fits over the
+            symmetry-allowed C_ij (see ``_elastic_tensor_from_strains``); the key name is historical,
+            from when it was the mean of the per-component R² values.
             ``_units`` is a dict mapping each numeric output to its unit string.
         """
         result = super().calc(structure)
@@ -132,6 +134,7 @@ class ElasticityCalc(PropCalc):
         )
         strains = []
         stresses = []
+        # DeformedStructureSet iterates its deformed structures in the order of ``deformations``.
         for deformation, deformed_structure in zip(
             deformed_structure_set.deformations, deformed_structure_set, strict=True
         ):
@@ -157,10 +160,11 @@ class ElasticityCalc(PropCalc):
             strains,
             stresses,
             eq_stress=eq_stress,
+            structure=to_pmg_structure(structure_in),
         )
         if mean_r2 < self.r2_min:
             warnings.warn(
-                f"Elastic strain-stress fits have mean R²={mean_r2:.4f} below r2_min={self.r2_min}. "
+                f"Elastic strain-stress fits have pooled R²={mean_r2:.4f} below r2_min={self.r2_min}. "
                 f"The elastic tensor may be unreliable; consider smaller |strains|, more strain "
                 f"points, or enabling relax_deformed_structures.",
                 RuntimeWarning,
@@ -201,6 +205,7 @@ class ElasticityCalc(PropCalc):
         stresses: ArrayLike,
         eq_stress: ArrayLike = None,
         tol: float = 1e-7,
+        structure: Structure | None = None,
     ) -> tuple[ElasticTensor, float, float]:
         """
         Fit elastic constants from strain-stress pairs (Voigt), optionally subtracting
@@ -211,15 +216,18 @@ class ElasticityCalc(PropCalc):
             stresses: Matching stress tensors (array-like).
             eq_stress: Equilibrium stress to subtract; None to omit.
             tol: Small components below this are zeroed on the fitted tensor.
+            structure: The undeformed structure, whose point group sets which C_ij are allowed by
+                symmetry. None scores all 36 components.
 
         Returns:
             ``(ElasticTensor, residuals_sum, mean_r2)``. ``residuals_sum`` is the total sum of
             squared stress residuals over the 36 per-component linear fits. ``mean_r2`` is the
             pooled coefficient of determination, ``1 - sum(SS_res) / sum(SS_tot)``, over the
-            components whose fitted constant is at least 1% of the largest ``|C_ij|``.
+            components allowed by the point group of ``structure`` (see ``_symmetry_allowed``).
             Components that vanish by symmetry are excluded: their R² only measures numerical
             noise or second-order (even-in-strain) response, which does not bias the fitted
-            constants but would otherwise dominate the score.
+            constants but would otherwise dominate the score. Small but symmetry-allowed constants
+            (e.g. a near-zero C12) are kept, so a nonlinear response in them is still flagged.
         """
         strain_states = [tuple(ss) for ss in np.eye(6)]
         ss_dict = get_strain_state_dict(strains, stresses, eq_stress=eq_stress, add_eq=self.use_equilibrium)
@@ -238,7 +246,26 @@ class ElasticityCalc(PropCalc):
                 ss_tot[ii, jj] = np.sum((y - np.mean(y)) ** 2)
         elastic_tensor = ElasticTensor.from_voigt(c_ij)
         residuals_sum = float(ss_res.sum())
-        significant = np.abs(c_ij) >= 0.01 * np.abs(c_ij).max()
+        significant = _symmetry_allowed(structure) if structure is not None else np.ones((6, 6), dtype=bool)
         ss_tot_sum = float(ss_tot[significant].sum())
         mean_r2 = 1.0 - float(ss_res[significant].sum()) / ss_tot_sum if ss_tot_sum > 0 else 1.0
         return elastic_tensor.zeroed(tol), residuals_sum, mean_r2
+
+
+def _symmetry_allowed(structure: Structure, symprec: float = 0.01) -> np.ndarray:
+    """Mask of the Voigt C_ij that the point group of ``structure`` allows to be non-zero.
+
+    A generic (random, symmetric) Voigt tensor is averaged over the point-group operations of the
+    structure in its Cartesian frame, i.e. the frame in which the strains are applied; the components
+    it zeroes are the ones forbidden by symmetry.
+
+    Args:
+        structure: The undeformed structure.
+        symprec: Symmetry tolerance for ``SpacegroupAnalyzer``.
+
+    Returns:
+        Boolean (6, 6) array, True where C_ij is allowed by symmetry.
+    """
+    generic = np.random.default_rng(0).uniform(1, 2, (6, 6))
+    voigt = ElasticTensor.from_voigt(generic + generic.T).fit_to_structure(structure, symprec=symprec).voigt
+    return np.abs(voigt) > 1e-8 * np.abs(voigt).max()
