@@ -315,3 +315,34 @@ def test_npt_zero_rotation(Si_atoms: Atoms, matpes_calculator: PESCalculator) ->
     rel_pos = first.get_positions() - first.get_center_of_mass()
     angular_momentum = np.cross(rel_pos, first.get_momenta()).sum(axis=0)
     np.testing.assert_allclose(angular_momentum, 0.0, atol=1e-8)
+
+
+def test_thermostat_barostat_units(Si: Structure, Si_atoms: Atoms, matpes_calculator: PESCalculator) -> None:
+    """Langevin friction and NPT pfactor are passed to ASE in ASE units; defaults follow the ASE recipes."""
+    md = MDCalc(matpes_calculator, ensemble="nvt_langevin")._initialize_md(Si_atoms.copy())  # noqa: SLF001
+    assert md.todict()["friction"] == pytest.approx(0.01 / units.fs)  # 0.01 fs^-1
+    md = MDCalc(matpes_calculator, ensemble="nvt_langevin", friction=1e-3)._initialize_md(Si_atoms.copy())  # noqa: SLF001
+    assert md.todict()["friction"] == pytest.approx(1e-3)
+
+    init = MDCalc(matpes_calculator, ensemble="npt")._initialize_md(Si_atoms.copy()).get_init_data()  # noqa: SLF001
+    # pfactor = ptime^2 * B with ptime = 75 fs and B = 100 GPa.
+    assert init["pfactor_given"] == pytest.approx((75 * units.fs) ** 2 * 100 * units.GPa)
+    assert init["pfactor_given"] == pytest.approx(33.87, abs=0.01)
+    # Shear strains are frozen by default.
+    np.testing.assert_array_equal(init["mask"], np.eye(3, dtype=bool))
+
+    legacy = 75.0**2 * units.fs
+    md = MDCalc(matpes_calculator, ensemble="npt", pfactor=legacy, mask=(1, 1, 1))._initialize_md(Si_atoms.copy())  # noqa: SLF001
+    init = md.get_init_data()
+    assert init["pfactor_given"] == pytest.approx(legacy)
+    np.testing.assert_array_equal(init["mask"], np.ones((3, 3), dtype=bool))
+
+    # pfactor=None disables the barostat: the cell stays fixed even far from the target pressure.
+    strained = Si.copy()
+    strained.scale_lattice(Si.volume * 1.05)
+    result = MDCalc(matpes_calculator, ensemble="npt", pfactor=None, steps=5, relax_structure=False, seed=0).calc(
+        strained
+    )
+    # NPT rotates the cell to upper-triangular form, so compare the lattice parameters, not the matrix.
+    final = result["final_structure"].lattice
+    np.testing.assert_allclose(final.parameters, strained.lattice.parameters, atol=1e-6)

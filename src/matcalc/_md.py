@@ -60,10 +60,10 @@ class MDCalc(PropCalc):
         pressure: float = 1.01325 * units.bar,
         taut: float | None = None,
         taup: float | None = None,
-        friction: float = 1.0e-3,
+        friction: float = 1.0e-2 / units.fs,
         andersen_prob: float = 1.0e-2,
         ttime: float = 25.0,
-        pfactor: float = 75.0**2.0,
+        pfactor: float | None = (75.0 * units.fs) ** 2 * 100.0 * units.GPa,
         external_stress: float | np.ndarray | None = None,
         compressibility_au: float | None = None,
         tchain: int = 3,
@@ -98,14 +98,33 @@ class MDCalc(PropCalc):
             timestep (float): Time step in femtoseconds. Default to 1.0.
             steps (int): Number of MD simulation steps. Default to 100.
             pressure (float): External pressure for NPT simulations (in eV/Å³). Default to 1.01325 * units.bar.
-            taut (float | None): Time constant for temperature coupling. If None, defaults to 100 * timestep * fs.
-                For npt_mtk and npt_isotropic_mtk, this is the time constant for temperature damping.
-            taup (float | None): Time constant for pressure coupling. If None, defaults to 1000 * timestep * fs.
-                For npt_mtk and npt_isotropic_mtk, this is the time constant for pressure damping.
-            friction (float): Friction coefficient for Langevin dynamics. Default to 1.0e-3.
-            andersen_prob (float): Collision probability for Andersen thermostat. Default to 1.0e-2.
-            ttime (float): Characteristic time scale for the thermostat in ASE units (fs). Default to 25.0.
-            pfactor (float): Barostat differential equation constant. Default to 75.0**2.0.
+            taut (float | None): Time constant for temperature coupling, in ASE internal time units (multiply a
+                value in fs by ``ase.units.fs``). If None, defaults to 100 * timestep * units.fs. Used by
+                nvt/nvt_nose_hoover (tdamp), nvt_berendsen, nvt_bussi, npt_berendsen, npt_inhomogeneous and
+                npt_mtk/npt_isotropic_mtk (tdamp).
+            taup (float | None): Time constant for pressure coupling, in ASE internal time units. If None,
+                defaults to 1000 * timestep * units.fs. Used by npt_berendsen, npt_inhomogeneous and
+                npt_mtk/npt_isotropic_mtk (pdamp).
+            friction (float): Friction coefficient for nvt_langevin, in ASE internal inverse-time units (multiply a
+                value in 1/fs by ``1 / ase.units.fs``), passed to ``ase.md.Langevin`` unchanged. Default to
+                0.01 / units.fs, i.e. 0.01 fs^-1 (1 / friction = 100 fs, matching the default ``taut``). The
+                default before matcalc v0.8.0 was 1.0e-3, i.e. ~1e-4 fs^-1 (1 / friction ~ 10 ps), which
+                barely thermostats a run of a few thousand steps; pass ``friction=1.0e-3`` to reproduce it.
+            andersen_prob (float): Per-atom, per-step collision probability for nvt_andersen (dimensionless; the
+                mean time between collisions of an atom is timestep / andersen_prob). Default to 1.0e-2.
+            ttime (float): Characteristic time scale of the npt/npt_nose_hoover thermostat, in fs (converted to
+                ASE units internally). Default to 25.0. Note that, unlike ``taut``, ``taup``, ``friction`` and
+                ``pfactor``, this one is in fs rather than ASE units.
+            pfactor (float | None): Barostat constant of the npt/npt_nose_hoover (Melchionna) dynamics, in ASE
+                internal units (eV/Å³ x ASE-time²), passed to ``ase.md.npt.NPT`` unchanged. For a barostat time
+                constant ptime and bulk modulus B, set ``pfactor = (ptime * units.fs) ** 2 * B * units.GPa``
+                (ptime in fs, B in GPa). Default to (75 fs)² x 100 GPa ~ 33.9, ASE's recommended ptime with a
+                typical solid bulk modulus. None disables the barostat: the cell is then fixed and the run is
+                Melchionna Nose-Hoover NVT thermostatted with ``ttime``, not ``taut``; for NVT, prefer
+                ensemble="nvt"/"nvt_nose_hoover" (Nose-Hoover chain with ``taut``). Before matcalc v0.8.0
+                the value was multiplied by ``units.fs`` and defaulted to 75.0**2, i.e. 75**2 * units.fs ~ 553 in
+                ASE units, 16x the documented recipe (an effective ptime of ~300 fs at B = 100 GPa); pass
+                ``pfactor=75.0**2 * units.fs`` to reproduce it.
             external_stress (float | np.ndarray | None): External stress for the "npt"/"npt_nose_hoover"
                 ensembles (a scalar is a pressure). If not provided, defaults to ``pressure``.
             compressibility_au (float | None): Material compressibility in Å³/eV. Default to None.
@@ -121,8 +140,12 @@ class MDCalc(PropCalc):
             logfile (str | None): Filename for simulation logs. Default to None.
             loginterval (int): Interval (in steps) for logging simulation data. Default to 1.
             append_trajectory (bool): Whether to append to an existing trajectory file. Default to False.
-            mask (tuple | np.ndarray | None): Constraint mask for NPT simulation cell deformations.
-                If not provided, defaults to np.array([(1, 0, 0), (0, 1, 0), (0, 0, 1)]).
+            mask (tuple | np.ndarray | None): Constraint mask for cell deformations in npt/npt_nose_hoover,
+                passed to ``ase.md.npt.NPT``. A symmetric 3x3 array marks which strain components may change; a
+                3-tuple (i, j, k) marks which Cartesian axes may change length (shear between free axes stays
+                allowed). If None, defaults to np.eye(3): only the three normal strains fluctuate and all shear
+                strains are frozen, so the cell keeps its angles (in the upper-triangular frame NPT uses). Pass
+                ``mask=(1, 1, 1)`` (or ``np.ones((3, 3))``) for a fully flexible cell.
             relax_structure (bool): Whether to relax the input structure before MD simulation. Default to True.
             fmax (float): Maximum force tolerance for structure relaxation (in eV/Å). Default to 0.1.
             optimizer (str): Optimizer used for structure relaxation. Default to "FIRE".
@@ -253,7 +276,7 @@ class MDCalc(PropCalc):
                 temperature_K=self.temperature,
                 externalstress=external_stress,  # type: ignore[arg-type]
                 ttime=self.ttime * units.fs,
-                pfactor=self.pfactor * units.fs,
+                pfactor=self.pfactor,
                 logfile=self.logfile,
                 loginterval=self.loginterval,
                 mask=mask,
