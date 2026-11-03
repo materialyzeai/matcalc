@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 from ase.filters import ExpCellFilter
+from pymatgen.core import Lattice, Structure
+from pymatgen.core.elasticity import ElasticTensor
 
 from matcalc import ElasticityCalc
+from matcalc._elasticity import _symmetry_allowed
 
 if TYPE_CHECKING:
     from matgl.ext.ase import PESCalculator
-    from pymatgen.core import Structure
 
 
 @pytest.mark.parametrize("relax_deformed_structures", [False, True])
@@ -122,3 +125,74 @@ def test_check_and_prelax_raises_on_non_convergence(
     )
     with pytest.raises(RuntimeError, match="Pre-relaxation did not converge"):
         elast_calc.calc(Li2O)
+
+
+def test_elastic_calc_symmetry(Cu: Structure, matpes_calculator: PESCalculator) -> None:
+    """symmetry=True must reconstruct the strain states removed by the symmetry reduction.
+
+    For a conventional cubic cell the reduction drops entire strain states (e.g. all yy strains,
+    which are equivalent to xx), which used to raise a KeyError in the fit.
+    """
+    kwargs = {"fmax": 0.05, "units_GPa": True, "relax_calc_kwargs": {"cell_filter": ExpCellFilter}}
+    ref = ElasticityCalc(matpes_calculator, **kwargs).calc(Cu)
+    sym = ElasticityCalc(matpes_calculator, symmetry=True, **kwargs).calc(Cu)
+    ref_voigt, sym_voigt = ref["elastic_tensor"].voigt, sym["elastic_tensor"].voigt
+    nonzero = np.abs(ref_voigt) > 1  # GPa
+    assert sym_voigt[nonzero] == pytest.approx(ref_voigt[nonzero], rel=1e-3)
+    assert sym_voigt[~nonzero] == pytest.approx(ref_voigt[~nonzero], abs=0.05)
+    assert sym["bulk_modulus_vrh"] == pytest.approx(ref["bulk_modulus_vrh"], rel=1e-3)
+
+
+@pytest.mark.parametrize("structure_name", ["Cu", "Si"])
+def test_elastic_calc_r2_no_spurious_warning(
+    structure_name: str, request: pytest.FixtureRequest, matpes_calculator: PESCalculator
+) -> None:
+    """Default strains on simple cubic solids give clean linear fits and must not trigger the R² warning.
+
+    Stress components that vanish by symmetry only carry numerical noise (or response that is even in
+    strain), so their per-component R² is meaningless and must not drag the score down.
+    """
+    structure = request.getfixturevalue(structure_name)
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        result = ElasticityCalc(matpes_calculator, relax_calc_kwargs={"cell_filter": ExpCellFilter}).calc(structure)
+    assert result["r2_score_mean"] > 0.99
+    assert not [w for w in record if "strain-stress fits" in str(w.message)]
+
+    # Strains far outside the linear regime must still be flagged.
+    with pytest.warns(RuntimeWarning, match="strain-stress fits"):
+        result = ElasticityCalc(
+            matpes_calculator,
+            norm_strains=(-0.15, -0.08, 0.08, 0.15),
+            shear_strains=(-0.3, -0.15, 0.15, 0.3),
+            relax_structure=False,
+        ).calc(result["final_structure"])
+    assert result["r2_score_mean"] < 0.95
+
+
+def test_elastic_calc_residuals_units(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """residuals_sum is a sum of squared stresses, so it converts with the square of the stress factor."""
+    kwargs = {"relax_structure": False, "norm_strains": 0.004, "shear_strains": (-0.01, 0.01, 0.02)}
+    res_ev = ElasticityCalc(matpes_calculator, **kwargs).calc(Si)
+    res_gpa = ElasticityCalc(matpes_calculator, units_GPa=True, **kwargs).calc(Si)
+    gpa_per_ev_a3 = 1 / ElasticTensor.GPa_to_eV_A3
+    assert res_ev["residuals_sum"] > 0
+    assert res_gpa["residuals_sum"] == pytest.approx(res_ev["residuals_sum"] * gpa_per_ev_a3**2, rel=1e-3)
+    assert res_gpa["bulk_modulus_vrh"] == pytest.approx(res_ev["bulk_modulus_vrh"] * gpa_per_ev_a3, rel=1e-3)
+    assert res_ev["_units"]["residuals_sum"] == "(eV/A^3)^2"
+    assert res_gpa["_units"]["residuals_sum"] == "GPa^2"
+
+
+def test_symmetry_allowed() -> None:
+    """The R² mask follows the Laue-class zero pattern, including small off-diagonal couplings such as C14."""
+    cubic = Structure.from_spacegroup("Fm-3m", Lattice.cubic(3.6), ["Cu"], [[0, 0, 0]])
+    expected = np.zeros((6, 6), dtype=bool)
+    expected[:3, :3] = True
+    expected[3:, 3:] = np.eye(3, dtype=bool)
+    assert (_symmetry_allowed(cubic) == expected).all()
+
+    # Trigonal R-3m: C14 = -C24 = C56 are allowed.
+    bi = Structure.from_spacegroup("R-3m", Lattice.hexagonal(4.55, 11.86), ["Bi"], [[0, 0, 0.2339]])
+    for i, j in [(0, 3), (1, 3), (4, 5)]:
+        expected[i, j] = expected[j, i] = True
+    assert (_symmetry_allowed(bi) == expected).all()
