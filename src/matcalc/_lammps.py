@@ -1,8 +1,9 @@
-"""Calculator for MD properties using LAMMPS."""
+"""Calculator for MD properties using LAMMPS (deprecated; use MDCalc with MATCALC_BACKEND=LAMMPS)."""
 
 from __future__ import annotations
 
 import subprocess
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,9 +24,20 @@ if TYPE_CHECKING:
 LAMMPS_TEMPLATES_DIR = Path(__file__).parent / "lammps_templates"
 
 
+LAMMPSMDCALC_DEPRECATION = (
+    "LAMMPSMDCalc is deprecated and will be removed in a future release. It requires LAMMPS with the AdvanceSoft "
+    "ML-GNNP package (pair_style gnnp), which is no longer supported or tested. Use MDCalc with MATCALC_BACKEND=LAMMPS "
+    "instead, which runs MatGL potentials in-process with MatGL's own pair_style matgl."
+)
+
+
 class LAMMPSMDCalc(PropCalc):
     """
     Class to manage molecular dynamics simulations using LAMMPS.
+
+    .. deprecated::
+        Use :class:`~matcalc.MDCalc` with ``MATCALC_BACKEND=LAMMPS``. ``LAMMPSMDCalc`` needs LAMMPS with the AdvanceSoft
+        ML-GNNP package, which is no longer supported or tested, and will be removed in a future release.
 
     Attributes:
         calculator: Registered model name or alias, raw MatGL model name, or local MatGL model
@@ -76,6 +88,7 @@ class LAMMPSMDCalc(PropCalc):
         relax_calc_kwargs: dict | None = None,
     ) -> None:
         """Initialize LAMMPSMDCalc with simulation parameters."""
+        warnings.warn(LAMMPSMDCALC_DEPRECATION, DeprecationWarning, stacklevel=2)
         self.model_name = calculator
         self.calculator = calculator  # type: ignore[assignment]
         self.ensemble = ensemble

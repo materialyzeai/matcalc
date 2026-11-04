@@ -65,6 +65,7 @@ def Pt_adslab(Pt_slab: Slab, CO2: Molecule) -> Structure:
         ({"adsorbate_energy": 4.0, "slab_energy": 20.0}, (1.0, 4.0)),
     ],
 )
+@pytest.mark.ase_only(reason="isolated adsorbate molecules are not periodic")
 def test_adsorption_calc_slab_inputs(
     Pt_slab: Slab,
     CO2: Molecule,
@@ -99,6 +100,7 @@ def test_adsorption_calc_slab_inputs(
 @pytest.mark.parametrize("relax_bulk", [True, False])
 @pytest.mark.parametrize("relax_adsorbate", [True, False])
 @pytest.mark.parametrize("min_area_extent", [None, (8.0, 6.0)])
+@pytest.mark.ase_only(reason="isolated adsorbate molecules are not periodic")
 def test_adsorption_calc_adslabs(
     Pt_bulk: Slab,
     CO2: Molecule,
@@ -157,6 +159,7 @@ def test_adsorption_calc_adslabs(
         assert results[0]["slab_energy_per_atom"] == pytest.approx(-6.016221, rel=1.0e-1)
 
 
+@pytest.mark.ase_only(reason="isolated adsorbate molecules are not periodic")
 def test_adsorption_calc_adslabs_all_sites(
     Pt_bulk: Structure,
     CO2: Molecule,
@@ -184,6 +187,7 @@ def test_adsorption_calc_adslabs_all_sites(
     assert all(r["adsorption_site"] != "all" for r in results)
 
 
+@pytest.mark.ase_only(reason="isolated adsorbate molecules are not periodic")
 def test_adsorption_calc_adslabs_invalid_site(
     Pt_bulk: Structure,
     CO2: Molecule,
@@ -273,6 +277,7 @@ def test_adsorption_calc_requires_adslab(
         ad_calc.calc({"slab": Pt_slab, "adsorbate": CO2})
 
 
+@pytest.mark.ase_only(reason="isolated adsorbate molecules are not periodic")
 def test_adsorption_calc_adslabs_custom_site_dict(
     Pt_bulk: Structure,
     CO2: Molecule,
@@ -341,6 +346,7 @@ def test_adsorption_calc_slab_relaxed_energy(Pt_slab: Slab, matpes_calculator: P
     assert res["slab_energy_per_atom"] == pytest.approx(res["slab_energy"] / len(Pt_slab))
 
 
+@pytest.mark.ase_only(reason="isolated adsorbate molecules are not periodic")
 def test_adsorption_calc_adslabs_keeps_slab_gen_kwargs(
     Pt_bulk: Structure, CO2: Molecule, matpes_calculator: PESCalculator
 ) -> None:
@@ -361,6 +367,7 @@ def test_adsorption_calc_adslabs_keeps_slab_gen_kwargs(
     assert slab_gen_kwargs == {"center_slab": True}
 
 
+@pytest.mark.ase_only(reason="isolated adsorbate molecules are not periodic")
 def test_adsorption_calc_reuses_slab_and_adsorbate(
     Pt_bulk: Structure,
     CO2: Molecule,

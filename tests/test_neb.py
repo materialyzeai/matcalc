@@ -190,6 +190,7 @@ def cu_vacancy_hop(Cu: Structure) -> tuple[Structure, Structure]:
     return start, end
 
 
+@pytest.mark.ase_only(reason="uses ASE's EMT calculator, which has no LAMMPS representation")
 def test_neb_calc_image_order(cu_vacancy_hop: tuple[Structure, Structure]) -> None:
     """Unpadded image keys are ordered numerically, so image10 is last, not third."""
     start, end = cu_vacancy_hop
@@ -200,6 +201,7 @@ def test_neb_calc_image_order(cu_vacancy_hop: tuple[Structure, Structure]) -> No
         np.testing.assert_allclose(actual.cart_coords, expected.cart_coords, atol=1e-8)
 
 
+@pytest.mark.ase_only(reason="uses ASE's EMT calculator, which has no LAMMPS representation")
 def test_neb_calc_endpoints_evaluated_once(cu_vacancy_hop: tuple[Structure, Structure]) -> None:
     """The fixed endpoints are evaluated once, not on every NEB step."""
     start, end = cu_vacancy_hop

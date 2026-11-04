@@ -81,7 +81,7 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 | `SurfaceCalc` | Surface energy calculation | `surface_energy`, `slab_energy`, `final_slab` |
 | `AdsorptionCalc` | Adsorption energy on surfaces | `adsorption_energy` |
 | `InterfaceCalc` | Interfacial, surface and adhesion energies of coherent interfaces | `interfacial_energy`, `film_surface_energy`, `substrate_surface_energy`, `adhesion_energy` |
-| `LAMMPSMDCalc` | LAMMPS-based molecular dynamics | `md_structures`, `md_energies` |
+| `LAMMPSMDCalc` | Deprecated: use `MDCalc` with `MATCALC_BACKEND=LAMMPS` | `md_structures`, `md_energies` |
 | `ChainedCalc` | Chain multiple PropCalcs in sequence | Combined outputs of all constituent calculators |
 
 ### Supported Foundation Potentials

@@ -190,7 +190,7 @@ def test_main_no_subcommand(monkeypatch: pytest.MonkeyPatch, capsys: pytest.Capt
 
 
 def test_calculate_property_passes_model_name(LiFePO4: Structure, monkeypatch: pytest.MonkeyPatch) -> None:
-    """PropCalcs receive the model name (LAMMPSMDCalc only accepts a name, not a loaded calculator)."""
+    """PropCalcs receive the model name, which their calculator setter resolves (directly to LAMMPS on that backend)."""
     received: list[Any] = []
 
     class _Recorder:
@@ -200,14 +200,14 @@ def test_calculate_property_passes_model_name(LiFePO4: Structure, monkeypatch: p
         def calc(self, structure: Structure) -> dict:
             return {"final_structure": structure}
 
-    monkeypatch.setitem(CLI_CALCS, "LAMMPSMDCalc", _Recorder)
+    monkeypatch.setitem(CLI_CALCS, "MDCalc", _Recorder)
     args = namedtuple("args", ["model", "property", "structure", "outfile", "verbose"])  # noqa: PYI024
     with ScratchDir("."):
         LiFePO4.to(filename="cli_name.cif")
         calculate_property(
             args(
                 model="TensorNet-MatPES-PBE-2025.2",
-                property="LAMMPSMDCalc",
+                property="MDCalc",
                 structure=["cli_name.cif"],
                 outfile="cli_name.json",
                 verbose=False,

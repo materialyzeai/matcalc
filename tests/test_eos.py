@@ -81,6 +81,7 @@ def test_eos_calc_atoms(
     assert result["bulk_modulus_bm"] == pytest.approx(76.57813407426684, rel=1e-1)
 
 
+@pytest.mark.ase_only(reason="cell filter masks")
 def test_eos_calc_keeps_user_cell_filter_kwargs(
     Si: Structure,
     matpes_calculator: PESCalculator,

@@ -34,7 +34,7 @@ invoke update-changelog # generates changes.md entries from PR titles
 invoke release          # creates GitHub release for current pyproject version
 ```
 
-The `Test` workflow runs every test on both backends (matrix over `MATCALC_BACKEND=ASE`/`LAMMPS`) inside `docker.io/materialyzeai/matml:latest-kokkos-cpu`: LAMMPS as a shared library with its Python module, MatGL's `pair_style matgl`/`matgl/kk` (Kokkos), ML-SNAP and EXTRA-FIX, linked against the image's torch (install with `-c /opt/lammps/torch-constraint.txt` to keep it). It has no ML-GNNP, so the `LAMMPSMDCalc` tests (AdvanceSoft `pair_style gnnp`, `lmp_gnnp` fixture) skip there. `tests/test_lammps_ase_parity.py` (pair styles, ASE parity) runs only with `MATCALC_BACKEND=LAMMPS`, where CI sets `MATCALC_TEST_REQUIRE_LAMMPS=1` to turn its skips into failures and reruns it through Kokkos (`MATCALC_LAMMPS_ARGS`). Locally, LAMMPS-dependent tests skip without such a build.
+The `Test` workflow runs every test on both backends (matrix over `MATCALC_BACKEND=ASE`/`LAMMPS`) inside `docker.io/materialyzeai/matml:latest-kokkos-cpu`: LAMMPS as a shared library with its Python module, MatGL's `pair_style matgl`/`matgl/kk` (Kokkos), ML-SNAP and EXTRA-FIX, linked against the image's torch (install with `-c /opt/lammps/torch-constraint.txt` to keep it). Tests that need a feature the LAMMPS backend lacks are marked `ase_only` (skipped on LAMMPS by `conftest.py`). `tests/test_lammps_ase_parity.py` (pair styles, ASE parity) runs only with `MATCALC_BACKEND=LAMMPS`, where CI sets `MATCALC_TEST_REQUIRE_LAMMPS=1` to turn its skips into failures and reruns it through Kokkos (`MATCALC_LAMMPS_ARGS`). Locally, LAMMPS-dependent tests skip without such a build.
 
 ## Architecture
 
@@ -63,7 +63,9 @@ The `test-fp-loaders` matrix in `.github/workflows/test-fp-loaders.yml` smoke-te
 Two simulation backends sit behind a thin dispatcher:
 
 - `backend/_ase.py` (`run_ase`) — default; uses ASE optimizers/MD drivers.
-- `backend/_lammps.py` (`run_lammps`) — used by `LAMMPSMDCalc` and friends.
+- `backend/_lammps.py` (`run_lammps`, `run_lammps_md`) — static, relaxation and MD drivers on an in-process LAMMPS
+  instance; `backend/_lammps_engine.py` holds the force-field resolution (`LAMMPSCalculator`) and the cached
+  instances. `MDCalc` dispatches to `run_lammps_md` on this backend.
 - `backend/__init__.py::run_pes_calc` chooses based on `MATCALC_BACKEND` env var (read once into `config.SIMULATION_BACKEND`, default `"ASE"`).
 
 `SimulationResult` (in `backend/_base.py`) is the common return shape — keep both backends returning structurally identical results so that downstream calcs don't branch on backend.

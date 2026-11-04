@@ -36,7 +36,7 @@ jobs:
     container:
       # MatML stack on LAMMPS built as a shared library with its Python module, MatGL's pair_style matgl / matgl/kk
       # (Kokkos), ML-SNAP and EXTRA-FIX, linked against the image's torch (materialyzeai/matml,
-      # docker/Dockerfile.matml.kokkos-cpu). It has no ML-GNNP, so the LAMMPSMDCalc tests (pair_style gnnp) skip.
+      # docker/Dockerfile.matml.kokkos-cpu).
       image: docker.io/materialyzeai/matml:latest-kokkos-cpu
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python

@@ -307,6 +307,7 @@ def test_relax_calc_cell_only(Li2O: Structure, matpes_calculator: PESCalculator)
     assert np.abs(result["stress"]).max() < 0.01
 
 
+@pytest.mark.ase_only(reason="FixSymmetry constraints")
 def test_relax_calc_fix_symmetry(
     matpes_calculator: PESCalculator,
 ) -> None:

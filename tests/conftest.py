@@ -9,6 +9,8 @@ Given that the fixtures are unlikely to be modified by the underlying code, the 
 of "function".
 
 Environment variables:
+- MATCALC_BACKEND: the simulation backend for the whole suite (CI runs it with both ASE and LAMMPS). Tests marked
+  ``ase_only`` need a feature the LAMMPS backend lacks and are skipped with LAMMPS.
 - MATCALC_TEST_CLEAR_CACHE: set to 1/true/yes to wipe the matgl and matcalc caches (~/.cache/matgl,
   ~/.cache/matcalc) at pytest start, forcing fresh model and benchmark downloads. CI sets this. It is off by default
   so local runs reuse cached models and concurrent pytest sessions on one machine do not delete each other's files.
@@ -17,9 +19,6 @@ Environment variables:
 from __future__ import annotations
 
 import os
-import re
-import shutil
-import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
@@ -27,6 +26,7 @@ from pymatgen.core import Lattice, Structure
 from pymatgen.util.testing import PymatgenTest
 
 import matcalc
+from matcalc.backend import is_lammps_backend
 from matcalc.utils import PESCalculator, to_ase_atoms
 
 if TYPE_CHECKING:
@@ -47,12 +47,26 @@ def pytest_configure(config: pytest.Config) -> None:
     Under pytest-xdist, workers would otherwise clear the caches and download the same
     model concurrently while other workers are reading them.
     """
+    config.addinivalue_line(
+        "markers",
+        "ase_only(reason): needs a feature the LAMMPS backend lacks; skipped with MATCALC_BACKEND=LAMMPS.",
+    )
     if hasattr(config, "workerinput"):
         return
     if os.environ.get(CLEAR_CACHE_ENV, "").strip().lower() in {"1", "true", "yes"}:
         matgl.clear_cache(confirm=False)
         matcalc.clear_cache(confirm=False)
     matcalc.load_fp(MATPES_MODEL)
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:  # noqa: ARG001
+    """Skip ``ase_only`` tests with the LAMMPS backend, giving the missing feature as the reason."""
+    if not is_lammps_backend():
+        return
+    for item in items:
+        if (marker := item.get_closest_marker("ase_only")) is not None:
+            reason = marker.kwargs.get("reason") or (marker.args[0] if marker.args else "ASE backend only")
+            item.add_marker(pytest.mark.skip(reason=f"Not supported by the LAMMPS backend: {reason}"))
 
 
 @pytest.fixture(scope="session")
@@ -91,18 +105,6 @@ def Cu() -> Structure:
 def Si_atoms() -> Atoms:
     """Si atoms, rebuilt per test since calculators and MD runs mutate Atoms in place."""
     return to_ase_atoms(PymatgenTest.get_structure("Si"))
-
-
-@pytest.fixture(scope="session")
-def lmp_gnnp() -> None:
-    """Skip unless ``lmp`` is on PATH with the AdvanceSoft ``pair_style gnnp`` (ML-GNNP) that LAMMPSMDCalc uses."""
-    lmp = shutil.which("lmp")
-    if lmp is None:
-        pytest.skip("lammps (lmp) not available")
-        return
-    styles = subprocess.run([lmp, "-h"], capture_output=True, text=True, check=False).stdout  # noqa: S603
-    if not re.search(r"\bgnnp\b", styles):
-        pytest.skip("lmp lacks pair_style gnnp (ML-GNNP), which LAMMPSMDCalc needs")
 
 
 @pytest.fixture(scope="session")

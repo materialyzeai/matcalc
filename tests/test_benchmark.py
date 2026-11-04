@@ -8,13 +8,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
-from ase.calculators.emt import EMT
 from huggingface_hub.errors import EntryNotFoundError
 from monty.serialization import dumpfn, loadfn
 from pymatgen.core import Lattice, Structure
 
 import matcalc.benchmark
-from matcalc import PropCalc
+from matcalc import LAMMPSCalculator, PropCalc
 from matcalc.benchmark import (
     BenchmarkSuite,
     CheckpointFile,
@@ -143,6 +142,11 @@ def test_benchmark_suite(matpes_calculator: PESCalculator) -> None:
     assert "CV_toy2" in results[1].columns
 
 
+# Stands in for a calculator where nothing is evaluated; unlike EMT, it is valid on both simulation backends and needs
+# no LAMMPS installation until it computes something.
+_PLACEHOLDER_CALC = LAMMPSCalculator(["pair_style lj/cut 8.0", "pair_coeff * * 0.0104 3.4"])
+
+
 @pytest.fixture
 def local_dataset(tmp_path: Path) -> Path:
     """Small local benchmark file (no network) with the fields used by all Benchmark subclasses."""
@@ -223,7 +227,7 @@ def test_checkpoint_save_is_atomic(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 def test_prop_calc_kwargs_override(local_dataset: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # User kwargs must override the benchmark defaults instead of raising "multiple values for keyword argument".
     benchmark = PhononBenchmark(benchmark_name=local_dataset, n_samples=1)
-    prop_calc = benchmark.get_prop_calc(EMT(), fmax=0.1, write_phonon="ph.yaml")
+    prop_calc = benchmark.get_prop_calc(_PLACEHOLDER_CALC, fmax=0.1, write_phonon="ph.yaml")
     assert prop_calc.fmax == 0.1
     assert prop_calc.write_phonon == "ph.yaml"
 
@@ -231,7 +235,7 @@ def test_prop_calc_kwargs_override(local_dataset: Path, monkeypatch: pytest.Monk
         EquilibriumBenchmark, "_prepare_elemental_refs", lambda self, _calc: setattr(self, "elemental_refs", {})
     )
     prop_calc = EquilibriumBenchmark(benchmark_name=local_dataset, n_samples=1).get_prop_calc(
-        EMT(), fmax=0.1, perturb_distance=None
+        _PLACEHOLDER_CALC, fmax=0.1, perturb_distance=None
     )
     assert prop_calc.fmax == 0.1
     assert prop_calc.perturb_distance is None

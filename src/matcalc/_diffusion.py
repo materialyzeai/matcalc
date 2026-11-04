@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import warnings
-from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Literal
 
-import numpy as np
 from ase import units
 from pymatgen.core import Element
 from scipy import constants
 
 from ._base import PropCalc
-from ._lammps import LAMMPSMDCalc
 from ._md import MDCalc
 from .utils import to_pmg_structure
 
@@ -41,7 +38,8 @@ _ASE_ENSEMBLES = Literal[
 class DiffusionCalc(PropCalc):
     """Calculate ionic diffusivity and conductivity from an MD trajectory.
 
-    Runs MD with :class:`MDCalc` or :class:`LAMMPSMDCalc` and analyses the equilibrated trajectory with
+    Runs MD with :class:`MDCalc` (on the simulation backend selected by ``MATCALC_BACKEND``) and analyses the
+    equilibrated trajectory with
     pymatgen's DiffusionAnalyzer. An input dict containing ``trajectory`` skips
     MD and uses those frames directly. Requires the ``diffusion`` extra.
     """
@@ -55,7 +53,6 @@ class DiffusionCalc(PropCalc):
         temperature: float,
         timestep: float,
         loginterval: int,
-        backend: Literal["ase", "lammps"] = "ase",
         ensemble: _ASE_ENSEMBLES = "nvt_nose_hoover",
         steps: int = 100_000,
         equilibration_frames: int = 0,
@@ -83,8 +80,7 @@ class DiffusionCalc(PropCalc):
             timestep: MD time step in femtoseconds. For a supplied trajectory, the step it was run with.
             loginterval: Steps between saved frames, also used as the analyzer's ``step_skip``. For a
                 supplied trajectory, the interval it was saved with.
-            backend: MD engine. LAMMPS requires a model name string and runs in a temporary directory.
-            ensemble: Ensemble supported by the selected MD engine. Use NVT or NVE: the analysis unwraps
+            ensemble: ``MDCalc`` ensemble. Use NVT or NVE: the analysis unwraps
                 displacements on each frame's cell, which is only approximate when the cell fluctuates.
             steps: Total number of MD steps.
             equilibration_frames: Leading saved frames discarded by the internal MD run. The default of 0
@@ -92,8 +88,7 @@ class DiffusionCalc(PropCalc):
                 the linear fit for short runs. Set it to cover at least the equilibration period, e.g.
                 a few ps (``equilibration_frames * loginterval * timestep`` fs).
             taut: Thermostat time constant in femtoseconds.
-            seed: Seed for initial velocities on each MD run; must be positive for LAMMPS.
-                None uses a random seed.
+            seed: Seed for initial velocities on each MD run. None uses a random seed.
             relax_structure: Whether to relax the structure before MD.
             relax_atoms_only: Relax atomic positions only, keeping the input cell. Set False to also
                 relax the cell; this gives the 0 K volume, which excludes thermal expansion and
@@ -103,14 +98,9 @@ class DiffusionCalc(PropCalc):
             relax_calc_kwargs: Extra arguments for RelaxCalc when relaxation is enabled. A
                 ``relax_cell`` entry here takes precedence over ``relax_atoms_only``.
             analyzer_kwargs: Extra arguments for DiffusionAnalyzer, e.g. ``smoothed``.
-            **md_kwargs: Additional arguments forwarded to the selected MD calculator in its native units.
-                Relative LAMMPS file paths are temporary; absolute paths retain explicit outputs.
+            **md_kwargs: Additional arguments forwarded to ``MDCalc`` in its units.
         """
-        if backend not in ("ase", "lammps"):
-            raise ValueError(f"Unknown backend {backend!r}. Choose 'ase' or 'lammps'.")
         self.calculator = calculator
-        self._calculator_arg = calculator
-        self.backend = backend
         self.specie = specie
         self.charge = charge
         self.temperature = temperature
@@ -129,7 +119,7 @@ class DiffusionCalc(PropCalc):
         self.analyzer_kwargs = analyzer_kwargs or {}
         self.md_kwargs = md_kwargs
 
-    def _build_md_calc(self) -> MDCalc | LAMMPSMDCalc:
+    def _build_md_calc(self) -> MDCalc:
         """Build the MD calculator with a fresh initial-velocity generator."""
         if self.ensemble.lower().startswith("npt"):
             warnings.warn(
@@ -137,26 +127,6 @@ class DiffusionCalc(PropCalc):
                 "assuming a fixed lattice, so the MSD is only approximate. Use an NVT or NVE ensemble.",
                 UserWarning,
                 stacklevel=3,
-            )
-        if self.backend == "lammps":
-            if not isinstance(self._calculator_arg, str):
-                raise TypeError("LAMMPS requires a model name string.")
-            seed = self.seed if self.seed is not None else int(np.random.default_rng().integers(1, 2**31 - 1))
-            return LAMMPSMDCalc(
-                self._calculator_arg,
-                ensemble=self.ensemble,  # type: ignore[arg-type]
-                temperature=self.temperature,
-                timestep=self.timestep / 1000,
-                taut=self.taut / 1000,
-                steps=self.steps,
-                loginterval=self.loginterval,
-                equilibration_frames=self.equilibration_frames,
-                seed=seed,
-                relax_structure=self.relax_structure,
-                set_com_stationary=self.set_com_stationary,
-                set_zero_rotation=self.set_zero_rotation,
-                relax_calc_kwargs=self.relax_calc_kwargs,
-                **self.md_kwargs,
             )
         return MDCalc(
             self.calculator,
@@ -196,11 +166,7 @@ class DiffusionCalc(PropCalc):
         charge = self._mobile_ion_charge(to_pmg_structure(result["final_structure"]))
         if "trajectory" not in result:
             md_calc = self._build_md_calc()
-            if isinstance(md_calc, LAMMPSMDCalc):
-                with TemporaryDirectory(prefix="matcalc-diffusion-") as directory:
-                    result.update(md_calc.calc(result, directory=directory))
-            else:
-                result.update(md_calc.calc(result))
+            result.update(md_calc.calc(result))
         trajectory = [to_pmg_structure(frame) for frame in result["trajectory"]]
         analyzer = DiffusionAnalyzer.from_structures(
             trajectory,
