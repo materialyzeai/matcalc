@@ -141,11 +141,14 @@ def make_docs(ctx: Context):
         with open("index.md") as f:
             contents = f.read()
         with open("index.md", "w") as f:
-            contents = re.sub(
-                r"\n## Official Documentation[^#]*",
-                "{: .no_toc }\n\n## Table of contents\n{: .no_toc .text-delta }\n* TOC\n{:toc}\n\n",
+            # Replace the README's "Documentation" section (which just points to this site) with a TOC.
+            contents, n_sub = re.subn(
+                r"\n## Documentation\n[^#]*",
+                "\n## Table of contents\n{: .no_toc .text-delta }\n\n* TOC\n{:toc}\n\n",
                 contents,
             )
+            if n_sub != 1:
+                raise RuntimeError("Could not find the '## Documentation' section in README.md to replace with a TOC.")
             contents = "---\nlayout: default\ntitle: Home\nnav_order: 1\n---\n\n" + contents
 
             f.write(contents)

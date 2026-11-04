@@ -1,3 +1,9 @@
+---
+layout: default
+title: Developer Guide
+nav_order: 4
+---
+
 ## Introduction
 
 Developers for MatCalc should consult this guide for some best practices.
