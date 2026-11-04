@@ -24,6 +24,7 @@ import logging
 import os
 import shutil
 import tempfile
+import warnings
 import weakref
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -269,7 +270,10 @@ def _from_matgl(potential: Any) -> LAMMPSPotential:
     dtype = next(potential.parameters()).dtype
     fd, path = tempfile.mkstemp(suffix=".pt", prefix="matgl-", dir=scratch_dir())
     os.close(fd)
-    export_lammps_model(potential, path, dtype=dtype)
+    with warnings.catch_warnings():
+        # MatGL's exporter uses torch.jit.script, which recent torch deprecates; not actionable for matcalc users.
+        warnings.filterwarnings("ignore", message=r"`torch\.jit\.script` is deprecated", category=FutureWarning)
+        export_lammps_model(potential, path, dtype=dtype)
     lmp_potential = LAMMPSPotential(
         commands=("pair_style matgl", f'pair_coeff * * "{path}" {{symbols}}'),
         # Map every element of the model to a type, so one LAMMPS instance serves all compositions.

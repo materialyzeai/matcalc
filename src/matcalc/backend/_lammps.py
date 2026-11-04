@@ -32,6 +32,7 @@ from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
 
 from matcalc.utils import to_ase_atoms, to_pmg_structure
 
+from ._ase import VALID_OPTIMIZERS
 from ._base import SimulationResult
 from ._lammps_engine import (
     ASE_TIME_TO_PS,
@@ -203,6 +204,8 @@ def _min_style(optimizer: Any, *, relax_cell: bool, kokkos: bool = False) -> str
     name = optimizer if isinstance(optimizer, str) else getattr(optimizer, "__name__", str(optimizer))
     style = _MIN_STYLES.get(name.lower())
     if style is None:
+        if isinstance(optimizer, str) and optimizer not in VALID_OPTIMIZERS:
+            raise ValueError(f"Unknown {optimizer=}, must be one of {VALID_OPTIMIZERS}")  # as run_ase
         raise ValueError(f"Optimizer {name!r} has no LAMMPS equivalent. Choose from {sorted(_MIN_STYLES)}.")
     if kokkos and style != "cg":
         logger.info("cg is the only Kokkos minimizer; using min_style cg instead of %s.", style)
@@ -433,7 +436,8 @@ def _cell_from_thermo(row: Any) -> np.ndarray:
 
 # --- Molecular dynamics -----------------------------------------------------------------------------------------------
 
-_FIX_IDS = ("matcalc_md", "matcalc_thermostat", "matcalc_barostat")
+# Fix styles that measure the temperature, and so accept ``fix_modify temp``.
+_TEMPERATURE_STYLES = ("nvt", "npt", "temp/berendsen", "temp/csvr", "press/berendsen")
 _ORTHO_ENSEMBLES = ("npt_berendsen", "npt_inhomogeneous")
 
 
@@ -502,7 +506,12 @@ def run_lammps_md(
     engine = get_engine(get_lammps_potential(calculator), atoms)
     lmp = engine.lmp
     masses = _type_masses(atoms, engine)
-    frame = engine.load(atoms, velocities=atoms.get_velocities() * ASE_VELOCITY_TO_LAMMPS)
+    momenta = atoms.get_momenta()
+    if ensemble.lower() in ("npt", "npt_nose_hoover"):
+        # ASE's NPT (Melchionna) zeroes the center-of-mass momentum on construction, in equal shares per atom.
+        momenta = momenta - momenta.sum(axis=0) / len(atoms)
+    velocities = momenta / atoms.get_masses()[:, None]
+    frame = engine.load(atoms, velocities=velocities * ASE_VELOCITY_TO_LAMMPS)
     fixes = _ensemble_fixes(
         ensemble,
         temperature=temperature,
@@ -527,12 +536,16 @@ def run_lammps_md(
             raise NotImplementedError(f"{ensemble} with the LAMMPS backend requires an orthogonal cell.")
         setup.append("change_box all xy final 0.0 xz final 0.0 yz final 0.0 ortho")
         cleanup.append("change_box all triclinic")
-    setup += fixes
+    # ASE's thermostats count 3N degrees of freedom; LAMMPS removes 3 for the center of mass by default, which halves
+    # the target kinetic energy of a 2-atom cell. Thermostats and barostats use a 3N temperature instead.
+    setup += ["compute matcalc_temp all temp", "compute_modify matcalc_temp extra/dof 0", *fixes]
+    fix_ids = [(cmd.split()[1], cmd.split()[3]) for cmd in fixes]  # "fix ID group style ..."
+    setup += [f"fix_modify {fix} temp matcalc_temp" for fix, style in fix_ids if style in _TEMPERATURE_STYLES]
     if logfile:
         setup += [f'log "{logfile}"', f"thermo {loginterval}"]
         cleanup += ["log none", "thermo 0"]
 
-    cleanup = [f"unfix {fix}" for fix in _FIX_IDS if any(cmd.startswith(f"fix {fix} ") for cmd in fixes)] + cleanup
+    cleanup = [f"unfix {fix}" for fix, _ in fix_ids] + ["uncompute matcalc_temp", *cleanup]
     with engine.scoped(setup, cleanup):
         lmp.command("run 0")
         frames = [_snapshot(engine, frame, atoms)]
@@ -576,16 +589,22 @@ def _ensemble_fixes(  # noqa: C901, PLR0911, PLR0912
     """LAMMPS fixes for an ``MDCalc`` ensemble; times in ps, pressures in bar."""
     t = f"{temperature} {temperature}"
     nve = "fix matcalc_md all nve"
-    rng = np.random.default_rng(seed)
-    lmp_seed = int(rng.integers(1, 900_000_000))  # LAMMPS' Marsaglia RNG limit
+    # LAMMPS' Marsaglia RNG takes seeds below 9e8. Without a seed, draw from NumPy's global RNG as ASE's integrators
+    # do, so that np.random.seed makes runs reproducible.
+    if seed is None:
+        lmp_seed = int(np.random.randint(1, 900_000_000))  # noqa: NPY002
+    else:
+        lmp_seed = int(np.random.default_rng(seed).integers(1, 900_000_000))
     ensemble = ensemble.lower()
 
     if ensemble == "nve":
         return [nve]
     if ensemble in ("nvt", "nvt_nose_hoover"):
         return [f"fix matcalc_md all nvt temp {t} {taut} tchain 3"]
+    # ASE's Berendsen integrators remove the center-of-mass momentum every step (fixcm=True); so does fix momentum.
+    zero_momentum = "fix matcalc_momentum all momentum 1 linear 1 1 1"
     if ensemble == "nvt_berendsen":
-        return [nve, f"fix matcalc_thermostat all temp/berendsen {t} {taut}"]
+        return [nve, f"fix matcalc_thermostat all temp/berendsen {t} {taut}", zero_momentum]
     if ensemble == "nvt_langevin":
         return [nve, f"fix matcalc_thermostat all langevin {t} {damp} {lmp_seed} zero yes"]
     if ensemble == "nvt_bussi":
@@ -611,6 +630,7 @@ def _ensemble_fixes(  # noqa: C901, PLR0911, PLR0912
             nve,
             f"fix matcalc_thermostat all temp/berendsen {t} {taut}",
             f"fix matcalc_barostat all press/berendsen {coupling} {pressure} {pressure} {taup} modulus {modulus}",
+            zero_momentum,
         ]
     if ensemble in ("npt_mtk", "npt_isotropic_mtk"):
         coupling = "tri" if ensemble == "npt_mtk" else "iso"

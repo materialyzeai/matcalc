@@ -27,6 +27,28 @@ if TYPE_CHECKING:
     from ase.calculators.calculator import Calculator
     from pymatgen.core import Structure
 
+ENSEMBLES = (
+    "nve",
+    "nvt",
+    "nvt_nose_hoover",
+    "nvt_berendsen",
+    "nvt_langevin",
+    "nvt_andersen",
+    "nvt_bussi",
+    "npt",
+    "npt_nose_hoover",
+    "npt_berendsen",
+    "npt_inhomogeneous",
+    "npt_mtk",
+    "npt_isotropic_mtk",
+)
+
+
+def _unsupported_ensemble(ensemble: str) -> ValueError:
+    return ValueError(
+        f"The specified ensemble is not supported: {ensemble!r}. Choose from {', '.join(map(repr, ENSEMBLES))}."
+    )
+
 
 class MDCalc(PropCalc):
     """
@@ -337,12 +359,7 @@ class MDCalc(PropCalc):
                 loginterval=self.loginterval,
             )
 
-        raise ValueError(
-            "The specified ensemble is not supported, choose from 'nve', 'nvt',"
-            " 'nvt_nose_hoover', 'nvt_berendsen', 'nvt_langevin', 'nvt_andersen',"
-            " 'nvt_bussi', 'npt', 'npt_nose_hoover', 'npt_berendsen', 'npt_inhomogeneous',"
-            " 'npt_mtk', 'npt_isotropic_mtk'."
-        )
+        raise _unsupported_ensemble(self.ensemble)
 
     def _upper_triangular_cell(self, atoms: Atoms) -> None:
         """
@@ -463,6 +480,9 @@ class MDCalc(PropCalc):
                 averaged over the last ``frames`` frames, ``_units`` mapping each numeric
                 output to its unit string, plus any relaxation fields merged in.
         """
+        # Fail before any relaxation, with the same error on both backends.
+        if self.ensemble.lower() not in ENSEMBLES:
+            raise _unsupported_ensemble(self.ensemble)
         # Preprocess the input structure using the superclass's calc method.
         # This initial processing returns a dictionary containing a "final_structure".
         result = super().calc(structure)
