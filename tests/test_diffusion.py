@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from shutil import which
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -273,9 +272,8 @@ def test_diffusion_backend_errors(matpes_calculator: PESCalculator) -> None:
         calc._build_md_calc()  # noqa: SLF001
 
 
+@pytest.mark.usefixtures("lmp_gnnp")
 def test_diffusion_lammps_md(Li2O: Structure) -> None:
-    if not which("lmp"):
-        pytest.skip("lammps not available")
     calc = DiffusionCalc(
         "TensorNet",
         backend="lammps",

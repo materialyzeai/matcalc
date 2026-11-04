@@ -17,6 +17,9 @@ Environment variables:
 from __future__ import annotations
 
 import os
+import re
+import shutil
+import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
@@ -88,6 +91,18 @@ def Cu() -> Structure:
 def Si_atoms() -> Atoms:
     """Si atoms, rebuilt per test since calculators and MD runs mutate Atoms in place."""
     return to_ase_atoms(PymatgenTest.get_structure("Si"))
+
+
+@pytest.fixture(scope="session")
+def lmp_gnnp() -> None:
+    """Skip unless ``lmp`` is on PATH with the AdvanceSoft ``pair_style gnnp`` (ML-GNNP) that LAMMPSMDCalc uses."""
+    lmp = shutil.which("lmp")
+    if lmp is None:
+        pytest.skip("lammps (lmp) not available")
+        return
+    styles = subprocess.run([lmp, "-h"], capture_output=True, text=True, check=False).stdout  # noqa: S603
+    if not re.search(r"\bgnnp\b", styles):
+        pytest.skip("lmp lacks pair_style gnnp (ML-GNNP), which LAMMPSMDCalc needs")
 
 
 @pytest.fixture(scope="session")

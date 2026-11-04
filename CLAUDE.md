@@ -34,7 +34,7 @@ invoke update-changelog # generates changes.md entries from PR titles
 invoke release          # creates GitHub release for current pyproject version
 ```
 
-The `Test` workflow runs inside `docker.io/materialyzeai/lammps_gnnp` because LAMMPS-backed tests need a LAMMPS build with ML-GNNP and ML-SNAP. Locally, LAMMPS-dependent tests will be skipped or fail without that environment.
+The `Test` and `LAMMPS backend` workflows run inside `docker.io/materialyzeai/matml:latest-kokkos-cpu`: LAMMPS as a shared library with its Python module, MatGL's `pair_style matgl`/`matgl/kk` (Kokkos), ML-SNAP and EXTRA-FIX, linked against the image's torch (install with `-c /opt/lammps/torch-constraint.txt` to keep it). It has no ML-GNNP, so the `LAMMPSMDCalc` tests (AdvanceSoft `pair_style gnnp`, `lmp_gnnp` fixture) skip there. Locally, LAMMPS-dependent tests skip without such a build; `MATCALC_TEST_REQUIRE_LAMMPS=1` turns the `test_backend_lammps.py` skips into failures.
 
 ## Architecture
 

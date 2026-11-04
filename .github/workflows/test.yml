@@ -26,9 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     container:
-      # MAVRL's docker container build on uv with LAMMPS with ML-GNNP and ML-SNAP.
-      # Required for testing the LAMMPS related methods.
-      image: docker.io/materialyzeai/lammps_gnnp
+      # MatML stack on LAMMPS built as a shared library with its Python module, MatGL's pair_style matgl / matgl/kk
+      # (Kokkos), ML-SNAP and EXTRA-FIX, linked against the image's torch (materialyzeai/matml,
+      # docker/Dockerfile.matml.kokkos-cpu). It has no ML-GNNP, so the LAMMPSMDCalc tests (pair_style gnnp) skip.
+      image: docker.io/materialyzeai/matml:latest-kokkos-cpu
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
       PMG_MAPI_KEY: ${{ secrets.PMG_MAPI_KEY }}
@@ -36,14 +37,19 @@ jobs:
       MATCALC_TEST_CLEAR_CACHE: "1"
 
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Install dependencies
+      # git before checkout, so that the checkout is a git repository (setuptools-scm version, Codecov metadata).
+      - name: Install system packages
         run: |
           apt-get update
-          apt-get install -y curl
-          pip install -e '.[ci]'
-          pip install "setuptools<82"  # Required by maml (pkg_resources)
+          apt-get install -y --no-install-recommends curl git
+
+      - uses: actions/checkout@v5
+
+      # The constraint keeps torch at the version LAMMPS was built against.
+      - name: Install dependencies
+        run: |
+          UV_TORCH_BACKEND=cpu uv pip install --system -c /opt/lammps/torch-constraint.txt \
+            -e '.[ci]' "setuptools<82"  # setuptools<82 is required by maml (pkg_resources)
 
       - name: pytest
         run: pytest -n auto --dist worksteal --cov=matcalc --cov-report=xml --cov-report=term-missing tests --color=yes

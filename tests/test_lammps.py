@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from shutil import which
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -48,13 +47,12 @@ def test_lammps_model_names(name: str, expected_model: str) -> None:
         ("npt_nose_hoover", -9.75230),
     ],
 )
+@pytest.mark.usefixtures("lmp_gnnp")
 def test_lammps_calc(
     ensemble: str,
     expected_energy: float,
     Si: Structure,
 ) -> None:
-    if not which("lmp"):
-        pytest.skip("lammps not available")
     """Tests for LAMMPSMDCalc class"""
     in_file = f"{ensemble}.in"
     log_file = f"{ensemble}.log"
@@ -87,10 +85,9 @@ def test_lammps_calc(
     assert os.path.isfile(traj_file)
 
 
+@pytest.mark.usefixtures("lmp_gnnp")
 def test_lammps_atoms(Si_atoms: Atoms) -> None:
     """Tests for MDCalc class using ASE Atoms input"""
-    if not which("lmp"):
-        pytest.skip("lammps not available")
     with open(Path(LAMMPS_TEMPLATES_DIR / "md.template")) as f:
         script_template = f.read()
 
@@ -145,9 +142,8 @@ def test_lammps_element_mapping(Li2O: Structure, tmp_path: Path) -> None:
         assert [pair_coeff[-2:][int(atom_type) - 1] for atom_type in data.atoms["type"]] == ["O", "Li", "Li"]
 
 
+@pytest.mark.usefixtures("lmp_gnnp")
 def test_lammps_frames(Li2O: Structure, tmp_path: Path) -> None:
-    if not which("lmp"):
-        pytest.skip("lammps not available")
     calc = LAMMPSMDCalc(calculator="TensorNet", relax_structure=False, steps=25, loginterval=10, equilibration_frames=1)
     result = calc.calc(Li2O, directory=tmp_path)
 
@@ -162,9 +158,8 @@ def test_lammps_frames(Li2O: Structure, tmp_path: Path) -> None:
     np.testing.assert_allclose(result["final_structure"].cart_coords, result["trajectory"][-1].positions)
 
 
+@pytest.mark.usefixtures("lmp_gnnp")
 def test_lammps_thermo_stride(Li2O: Structure, tmp_path: Path) -> None:
-    if not which("lmp"):
-        pytest.skip("lammps not available")
     calc = LAMMPSMDCalc(calculator="TensorNet", relax_structure=False, steps=25, loginterval=10, equilibration_frames=1)
     calc.write_inputs(Li2O, directory=tmp_path)
     script = tmp_path / calc.infile
@@ -180,9 +175,8 @@ def test_lammps_thermo_stride(Li2O: Structure, tmp_path: Path) -> None:
         calc.calc(Li2O, directory=tmp_path)
 
 
+@pytest.mark.usefixtures("lmp_gnnp")
 def test_lammps_failed_run(Li2O: Structure, tmp_path: Path) -> None:
-    if not which("lmp"):
-        pytest.skip("lammps not available")
     calc = LAMMPSMDCalc(calculator="TensorNet", relax_structure=False, settings={"fix_command": "fix 1 all unknown"})
     with pytest.raises(subprocess.CalledProcessError):
         calc.calc(Li2O, directory=tmp_path)
