@@ -104,10 +104,12 @@ def test_elasticity_benchmark(matpes_calculator: PESCalculator) -> None:
 
 
 def test_phonon_benchmark(matpes_calculator: PESCalculator) -> None:
-    benchmark = PhononBenchmark(seed=0, n_samples=3)
+    # seed=5 samples MgCl2, SiC and P2O5. Avoid soft structures (e.g. TeI at seed=0), whose relaxations at the default
+    # fmax stop at optimizer-dependent points of a flat energy landscape.
+    benchmark = PhononBenchmark(seed=5, n_samples=3)
     results = benchmark.run(matpes_calculator, "toy")
     assert len(results) == 3
-    assert np.abs(results["CV_toy"] - results["CV_DFT"]).mean() == pytest.approx(4.250062673114591, abs=3e-1)
+    assert np.abs(results["CV_toy"] - results["CV_DFT"]).mean() == pytest.approx(24.108, abs=3e-1)
 
 
 def test_softening_benchmark(matpes_calculator: PESCalculator) -> None:
