@@ -391,6 +391,23 @@ def test_relax_cell_parity(ar_cell: Atoms, left_handed: bool) -> None:
 
 
 @needs_lammps
+@pytest.mark.parametrize("relax_cell", [False, True])
+def test_relax_already_converged(ar_cell: Atoms, relax_cell: bool) -> None:
+    """An input that meets the criterion is returned unchanged, as ASE's optimizers do (LAMMPS' own cell criterion
+    is far stricter and would keep relaxing it)."""
+    atoms = _skewed(ar_cell, shear=0.5)
+    kwargs: dict[str, Any] = {"relax_atoms": True, "relax_cell": relax_cell, "fmax": 10.0}
+    ref = run_ase(atoms, _lj_ase(), **kwargs)
+    res = run_lammps(atoms, _lj_lammps(), **kwargs)
+
+    assert res.converged
+    assert ref.converged
+    np.testing.assert_allclose(ref.structure.cart_coords, atoms.positions, atol=1e-12)
+    np.testing.assert_allclose(res.structure.lattice.matrix, np.array(atoms.cell), atol=1e-10)
+    np.testing.assert_allclose(res.structure.cart_coords, atoms.positions, atol=1e-10)
+
+
+@needs_lammps
 @pytest.mark.parametrize("fix_symmetry", [False, True])
 def test_relax_cell_keeps_symmetry(fix_symmetry: bool) -> None:
     """An oblique symmetric cell stays symmetric, as with ASE's cell filters (fix box/relax alone would distort it)."""

@@ -351,8 +351,18 @@ def _minimize(
     couple = "iso" if target.hydrostatic else "tri"
     current = atoms.copy()  # state at the start of the chunk, in the input frame
     current.constraints = []
-    if target.constant_volume:
-        lmp.command("run 0")
+
+    def is_converged() -> bool:
+        lmp.command("run 0")  # forces of fixed atoms are zeroed by fix setforce
+        residual = _residual_force(
+            engine.gather("f"), frame.tensor(engine.stress()), engine.cell(), target, relax_cell=relax_cell
+        )
+        return residual <= fmax
+
+    # Like ASE's optimizers, stop before any step if the input already meets the criterion; LAMMPS' own criterion
+    # for the cell is far stricter and would keep relaxing it.
+    if is_converged():
+        return True, frame
     steps_left = max_steps
     converged = False
     while steps_left > 0:
@@ -378,11 +388,7 @@ def _minimize(
             # The minimizer lets fix box/relax shift atoms held by fix setforce; ASE keeps their fractional
             # coordinates, so restore them before checking convergence.
             engine.pin(fixed, frame)
-        lmp.command("run 0")  # forces of fixed atoms are zeroed by fix setforce
-        residual = _residual_force(
-            engine.gather("f"), frame.tensor(engine.stress()), engine.cell(), target, relax_cell=relax_cell
-        )
-        converged = residual <= fmax
+        converged = is_converged()
         if converged or used == 0:
             break
     return converged, frame
