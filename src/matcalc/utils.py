@@ -678,36 +678,55 @@ class PESCalculator(Calculator):
         if not isinstance(name, str):  # already an ASE Calculator
             return name
 
-        canonical = _resolve_canonical(name)
-        if canonical is None:
-            # Backward-compat fallback: a raw MatGL pretrained model name passed
-            # straight through (covers any newly released models not yet in the
-            # registry) so users on the bleeding edge are not blocked, or a local
-            # MatGL model directory such as a fine-tuned potential.
-            if _is_matgl_model_dir(name) or name in _MATGL_AVAILABLE:
-                return PESCalculator.load_matgl(name, **kwargs)
-            if (reason := _REMOVED_MODELS.get(name.lower())) is not None:
-                raise ValueError(f"{name!r} was removed: {reason}")
-            suggestions = _suggest_models(name)
-            hint = f" Did you mean: {suggestions}?" if suggestions else ""
-            raise ValueError(
-                f"Unrecognized {name=}.{hint} See matcalc.utils.MODEL_REGISTRY for the "
-                f"full list of canonical names and matcalc.utils.MODEL_ALIASES for short "
-                f"spellings."
-            )
-
-        spec = MODEL_REGISTRY[canonical]
-        provider_kwargs = {k: v for k, v in spec.items() if k != "provider"}
-        provider_kwargs.update(kwargs)  # user kwargs win over registry defaults
-        provider = spec["provider"]
-
+        provider, provider_kwargs = resolve_model(name, **kwargs)
         loader = _PROVIDER_LOADERS.get(provider)
         if loader is None:
-            raise ValueError(f"Unknown provider {provider!r} for model {canonical!r}.")
+            raise ValueError(f"Unknown provider {provider!r} for model {name!r}.")
         try:
             return loader(provider_kwargs)
         except ImportError as e:
             raise ImportError(_install_hint(provider)) from e
+
+
+def resolve_model(name: str, **kwargs: Any) -> tuple[str, dict[str, Any]]:
+    """Resolve a model name to its provider and loader options, without loading the model.
+
+    Accepts everything :meth:`PESCalculator.load_universal` accepts as a name: canonical names, aliases (both
+    case-insensitive), raw MatGL pretrained model names and local MatGL model directories.
+
+    Args:
+        name: Model name or MatGL model directory.
+        **kwargs: Provider-specific options, overriding the registry defaults.
+
+    Returns:
+        The provider (e.g. ``"matgl"``, ``"mace_mp"``) and the options for its loader. For MatGL, ``"path"`` is the
+        MatGL model name or directory.
+
+    Raises:
+        ValueError: If ``name`` is not a recognized model.
+    """
+    canonical = _resolve_canonical(name)
+    if canonical is None:
+        # Backward-compat fallback: a raw MatGL pretrained model name passed
+        # straight through (covers any newly released models not yet in the
+        # registry) so users on the bleeding edge are not blocked, or a local
+        # MatGL model directory such as a fine-tuned potential.
+        if _is_matgl_model_dir(name) or name in _MATGL_AVAILABLE:
+            return "matgl", {"path": name, **kwargs}
+        if (reason := _REMOVED_MODELS.get(name.lower())) is not None:
+            raise ValueError(f"{name!r} was removed: {reason}")
+        suggestions = _suggest_models(name)
+        hint = f" Did you mean: {suggestions}?" if suggestions else ""
+        raise ValueError(
+            f"Unrecognized {name=}.{hint} See matcalc.utils.MODEL_REGISTRY for the "
+            f"full list of canonical names and matcalc.utils.MODEL_ALIASES for short "
+            f"spellings."
+        )
+
+    spec = MODEL_REGISTRY[canonical]
+    provider_kwargs = {k: v for k, v in spec.items() if k != "provider"}
+    provider_kwargs.update(kwargs)  # user kwargs win over registry defaults
+    return spec["provider"], provider_kwargs
 
 
 # --- Per-provider loaders for ``PESCalculator.load_universal`` ---------------

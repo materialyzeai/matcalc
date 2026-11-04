@@ -11,8 +11,8 @@ import numpy as np
 from joblib import Parallel, cpu_count, delayed, parallel_config
 from joblib.parallel import LokyBackend, get_active_backend
 
+from .backend import to_backend_calculator
 from .units import eVA3ToGPa
-from .utils import PESCalculator
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Sequence
@@ -99,12 +99,17 @@ class PropCalc(abc.ABC):
         """
         Sets the calculator property for the current object. If a string is provided, it
         loads the universal PESCalculator using the given value. Otherwise, it sets
-        the provided Calculator instance.
+        the provided Calculator instance. Under the LAMMPS backend (``MATCALC_BACKEND``), a
+        ``LAMMPSCalculator`` is set instead: built directly from a model name, or converted from
+        a calculator (kept in its ``source``). See ``matcalc.backend.to_backend_calculator``.
 
         Args:
             val: Universal model name string or an existing ASE calculator instance.
+
+        Raises:
+            TypeError: Under the LAMMPS backend, if the calculator has no LAMMPS representation.
         """
-        self._pes_calculator = PESCalculator.load_universal(val) if isinstance(val, str) else val
+        self._pes_calculator = to_backend_calculator(val)
 
     @staticmethod
     def _merge_units(

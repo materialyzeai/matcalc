@@ -17,7 +17,6 @@ from matcalc import (
     EnergeticsCalc,
     GBCalc,
     InterfaceCalc,
-    LAMMPSMDCalc,
     MDCalc,
     PhononCalc,
     SurfaceCalc,
@@ -45,8 +44,10 @@ class _DummyCalc(PropCalc):
 
 
 def test_relaxer_precedence(matpes_calculator: PESCalculator) -> None:
-    relaxer = _DummyCalc(matpes_calculator, OVERRIDES)._relaxer(fmax=0.1, relax_cell=True, max_steps=7)  # noqa: SLF001
-    assert relaxer.calculator is matpes_calculator
+    parent = _DummyCalc(matpes_calculator, OVERRIDES)
+    relaxer = parent._relaxer(fmax=0.1, relax_cell=True, max_steps=7)  # noqa: SLF001
+    # The relaxer shares the parent's calculator (on the LAMMPS backend, the LAMMPSCalculator built from it).
+    assert relaxer.calculator is parent.calculator
     assert relaxer.fmax == pytest.approx(0.123)
     assert relaxer.optimizer == "FIRE"
     assert not relaxer.relax_cell
@@ -97,7 +98,6 @@ CASES: dict[str, Callable[[Any, Structure], Any]] = {
     ).calc(s),
     "phonon": lambda c, s: PhononCalc(c, relax_calc_kwargs=OVERRIDES).calc(s),
     "md": lambda c, s: MDCalc(c, relax_calc_kwargs=OVERRIDES).calc(s),
-    "lammps": lambda _, s: LAMMPSMDCalc("TensorNet-MatPES-PBE-2025.2", relax_calc_kwargs=OVERRIDES).calc(s),
 }
 
 

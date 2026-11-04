@@ -23,6 +23,7 @@ from ._qha import QHACalc
 from ._relaxation import RelaxCalc
 from ._stability import EnergeticsCalc
 from ._surface import SurfaceCalc
+from .backend import LAMMPSCalculator
 from .config import SIMULATION_BACKEND, clear_cache
 from .utils import UNIVERSAL_CALCULATOR_NAMES, UNIVERSAL_CALCULATORS, PESCalculator
 
@@ -54,6 +55,7 @@ __all__ = [
     "EnergeticsCalc",
     "GBCalc",
     "InterfaceCalc",
+    "LAMMPSCalculator",
     "LAMMPSMDCalc",
     "MDCalc",
     "NEBCalc",

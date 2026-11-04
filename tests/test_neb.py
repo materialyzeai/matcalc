@@ -22,10 +22,14 @@ def test_neb_calc(LiFePO4: Structure, matpes_calculator: PESCalculator, tmp_path
     image_end = LiFePO4.copy()
     image_end.remove_sites([3])
     neb_calc = NEBCalc(matpes_calculator, traj_folder=tmp_path, fmax=0.5, method="aseneb")
-    start_result, end_result = neb_calc.calc_endpoints(image_start, image_end, relax_calc_kwargs={"optimizer": "FIRE"})
+    # Tightly relaxed endpoints make the barrier independent of the optimizer path (and of the simulation backend);
+    # at fmax=0.5 ASE's and LAMMPS's FIRE stop ~30 meV apart.
+    start_result, end_result = neb_calc.calc_endpoints(
+        image_start, image_end, relax_calc_kwargs={"optimizer": "FIRE", "fmax": 0.01}
+    )
     barriers = neb_calc.calc_images(start_result["final_structure"], end_result["final_structure"], n_images=5)
-    assert barriers["barrier"] == pytest.approx(0.26219177246093794, rel=0.05)
-    assert barriers["reaction_energy"] == pytest.approx(0.00128173828125, abs=1e-3)
+    assert barriers["barrier"] == pytest.approx(0.3899, rel=0.05)
+    assert barriers["reaction_energy"] == pytest.approx(0.0030, abs=1e-3)
     assert barriers["forces"].shape == (5 * len(image_start), 3)
     assert np.isfinite(barriers["forces"]).all()
     assert barriers["_units"] == {"barrier": "eV", "reaction_energy": "eV", "forces": "eV/Å"}
@@ -190,6 +194,7 @@ def cu_vacancy_hop(Cu: Structure) -> tuple[Structure, Structure]:
     return start, end
 
 
+@pytest.mark.ase_only(reason="uses ASE's EMT calculator, which has no LAMMPS representation")
 def test_neb_calc_image_order(cu_vacancy_hop: tuple[Structure, Structure]) -> None:
     """Unpadded image keys are ordered numerically, so image10 is last, not third."""
     start, end = cu_vacancy_hop
@@ -200,6 +205,7 @@ def test_neb_calc_image_order(cu_vacancy_hop: tuple[Structure, Structure]) -> No
         np.testing.assert_allclose(actual.cart_coords, expected.cart_coords, atol=1e-8)
 
 
+@pytest.mark.ase_only(reason="uses ASE's EMT calculator, which has no LAMMPS representation")
 def test_neb_calc_endpoints_evaluated_once(cu_vacancy_hop: tuple[Structure, Structure]) -> None:
     """The fixed endpoints are evaluated once, not on every NEB step."""
     start, end = cu_vacancy_hop

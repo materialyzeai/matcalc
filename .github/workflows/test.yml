@@ -22,33 +22,60 @@ permissions:
   contents: read
 
 jobs:
+  # Every test runs on both simulation backends (MATCALC_BACKEND). tests/test_lammps_ase_parity.py (LAMMPS pair
+  # styles and parity with ASE) runs in the LAMMPS leg only, where missing LAMMPS features fail rather than skip, and
+  # is repeated through the Kokkos pair styles (OpenMP host backend; GitHub-hosted runners have no GPU).
   test:
+    name: test (${{ matrix.backend }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [ASE, LAMMPS]
     container:
-      # MAVRL's docker container build on uv with LAMMPS with ML-GNNP and ML-SNAP.
-      # Required for testing the LAMMPS related methods.
-      image: docker.io/materialyzeai/lammps_gnnp
+      # MatML stack on LAMMPS built as a shared library with its Python module, MatGL's pair_style matgl / matgl/kk
+      # (Kokkos), ML-SNAP and EXTRA-FIX, linked against the image's torch (materialyzeai/matml,
+      # docker/Dockerfile.matml.kokkos-cpu).
+      image: docker.io/materialyzeai/matml:latest-kokkos-cpu
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
       PMG_MAPI_KEY: ${{ secrets.PMG_MAPI_KEY }}
       # Wipe matgl/matcalc caches at pytest start so CI always exercises fresh downloads (see tests/conftest.py).
       MATCALC_TEST_CLEAR_CACHE: "1"
+      MATCALC_BACKEND: ${{ matrix.backend }}
+      MATCALC_TEST_REQUIRE_LAMMPS: ${{ matrix.backend == 'LAMMPS' && '1' || '' }}
 
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Install dependencies
+      # git before checkout, so that the checkout is a git repository (setuptools-scm version, Codecov metadata);
+      # curl and gnupg for the Codecov uploader.
+      - name: Install system packages
         run: |
           apt-get update
-          apt-get install -y curl
-          pip install -e '.[ci]'
-          pip install "setuptools<82"  # Required by maml (pkg_resources)
+          apt-get install -y --no-install-recommends curl git gnupg
+
+      - uses: actions/checkout@v5
+
+      # The constraint keeps torch at the version LAMMPS was built against.
+      - name: Install dependencies
+        run: |
+          UV_TORCH_BACKEND=cpu uv pip install --system -c /opt/lammps/torch-constraint.txt \
+            -e '.[ci]' "setuptools<82"  # setuptools<82 is required by maml (pkg_resources)
 
       - name: pytest
         run: pytest -n auto --dist worksteal --cov=matcalc --cov-report=xml --cov-report=term-missing tests --color=yes
 
+      - name: pytest (LAMMPS backend tests through Kokkos)
+        if: matrix.backend == 'LAMMPS'
+        env:
+          MATCALC_LAMMPS_ARGS: "-k on t 2 -sf kk -pk kokkos newton on neigh half"
+          OMP_NUM_THREADS: "2"
+        run: pytest tests/test_lammps_ase_parity.py --color=yes
+
       - name: Upload coverage reports to Codecov
+        if: ${{ !cancelled() && hashFiles('coverage.xml') != '' }}
         uses: codecov/codecov-action@v5
+        with:
+          flags: ${{ matrix.backend }}
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

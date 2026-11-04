@@ -63,10 +63,13 @@ def test_eos_calc(
         ],
         rel=1e-2,
     )
-    eos_calc = EOSCalc(matpes_calculator, relax_structure=False)
+    # Unrelaxed LiFePO4 stays well conditioned within +-5% strain; at the default +-10%, the shape relaxations of the
+    # most expanded points fall into different local minima depending on the optimizer path.
+    eos_calc = EOSCalc(matpes_calculator, relax_structure=False, max_abs_strain=0.05)
     results = list(eos_calc.calc_many([Li2O, LiFePO4]))
     assert len(results) == 2
-    assert results[1]["bulk_modulus_bm"] == pytest.approx(69.10044665311513, rel=1e-1)
+    assert results[1]["bulk_modulus_bm"] == pytest.approx(68.09, rel=1e-2)
+    assert results[1]["r2_score_bm"] > 0.999
 
 
 def test_eos_calc_atoms(

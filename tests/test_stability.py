@@ -213,7 +213,7 @@ def test_energetics_infers_refs_from_model_name(
 ) -> None:
     """EnergeticsCalc(<model name>) loads the elemental references matching the model's functional."""
     # Only the name matters for the inference; avoid loading a second model.
-    monkeypatch.setattr("matcalc._base.PESCalculator.load_universal", lambda _name: matpes_calculator)
+    monkeypatch.setattr("matcalc.utils.PESCalculator.load_universal", lambda _name: matpes_calculator)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         energetics_calc = EnergeticsCalc(model)

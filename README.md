@@ -81,7 +81,7 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 | `SurfaceCalc` | Surface energy calculation | `surface_energy`, `slab_energy`, `final_slab` |
 | `AdsorptionCalc` | Adsorption energy on surfaces | `adsorption_energy` |
 | `InterfaceCalc` | Interfacial, surface and adhesion energies of coherent interfaces | `interfacial_energy`, `film_surface_energy`, `substrate_surface_energy`, `adhesion_energy` |
-| `LAMMPSMDCalc` | LAMMPS-based molecular dynamics | `md_structures`, `md_energies` |
+| `LAMMPSMDCalc` | Deprecated: use `MDCalc` with `MATCALC_BACKEND=LAMMPS` | `md_structures`, `md_energies` |
 | `ChainedCalc` | Chain multiple PropCalcs in sequence | Combined outputs of all constituent calculators |
 
 ### Supported Foundation Potentials
@@ -245,6 +245,44 @@ matcalc clear
 
 Any format supported by pymatgen's `Structure.from_file()` method is accepted for input structures.
 Available property calculators can be checked with `matcalc calc -h`.
+
+### LAMMPS Backend (experimental)
+
+Setting `MATCALC_BACKEND=LAMMPS` runs single points, relaxations (`minimize`, with `fix box/relax` for the cell) and
+`MDCalc` molecular dynamics in an in-process LAMMPS instance (the `lammps` Python module) instead of ASE, for every
+`PropCalc`. Convergence is judged by the same criterion as ASE's `FrechetCellFilter`. Supported force fields:
+
+- MatGL TensorNet and M3GNet potentials, exported to TorchScript and run with MatGL's `pair_style matgl`. This needs
+  LAMMPS built with MatGL's ML-MATGL package (see `lammps/README.md` in the MatGL repository), as a shared library
+  linked against the same libtorch as the Python `torch`. The `materialyzeai/matgl:latest-kokkos-cpu` Docker image
+  provides such a build. For the Kokkos variant `pair_style matgl/kk`, set e.g.
+  `MATCALC_LAMMPS_ARGS="-k on g 1 -sf kk -pk kokkos newton on neigh half"`.
+- maml potentials loaded through `PESCalculator` (SNAP, MTP, GAP, NNP).
+- Any LAMMPS force field via `LAMMPSCalculator`, which also works as a regular ASE calculator.
+
+Under the LAMMPS backend, `PropCalc.calculator` is a `LAMMPSCalculator`, set up when the `PropCalc` is constructed. A
+model name (e.g. `"TensorNet-MatPES-r2SCAN"`) is exported straight to `pair_style matgl` without building an ASE
+calculator, once per model and process. A calculator object is converted (the original is kept in
+`PropCalc.calculator.source`). Unsupported models and calculators therefore fail immediately, and evaluations made
+directly through ASE (e.g. in `NEBCalc`, `AdsorptionCalc`) also run in LAMMPS.
+
+Relaxations run with LAMMPS `minimize` (`fix box/relax` for the cell) and keep the symmetry of the input, or of a
+`FixSymmetry` constraint, as ASE's cell filters do. LAMMPS has no constant-volume or masked cell relaxation, so those
+(e.g. the shape relaxations of `EOSCalc`) run with ASE's optimizer and cell filter, with LAMMPS evaluating every step.
+MD uses the LAMMPS fixes equivalent to ASE's integrators, with ASE's temperature definition (3N degrees of freedom) and
+center-of-mass handling.
+
+Differences from the ASE backend: BFGS-type optimizers map to LAMMPS `cg`, and cell relaxations always use `cg`; only
+`FixAtoms` and `FixSymmetry` constraints are supported in relaxations; adsorbate molecules and other non-periodic
+structures are not supported; `nvt_andersen` is not available; `nvt_bussi` needs the EXTRA-FIX package; the Berendsen
+barostats need an orthogonal cell. Thermostats and barostats sample the same ensembles as their ASE counterparts with
+different integrators or random numbers, so those MD trajectories agree statistically (NVE agrees step by step).
+Optimizers stop at different points of a flat energy landscape, so loosely converged relaxations (large `fmax`) of soft
+structures can differ between backends.
+
+```python
+calc = mtc.LAMMPSCalculator(["pair_style eam/alloy", "pair_coeff * * Cu_u3.eam.alloy {symbols}"], elements=["Cu"])
+```
 
 ## Benchmarking
 

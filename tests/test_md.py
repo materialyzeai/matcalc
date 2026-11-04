@@ -11,7 +11,7 @@ from ase import units
 from ase.io import read
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution
 
-from matcalc import MDCalc
+from matcalc import LAMMPSMDCalc, MDCalc
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -34,10 +34,12 @@ def _set_seed() -> None:
         ("nvt", -10.6812750292946),
         ("nvt_berendsen", -10.705081376492938),
         ("nvt_langevin", -10.68243804863792),
-        ("nvt_andersen", -10.714444959621353),
+        pytest.param("nvt_andersen", -10.714444959621353, marks=pytest.mark.ase_only(reason="Andersen thermostat")),
         ("nvt_bussi", -10.682800878748354),
-        ("npt_inhomogeneous", -10.705095876651583),
-        ("npt_berendsen", -10.705094547199234),
+        *(
+            pytest.param(ens, energy, marks=pytest.mark.ase_only(reason="Berendsen barostat on a non-orthogonal cell"))
+            for ens, energy in (("npt_inhomogeneous", -10.705095876651583), ("npt_berendsen", -10.705094547199234))
+        ),
         ("npt_nose_hoover", -10.709411041617395),
         ("npt_isotropic_mtk", -10.681375314402317),
         ("npt_mtk", -10.681387481306512),
@@ -243,7 +245,9 @@ def test_initial_velocity_seed(Si_atoms: Atoms, matpes_calculator: PESCalculator
     # Every run starts from the same velocities.
     for _ in range(2):
         result = md_calc.calc(Si_atoms.copy())
-        np.testing.assert_array_equal(result["trajectory"][0].get_momenta(), expected.get_momenta())
+        # Unit conversions round-trip the velocities through the LAMMPS backend, so allow round-off.
+        momenta = result["trajectory"][0].get_momenta()
+        np.testing.assert_allclose(momenta, expected.get_momenta(), rtol=1e-12, atol=1e-14)
 
 
 def test_no_frames_to_average(Si: Structure, matpes_calculator: PESCalculator) -> None:
@@ -346,3 +350,58 @@ def test_thermostat_barostat_units(Si: Structure, Si_atoms: Atoms, matpes_calcul
     # NPT rotates the cell to upper-triangular form, so compare the lattice parameters, not the matrix.
     final = result["final_structure"].lattice
     np.testing.assert_allclose(final.parameters, strained.lattice.parameters, atol=1e-6)
+
+
+_M3GNET = "MatGL exports M3GNet to LAMMPS only with use_smooth=True"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "TensorNet-MatPES-PBE-2025.2",
+        "pbe",
+        "tensornet-matpes-pbe-2025.2",
+        "TensorNet-PES-MatPES-PBE-2025.2",  # raw MatGL model name
+        pytest.param("m3gnet", marks=pytest.mark.ase_only(reason=_M3GNET)),
+        pytest.param("M3GNet-MatPES-r2SCAN-2025.2", marks=pytest.mark.ase_only(reason=_M3GNET)),
+    ],
+)
+def test_md_model_names(Si: Structure, name: str) -> None:
+    """MDCalc runs from a model name, canonical, alias or raw MatGL, on either simulation backend."""
+    result = MDCalc(name, ensemble="nve", steps=2, frames=1, relax_structure=False).calc(Si)
+    assert np.isfinite(result["total_energy"])
+
+
+def test_md_local_matgl_model(Si: Structure, tmp_path: Path) -> None:
+    import matgl
+
+    model_dir = tmp_path / "finetuned"
+    matgl.load_model("TensorNet-PES-MatPES-PBE-2025.2").save(model_dir)
+    result = MDCalc(str(model_dir), ensemble="nve", steps=2, frames=1, relax_structure=False).calc(Si)
+    assert np.isfinite(result["total_energy"])
+
+
+def test_md_removed_model() -> None:
+    with pytest.raises(ValueError, match="was removed"):
+        MDCalc("M3GNet-MatPES-PBE-2025.1", relax_structure=False)
+
+
+def test_md_frames(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    """Frames are recorded every loginterval steps from step 0; averages cover those after equilibration_frames."""
+    md_calc = MDCalc(
+        matpes_calculator, ensemble="nve", steps=25, loginterval=10, equilibration_frames=1, relax_structure=False
+    )
+    result = md_calc.calc(Li2O)
+
+    # Frames at steps 0, 10 and 20; the first is equilibration.
+    trajectory = result["trajectory"]
+    assert len(trajectory) == 2
+    assert result["potential_energy"] == pytest.approx(np.mean([a.get_potential_energy() for a in trajectory]))
+    assert result["kinetic_energy"] == pytest.approx(np.mean([a.get_kinetic_energy() for a in trajectory]))
+    assert result["total_energy"] == pytest.approx(np.mean([a.get_total_energy() for a in trajectory]))
+    np.testing.assert_allclose(result["final_structure"].cart_coords, trajectory[-1].positions)
+
+
+def test_lammps_md_calc_deprecated() -> None:
+    with pytest.warns(DeprecationWarning, match="MATCALC_BACKEND=LAMMPS"):
+        LAMMPSMDCalc("TensorNet-MatPES-PBE-2025.2", relax_structure=False)

@@ -12,7 +12,7 @@ import pytest
 from ase import Atoms
 from ase.calculators.calculator import Calculator
 
-from matcalc import RelaxCalc
+from matcalc import RelaxCalc, backend
 from matcalc.utils import (
     _REMOVED_MODELS,
     MODEL_ALIASES,
@@ -128,6 +128,9 @@ def test_pescalculator_load_universal(Li2O: Structure, name: str) -> None:
 
     if not find_spec(pkg_name):
         pytest.skip(f"{pkg_name} is not installed. Skipping {name} test.")
+    if backend.is_lammps_backend() and (pkg_name != "matgl" or name.startswith(("M3GNet", "QET"))):
+        # MatGL exports TensorNet to LAMMPS; M3GNet only with use_smooth=True, and QET's charge heads not at all.
+        pytest.skip(f"Not supported by the LAMMPS backend: {name} has no LAMMPS representation.")
 
     calc = PESCalculator.load_universal(name)
     assert isinstance(calc, Calculator)

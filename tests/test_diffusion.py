@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from shutil import which
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -16,8 +15,6 @@ from scipy.constants import Boltzmann, elementary_charge
 from matcalc import DiffusionCalc
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from matgl.ext.ase import PESCalculator
     from pymatgen.core import Structure
 
@@ -229,11 +226,11 @@ def test_diffusion_md(Li2O: Structure, matpes_calculator: PESCalculator) -> None
 
 
 @pytest.mark.parametrize("frames", [None, 7])
-def test_diffusion_lammps_protocol(Li2O: Structure, tmp_path: Path, frames: int | None) -> None:
+def test_diffusion_md_protocol(matpes_calculator: PESCalculator, frames: int | None) -> None:
+    """The MD settings of DiffusionCalc reach MDCalc, in MDCalc's units."""
     kwargs = {} if frames is None else {"frames": frames}
     calc = DiffusionCalc(
-        "TensorNet",
-        backend="lammps",
+        matpes_calculator,
         specie="Li",
         temperature=600.5,
         timestep=2.0,
@@ -247,38 +244,25 @@ def test_diffusion_lammps_protocol(Li2O: Structure, tmp_path: Path, frames: int 
     )
     with pytest.warns(UserWarning, match="fixed lattice"):
         md_calc = calc._build_md_calc()  # noqa: SLF001
-    md_calc.write_inputs(Li2O, directory=tmp_path)
-    script = (tmp_path / "in.md").read_text()
-    commands = {
-        line.split()[0]: line.split()[1:] for line in script.splitlines() if line.strip() and not line.startswith("#")
-    }
 
-    assert md_calc.frames == frames
+    assert md_calc.ensemble == "npt"
+    assert md_calc.temperature == pytest.approx(600.5)
+    assert md_calc.timestep == pytest.approx(2.0)
+    assert md_calc.taut == pytest.approx(150 * units.fs)
+    assert md_calc.seed == 27
+    assert md_calc.loginterval == 10
+    assert md_calc.frames == (frames if frames is not None else md_calc.steps)
     assert md_calc.equilibration_frames == 0
     assert md_calc.steps == 100_000
     assert md_calc.relax_structure
-    assert commands["timestep"] == ["0.002"]
-    assert commands["fix"][:7] == ["1", "all", "npt", "temp", "600.5", "600.5", "0.15"]
-    assert commands["velocity"] == ["all", "create", "600.5", "27", "mom", "no", "rot", "no", "dist", "gaussian"]
-    assert commands["pair_coeff"][2:4] == ["matgl", "TensorNet-PES-MatPES-PBE-2025.2"]
+    assert not md_calc.set_com_stationary
+    assert not md_calc.set_zero_rotation
 
 
-def test_diffusion_backend_errors(matpes_calculator: PESCalculator) -> None:
-    with pytest.raises(ValueError, match="backend"):
-        DiffusionCalc(matpes_calculator, specie="Li", temperature=1000, timestep=1.0, loginterval=10, backend="unknown")
+def test_diffusion_fixed_cell(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    """Each run simulates its own structure at fixed cell, so the MD keeps that volume."""
     calc = DiffusionCalc(
-        matpes_calculator, specie="Li", temperature=1000, timestep=1.0, loginterval=10, backend="lammps"
-    )
-    with pytest.raises(TypeError, match="model name"):
-        calc._build_md_calc()  # noqa: SLF001
-
-
-def test_diffusion_lammps_md(Li2O: Structure) -> None:
-    if not which("lmp"):
-        pytest.skip("lammps not available")
-    calc = DiffusionCalc(
-        "TensorNet",
-        backend="lammps",
+        matpes_calculator,
         specie="Li",
         temperature=600.5,
         timestep=1.0,
@@ -290,7 +274,6 @@ def test_diffusion_lammps_md(Li2O: Structure) -> None:
     )
     expanded = Li2O.copy()
     expanded.scale_lattice(Li2O.volume * 1.2)
-    # Each run writes inputs for its own structure, so the fixed-cell MD keeps that volume.
     for structure in (Li2O, expanded):
         result = calc.calc(structure)
         assert len(result["trajectory"]) == 16
