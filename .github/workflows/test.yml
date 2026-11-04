@@ -73,6 +73,7 @@ jobs:
         run: pytest tests/test_lammps_ase_parity.py --color=yes
 
       - name: Upload coverage reports to Codecov
+        if: ${{ !cancelled() && hashFiles('coverage.xml') != '' }}
         uses: codecov/codecov-action@v5
         with:
           flags: ${{ matrix.backend }}
