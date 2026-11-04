@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from ase import Atoms
 from ase.calculators.singlepoint import SinglePointCalculator
-from ase.constraints import FixAtoms
+from ase.constraints import FixAtoms, FixSymmetry
 from ase.io import Trajectory
 from ase.stress import full_3x3_to_voigt_6_stress
 from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
@@ -54,6 +54,8 @@ logger = logging.getLogger(__name__)
 
 # Cell relaxations restart the minimizer every this many iterations to check ASE's convergence criterion (see _relax).
 _CELL_RELAX_CHUNK = 50
+# Tolerance (Å) for the input symmetry that cell relaxations preserve when no FixSymmetry is given.
+_SYMPREC = 1e-5
 
 # ASE optimizer (lower case) -> LAMMPS min_style. LAMMPS has no quasi-Newton minimizer; cg is the closest.
 _MIN_STYLES = {
@@ -218,16 +220,20 @@ def _min_style(optimizer: Any, *, relax_cell: bool, kokkos: bool = False) -> str
     return style
 
 
-def _fixed_atoms(atoms: Atoms) -> list[int]:
-    """Indices of atoms fixed by ``FixAtoms``; other constraints are not supported."""
+def _constraints(atoms: Atoms) -> tuple[list[int], FixSymmetry | None]:
+    """Indices of atoms fixed by ``FixAtoms`` and the ``FixSymmetry`` constraint, if any; others are not supported."""
     fixed: set[int] = set()
+    symmetry = None
     for constraint in atoms.constraints:
-        if not isinstance(constraint, FixAtoms):
+        if isinstance(constraint, FixAtoms):
+            fixed.update(int(i) for i in constraint.get_indices())
+        elif isinstance(constraint, FixSymmetry):
+            symmetry = constraint
+        else:
             raise NotImplementedError(
                 f"{type(constraint).__name__} is not supported in LAMMPS relaxations; use MATCALC_BACKEND=ASE."
             )
-        fixed.update(int(i) for i in constraint.get_indices())
-    return sorted(fixed)
+    return sorted(fixed), symmetry
 
 
 def _residual_force(
@@ -271,8 +277,16 @@ def _relax(
     ``fix box/relax`` has no volume constraint. A constant-volume relaxation (``constant_volume``, as in ASE's cell
     filters) targets the current mean pressure in each chunk, which removes the drive to change the volume, and rescales
     the cell isotropically back to the initial volume after each chunk.
+
+    ``fix box/relax`` treats box lengths and tilt factors as independent degrees of freedom, so even a hydrostatic
+    stress changes the shape of an oblique cell along the way, and the relaxation ends slightly off symmetry. ASE's cell
+    filters deform the cell homogeneously and keep it. After each chunk, the cell and positions are therefore projected
+    onto the symmetry of the input (found with tolerance ``_SYMPREC``) or of a ``FixSymmetry`` constraint, as ASE's
+    ``FixSymmetry`` does, and reloaded.
     """
-    fixed = _fixed_atoms(atoms)
+    fixed, symmetry = _constraints(atoms)
+    if symmetry is None and relax_cell:
+        symmetry = FixSymmetry(atoms, symprec=_SYMPREC)
     target = _CellTarget.from_kwargs(cell_filter_kwargs) if relax_cell else _CellTarget()
     style = _min_style(optimizer, relax_cell=relax_cell, kokkos=engine.kokkos)
     frame = engine.load(atoms)
@@ -281,16 +295,22 @@ def _relax(
     setup = ["timestep 0.001", f"min_style {style}", "min_modify norm max"]
     cleanup = []
     if fixed:
-        setup += [
-            f"group matcalc_fixed id {' '.join(str(i + 1) for i in fixed)}",
-            "fix matcalc_setforce matcalc_fixed setforce 0.0 0.0 0.0",
-        ]
+        setup += [_fixed_group(fixed), "fix matcalc_setforce matcalc_fixed setforce 0.0 0.0 0.0"]
         cleanup += ["unfix matcalc_setforce", "group matcalc_fixed delete"]
     recorder = _MinimizeRecorder(engine, interval) if traj_file else None
 
     with engine.scoped(setup, cleanup):
-        converged = _minimize(
-            engine, frame, fixed, target, relax_cell=relax_cell, max_steps=max_steps, fmax=fmax, recorder=recorder
+        converged, frame = _minimize(
+            engine,
+            frame,
+            atoms,
+            fixed,
+            symmetry,
+            target,
+            relax_cell=relax_cell,
+            max_steps=max_steps,
+            fmax=fmax,
+            recorder=recorder,
         )
 
     lmp.command("run 0")
@@ -304,43 +324,54 @@ def _relax(
         last.calc = SinglePointCalculator(
             last, energy=energy, free_energy=energy, forces=forces, stress=full_3x3_to_voigt_6_stress(stress)
         )
-        recorder.write(traj_file, frame, atoms, last)
+        recorder.write(traj_file, atoms, last)
     return final, energy, forces, stress, converged
+
+
+def _fixed_group(fixed: list[int]) -> str:
+    return f"group matcalc_fixed id {' '.join(str(i + 1) for i in fixed)}"
 
 
 def _minimize(
     engine: LAMMPSEngine,
     frame: Frame,
+    atoms: Atoms,
     fixed: list[int],
+    symmetry: FixSymmetry | None,
     target: _CellTarget,
     *,
     relax_cell: bool,
     max_steps: int,
     fmax: float,
     recorder: _MinimizeRecorder | None,
-) -> bool:
-    """Run ``minimize`` (in chunks for cell relaxations, see ``_relax``) until ASE's criterion is met; return it."""
+) -> tuple[bool, Frame]:
+    """Run ``minimize`` (in chunks, see ``_relax``) until ASE's criterion is met; return it and the final frame."""
     lmp = engine.lmp
     volume = abs(np.linalg.det(engine.cell()))
     couple = "iso" if target.hydrostatic else "tri"
+    current = atoms.copy()  # state at the start of the chunk, in the input frame
+    current.constraints = []
     if target.constant_volume:
         lmp.command("run 0")
     steps_left = max_steps
     converged = False
     while steps_left > 0:
-        chunk = min(steps_left, _CELL_RELAX_CHUNK) if relax_cell else steps_left
+        chunked = relax_cell or symmetry is not None
+        chunk = min(steps_left, _CELL_RELAX_CHUNK) if chunked else steps_left
         if relax_cell:
             pressure = -np.trace(engine.stress()) / 3 if target.constant_volume else target.pressure
             lmp.command(f"fix matcalc_box all box/relax {couple} {pressure / BAR_TO_EVA3} vmax 0.001")
         start = engine.step()
         try:
-            with recorder.record() if recorder else contextlib.nullcontext():
+            with recorder.record(frame) if recorder else contextlib.nullcontext():
                 lmp.command(f"minimize 0.0 {fmax} {chunk} {100 * chunk}")
         finally:
             if relax_cell:
                 lmp.command("unfix matcalc_box")
         used = engine.step() - start
         steps_left -= used
+        if symmetry is not None:
+            current, frame = _symmetrize(engine, frame, current, atoms, symmetry, fixed)
         if target.constant_volume:
             engine.set_volume(volume)
         if fixed and relax_cell:
@@ -354,7 +385,34 @@ def _minimize(
         converged = residual <= fmax
         if converged or used == 0:
             break
-    return converged
+    return converged, frame
+
+
+def _symmetrize(
+    engine: LAMMPSEngine, frame: Frame, current: Atoms, reference: Atoms, symmetry: FixSymmetry, fixed: list[int]
+) -> tuple[Atoms, Frame]:
+    """Project the change since ``current`` onto ``symmetry``, as ASE's ``FixSymmetry`` does, and reload it.
+
+    The cell change is symmetrized as a deformation gradient and the internal (non-affine) displacements as vectors.
+    Atoms fixed by ``FixAtoms`` keep their fractional coordinates in ``reference``. Returns the new state and frame.
+    """
+    cell_lammps = engine.cell()
+    new_cell = np.array(frame.cell(cell_lammps))
+    _, new_frac = frame.positions(engine.positions(), cell_lammps, current.cell.scaled_positions(current.positions))
+    symmetry.adjust_cell(current, new_cell)
+    old_frac = np.linalg.solve(current.cell.T, current.positions.T).T
+    displaced = current.positions + (new_frac - old_frac) @ current.cell
+    symmetry.adjust_positions(current, displaced)
+    frac = np.linalg.solve(current.cell.T, displaced.T).T
+    if fixed:
+        frac[fixed] = np.linalg.solve(reference.cell.T, reference.positions[fixed].T).T
+    state = current.copy()
+    state.set_cell(new_cell)
+    state.positions = frac @ new_cell
+    new_frame = engine.load(state)
+    if fixed:
+        engine.lmp.command(_fixed_group(fixed))  # reloaded atoms are not in the group yet
+    return state, new_frame
 
 
 class _MinimizeRecorder:
@@ -364,12 +422,13 @@ class _MinimizeRecorder:
         self.engine = engine
         self.interval = interval
         self.directory = Path(tempfile.mkdtemp(prefix="min-", dir=scratch_dir()))
-        self.files: list[tuple[Path, Path]] = []
+        self.files: list[tuple[Path, Path, Frame]] = []
 
     @contextlib.contextmanager
-    def record(self) -> Any:
+    def record(self, frame: Frame) -> Any:
+        """Record a ``minimize`` run whose atoms map to the input through ``frame``."""
         dump, log = (self.directory / f"min{len(self.files)}.{ext}" for ext in ("dump", "log"))
-        self.files.append((dump, log))
+        self.files.append((dump, log, frame))
         self.engine.lmp.commands_list(
             [
                 f'dump matcalc_traj all custom {self.interval} "{dump}" id x y z fx fy fz',
@@ -384,7 +443,7 @@ class _MinimizeRecorder:
         finally:
             self.engine.lmp.commands_list(["undump matcalc_traj", "log none", "thermo 0", "thermo_modify format none"])
 
-    def write(self, traj_file: str, frame: Frame, atoms: Atoms, final: Atoms) -> None:
+    def write(self, traj_file: str, atoms: Atoms, final: Atoms) -> None:
         """Write the recorded frames, ending with ``final``, the accepted relaxed state.
 
         The last minimizer evaluation (e.g. a rejected line-search step) need not be the accepted state, so the final
@@ -392,7 +451,7 @@ class _MinimizeRecorder:
         """
         seen: set[int] = set()
         with Trajectory(traj_file, "w") as traj:
-            for dump, log in self.files:
+            for dump, log, frame in self.files:
                 thermo = {int(row.Step): row for row in _read_thermo(log).itertuples()}
                 for snapshot in parse_lammps_dumps(str(dump)):
                     row = thermo.get(snapshot.timestep)

@@ -391,6 +391,27 @@ def test_relax_cell_parity(ar_cell: Atoms, left_handed: bool) -> None:
 
 
 @needs_lammps
+@pytest.mark.parametrize("fix_symmetry", [False, True])
+def test_relax_cell_keeps_symmetry(fix_symmetry: bool) -> None:
+    """An oblique symmetric cell stays symmetric, as with ASE's cell filters (fix box/relax alone would distort it)."""
+    atoms = bulk("Ar", "fcc", a=5.0)  # primitive cell: 60 degree angles, compressed
+    atoms.positions[0] += 1e-3  # not a symmetric structure for FixSymmetry to snap to
+    kwargs: dict[str, Any] = {"fmax": 1e-4, "max_steps": 3000, "fix_symmetry": fix_symmetry}
+    res = RelaxCalc(_lj_lammps(), **kwargs).calc(atoms)
+    backend.SIMULATION_BACKEND = "ASE"
+    try:
+        ref = RelaxCalc(_lj_ase(), **kwargs).calc(atoms)
+    finally:
+        backend.SIMULATION_BACKEND = "LAMMPS"
+
+    lattice = res["final_structure"].lattice
+    np.testing.assert_allclose(lattice.abc, lattice.abc[0], rtol=1e-10)
+    np.testing.assert_allclose(lattice.angles, 60.0, atol=1e-8)
+    np.testing.assert_allclose(lattice.abc, ref["final_structure"].lattice.abc, rtol=1e-4)
+    assert res["energy"] == pytest.approx(ref["energy"], abs=1e-6)
+
+
+@needs_lammps
 def test_relax_cell_pressure(ar_supercell: Atoms) -> None:
     pressure = 0.005  # eV/A^3, about 0.8 GPa
     kwargs: dict[str, Any] = {"relax_atoms": True, "relax_cell": True, "fmax": 1e-4, "max_steps": 3000}
@@ -454,8 +475,7 @@ def test_relax_calc_options(ar_cell: Atoms, tmp_path: Path) -> None:
     assert not RelaxCalc(_lj_lammps(), fmax=1e-6, max_steps=2).calc(atoms)["is_converged"]
     with pytest.raises(ValueError, match="has no LAMMPS equivalent"):
         RelaxCalc(_lj_lammps(), optimizer="GPMin").calc(atoms)
-    with pytest.raises(NotImplementedError, match="FixSymmetry"):
-        RelaxCalc(_lj_lammps(), fix_symmetry=True).calc(atoms)
+    assert RelaxCalc(_lj_lammps(), fix_symmetry=True, fmax=1e-3, max_steps=2000).calc(atoms)["is_converged"]
     with pytest.raises(NotImplementedError, match="mask"):
         RelaxCalc(_lj_lammps(), cell_filter_kwargs={"mask": [1, 1, 0, 0, 0, 0]}).calc(atoms)
 
