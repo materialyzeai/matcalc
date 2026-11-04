@@ -374,6 +374,32 @@ class Frame:
         return frac @ cell, frac
 
 
+def kokkos_cmdargs(args: Sequence[str]) -> list[str]:
+    """Add ``atom/map host`` to each ``-pk kokkos`` option in LAMMPS command-line arguments that does not set it.
+
+    On CUDA, the device-side atom map (``atom/map device``, the Kokkos default when GPUs are used) aborts with an
+    illegal memory access when an instance is reloaded with more atoms than it has held before (LAMMPS
+    stable_22Jul2025_update5), which every cached engine does for supercells. The host map avoids this at negligible
+    cost: ``pair_style matgl/kk`` looks atoms up in the host map in any case. On host backends it is already the
+    default.
+
+    Args:
+        args: LAMMPS command-line arguments.
+
+    Returns:
+        The arguments with ``atom/map host`` inserted after each ``-pk kokkos`` / ``-package kokkos``.
+    """
+    out = list(args)
+    i = 0
+    while i < len(out) - 1:
+        if out[i] in ("-pk", "-package") and out[i + 1] == "kokkos":
+            end = next((j for j in range(i + 2, len(out)) if out[j].startswith("-")), len(out))
+            if "atom/map" not in out[i + 2 : end]:
+                out[i + 2 : i + 2] = ["atom/map", "host"]
+        i += 1
+    return out
+
+
 class LAMMPSEngine:
     """A LAMMPS instance with a force field loaded, reused for any cell and number of atoms."""
 
@@ -387,7 +413,7 @@ class LAMMPSEngine:
             ) from err
 
         self._vector_args = (LMP_STYLE_GLOBAL, LMP_TYPE_VECTOR)
-        self.lmp = lammps(cmdargs=["-log", "none", "-screen", "none", "-nocite", *LAMMPS_CMDARGS])
+        self.lmp = lammps(cmdargs=["-log", "none", "-screen", "none", "-nocite", *kokkos_cmdargs(LAMMPS_CMDARGS)])
         self.kokkos = bool(self.lmp.extract_setting("kokkos_active"))
         self.elements = elements
         self.type_of = {el: i + 1 for i, el in enumerate(elements)}

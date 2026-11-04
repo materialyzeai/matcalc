@@ -29,7 +29,7 @@ from ase.optimize import BFGS
 
 from matcalc import ElasticityCalc, EOSCalc, LAMMPSCalculator, MDCalc, PhononCalc, RelaxCalc, backend
 from matcalc.backend import get_lammps_potential, run_ase, run_lammps, run_lammps_md, to_backend_calculator
-from matcalc.backend._lammps_engine import get_engine, lammps_cell
+from matcalc.backend._lammps_engine import get_engine, kokkos_cmdargs, lammps_cell
 from matcalc.utils import PESCalculator
 
 if TYPE_CHECKING:
@@ -146,6 +146,25 @@ def test_lammps_cell(left_handed: bool) -> None:
     assert abs(round(np.linalg.det(transform))) == 1
 
 
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        ([], []),
+        (["-k", "on", "t", "2"], ["-k", "on", "t", "2"]),
+        (
+            ["-k", "on", "g", "1", "-sf", "kk", "-pk", "kokkos", "newton", "on", "neigh", "half"],
+            ["-k", "on", "g", "1", "-sf", "kk", "-pk", "kokkos", "atom/map", "host", "newton", "on", "neigh", "half"],
+        ),
+        (["-package", "kokkos", "-sf", "kk"], ["-package", "kokkos", "atom/map", "host", "-sf", "kk"]),
+        # An explicit atom/map setting is kept; other packages are left alone.
+        (["-pk", "kokkos", "atom/map", "device"], ["-pk", "kokkos", "atom/map", "device"]),
+        (["-pk", "omp", "4"], ["-pk", "omp", "4"]),
+    ],
+)
+def test_kokkos_cmdargs(args: list[str], expected: list[str]) -> None:
+    assert kokkos_cmdargs(args) == expected
+
+
 def test_get_lammps_potential_unsupported() -> None:
     with pytest.raises(TypeError, match="EMT has no LAMMPS representation"):
         get_lammps_potential(EMT())
@@ -246,7 +265,10 @@ def test_engine_scoped_failed_setup(ar_cell: Atoms) -> None:
 
 @needs_lammps
 def test_lammps_calculator_with_ase_backend(ar_cell: Atoms) -> None:
-    """LAMMPSCalculator is a regular ASE calculator: engines are reused across cell sizes."""
+    """LAMMPSCalculator is a regular ASE calculator: engines are reused across cell sizes.
+
+    Growing a cached engine aborted under Kokkos CUDA without ``atom/map host`` (see ``kokkos_cmdargs``).
+    """
     for atoms in (_skewed(ar_cell), _skewed(ar_cell.repeat((1, 2, 1)), seed=1)):
         ref = run_ase(atoms, _lj_ase())
         res = run_ase(atoms, _lj_lammps())
