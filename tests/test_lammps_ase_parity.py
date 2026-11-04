@@ -386,6 +386,8 @@ def test_relax_cell_parity(ar_cell: Atoms, left_handed: bool) -> None:
     # Same lattice basis as the input: the metric tensor (basis-dependent, rotation-invariant) matches ASE's result.
     metric, ref_metric = (s.lattice.matrix @ s.lattice.matrix.T for s in (res.structure, ref.structure))
     np.testing.assert_allclose(metric, ref_metric, atol=0.05 * ref_metric.max())
+    # No rigid shift: fix box/relax scales the box about its center, which moves the LAMMPS box origin.
+    np.testing.assert_allclose(res.structure.frac_coords, ref.structure.frac_coords, atol=1e-2)
 
 
 @needs_lammps
@@ -590,10 +592,23 @@ def test_md_barostats(ensemble: str, kwargs: dict) -> None:
     """A compressed crystal expands at zero pressure."""
     atoms = bulk("Ar", "fcc", a=5.0, cubic=True).repeat((2, 2, 2))
     result = _md(
-        _lj_lammps(), atoms, ensemble=ensemble, temperature=20, timestep=5.0, steps=400, loginterval=20, **kwargs
+        _lj_lammps(),
+        atoms,
+        ensemble=ensemble,
+        temperature=20,
+        timestep=5.0,
+        steps=400,
+        loginterval=20,
+        set_com_stationary=True,
+        **kwargs,
     )
-    volumes = [frame.get_volume() for frame in result["trajectory"]]
+    frames = result["trajectory"]
+    volumes = [frame.get_volume() for frame in frames]
     assert volumes[-1] > 1.05 * volumes[0]
+    # The barostat scales the box about its center, which moves the LAMMPS box origin; with zero momentum, the
+    # mean fractional position must stay put.
+    mean_frac = [frame.get_scaled_positions(wrap=False).mean(axis=0) for frame in (frames[0], frames[-1])]
+    np.testing.assert_allclose(mean_frac[1], mean_frac[0], atol=1e-3)
 
 
 @needs_lammps

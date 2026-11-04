@@ -294,7 +294,7 @@ def _relax(
     cell = engine.cell()
     final = atoms.copy()
     final.set_cell(frame.cell(cell))
-    final.positions, _ = frame.positions(engine.gather("x"), cell)
+    final.positions, _ = frame.positions(engine.positions(), cell)
     energy, forces, stress = engine.energy(), frame.vectors(engine.gather("f")), frame.tensor(engine.stress())
     if recorder is not None and traj_file is not None:
         last = final.copy()
@@ -400,7 +400,8 @@ class _MinimizeRecorder:
                     data = snapshot.data.sort_values("id")
                     image = atoms.copy()
                     image.set_cell(frame.cell(cell))
-                    image.positions, _ = frame.positions(data[["x", "y", "z"]].to_numpy(), cell)
+                    origin = np.array([row.Xlo, row.Ylo, row.Zlo])
+                    image.positions, _ = frame.positions(data[["x", "y", "z"]].to_numpy() - origin, cell)
                     stress = -BAR_TO_EVA3 * pressure_matrix(
                         [getattr(row, f"c_matcalc_press_{i}_") for i in range(1, 7)]
                     )
@@ -637,7 +638,8 @@ def _snapshot(engine: LAMMPSEngine, frame: Frame, atoms: Atoms) -> Atoms:
     Image flags retain boundary crossings between saved frames; the initial lattice offset restores the input images.
     """
     cell = engine.cell()
-    unwrapped = engine.gather("x") + engine.gather("image") @ cell
+    # Positions relative to the (possibly moved) box origin, unwrapped with the image flags.
+    unwrapped = engine.positions() + engine.gather("image") @ cell
     offset = frame.ref_frac - frame.lammps_frac @ frame.basis
     positions = frame.vectors(unwrapped) + offset @ frame.cell(cell)
     image = Atoms(

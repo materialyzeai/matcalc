@@ -353,7 +353,7 @@ class Frame:
     def positions(
         self, x_lammps: np.ndarray, cell_lammps: np.ndarray, ref_frac: np.ndarray | None = None
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Wrapped LAMMPS positions -> Cartesian positions and fractional coordinates in the input frame and basis.
+        """LAMMPS positions (relative to the box origin) -> positions and fractional coordinates in the input frame.
 
         Each atom takes the periodic image closest to ``ref_frac`` (default: the input structure), which undoes the
         wrapping into the LAMMPS box.
@@ -401,7 +401,7 @@ class LAMMPSEngine:
         self.lmp.commands_list(
             [
                 "compute matcalc_press all pressure NULL virial",
-                "thermo_style custom step pe c_matcalc_press[*] lx ly lz xy xz yz",
+                "thermo_style custom step pe c_matcalc_press[*] lx ly lz xy xz yz xlo ylo zlo",
                 "thermo_modify norm no",
             ]
         )
@@ -458,7 +458,7 @@ class LAMMPSEngine:
         from ctypes import c_double
 
         x = self.gather("x")
-        x[indices] = frame.lammps_frac[indices] @ self.cell()
+        x[indices] = frame.lammps_frac[indices] @ self.cell() + self.origin()
         self.lmp.scatter_atoms("x", 1, 3, (c_double * x.size)(*x.ravel()))
 
     def compute(self, atoms: Atoms) -> tuple[float, np.ndarray, np.ndarray]:
@@ -476,11 +476,23 @@ class LAMMPSEngine:
         press = self.lmp.extract_compute("matcalc_press", *self._vector_args)
         return -BAR_TO_EVA3 * pressure_matrix([press[i] for i in range(6)])
 
+    def positions(self) -> np.ndarray:
+        """Atom positions relative to the box origin, ordered by atom ID, in the LAMMPS frame.
+
+        Box changes (``fix box/relax``, ``fix npt``, ...) scale the box about its center, which moves its origin, so raw
+        LAMMPS coordinates must be taken relative to it.
+        """
+        return self.gather("x") - self.origin()
+
     def gather(self, name: str) -> np.ndarray:
         """Per-atom 3-vectors (``x``, ``v``, ``f`` or image flags) ordered by atom ID, in the LAMMPS frame."""
         n_atoms = int(self.lmp.get_natoms())
         dtype = 0 if name == "image" else 1
         return np.ctypeslib.as_array(self.lmp.gather_atoms(name, dtype, 3)).reshape(n_atoms, 3).copy()
+
+    def origin(self) -> np.ndarray:
+        """Current origin (lower corner, ``boxlo``) of the LAMMPS box."""
+        return np.array(self.lmp.extract_box()[0], dtype=float)
 
     def cell(self) -> np.ndarray:
         """Current lower-triangular LAMMPS cell."""
