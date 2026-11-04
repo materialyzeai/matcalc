@@ -22,19 +22,27 @@ jobs:
   test:
     runs-on: ubuntu-latest
     container:
-      image: docker.io/materialyzeai/lammps_gnnp
+      # Same image as the Test workflow (materialyzeai/matml, docker/Dockerfile.matml.kokkos-cpu).
+      image: docker.io/materialyzeai/matml:latest-kokkos-cpu
 
     env:
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
       PMG_MAPI_KEY: ${{ secrets.PMG_MAPI_KEY }}
 
     steps:
+      # git before checkout, so that the checkout is a git repository (setuptools-scm version).
+      - name: Install system packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends curl git
+
       - uses: actions/checkout@v5
 
+      # The constraint keeps torch at the version LAMMPS was built against.
       - name: Install dependencies
         run: |
-          pip install mace-torch
-          pip install -e '.[ci]'
+          UV_TORCH_BACKEND=cpu uv pip install --system -c /opt/lammps/torch-constraint.txt \
+            -e '.[ci]' mace-torch "setuptools<82"  # setuptools<82 is required by maml (pkg_resources)
 
       - name: Execute all notebook examples
         run: |
