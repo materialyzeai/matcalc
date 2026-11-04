@@ -534,12 +534,10 @@ def run_lammps_md(
     cleanup = [f"unfix {fix}" for fix in _FIX_IDS if any(cmd.startswith(f"fix {fix} ") for cmd in fixes)] + cleanup
     with engine.scoped(setup, cleanup):
         lmp.command("run 0")
-        image, frac = _snapshot(engine, frame, atoms, frame.ref_frac)
-        frames = [image]
+        frames = [_snapshot(engine, frame, atoms)]
         for _ in range(steps // loginterval):
             lmp.command(f"run {loginterval} pre no post no")
-            image, frac = _snapshot(engine, frame, atoms, frac)
-            frames.append(image)
+            frames.append(_snapshot(engine, frame, atoms))
         if steps % loginterval:
             lmp.command(f"run {steps % loginterval} pre no post no")
     return frames
@@ -633,13 +631,15 @@ def _npt_coupling(mask: Any) -> str:
     raise NotImplementedError("The LAMMPS backend supports NPT masks that are diagonal ones or all ones only.")
 
 
-def _snapshot(engine: LAMMPSEngine, frame: Frame, atoms: Atoms, ref_frac: np.ndarray) -> tuple[Atoms, np.ndarray]:
-    """Current LAMMPS state as ASE Atoms in the input frame, and its fractional coordinates.
+def _snapshot(engine: LAMMPSEngine, frame: Frame, atoms: Atoms) -> Atoms:
+    """Current LAMMPS state as ASE Atoms in the input frame.
 
-    Positions are unwrapped to the periodic images closest to ``ref_frac`` (the previous frame).
+    Image flags retain boundary crossings between saved frames; the initial lattice offset restores the input images.
     """
     cell = engine.cell()
-    positions, frac = frame.positions(engine.gather("x"), cell, ref_frac)
+    unwrapped = engine.gather("x") + engine.gather("image") @ cell
+    offset = frame.ref_frac - frame.lammps_frac @ frame.basis
+    positions = frame.vectors(unwrapped) + offset @ frame.cell(cell)
     image = Atoms(
         atoms.get_chemical_symbols(),
         positions=positions,
@@ -656,4 +656,4 @@ def _snapshot(engine: LAMMPSEngine, frame: Frame, atoms: Atoms, ref_frac: np.nda
         forces=frame.vectors(engine.gather("f")),
         stress=full_3x3_to_voigt_6_stress(frame.tensor(engine.stress())),
     )
-    return image, frac
+    return image

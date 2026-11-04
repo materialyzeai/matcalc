@@ -477,9 +477,10 @@ class LAMMPSEngine:
         return -BAR_TO_EVA3 * pressure_matrix([press[i] for i in range(6)])
 
     def gather(self, name: str) -> np.ndarray:
-        """Per-atom 3-vectors (``x``, ``v`` or ``f``) ordered by atom ID, in the LAMMPS frame."""
+        """Per-atom 3-vectors (``x``, ``v``, ``f`` or image flags) ordered by atom ID, in the LAMMPS frame."""
         n_atoms = int(self.lmp.get_natoms())
-        return np.ctypeslib.as_array(self.lmp.gather_atoms(name, 1, 3)).reshape(n_atoms, 3).copy()
+        dtype = 0 if name == "image" else 1
+        return np.ctypeslib.as_array(self.lmp.gather_atoms(name, dtype, 3)).reshape(n_atoms, 3).copy()
 
     def cell(self) -> np.ndarray:
         """Current lower-triangular LAMMPS cell."""

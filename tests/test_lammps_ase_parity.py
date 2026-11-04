@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pytest
+from ase import units
 from ase.build import bulk
 from ase.calculators.emt import EMT
 from ase.calculators.lj import LennardJones
@@ -27,7 +28,7 @@ from ase.io import read
 from ase.optimize import BFGS
 
 from matcalc import ElasticityCalc, EOSCalc, LAMMPSCalculator, MDCalc, PhononCalc, RelaxCalc, backend
-from matcalc.backend import get_lammps_potential, run_ase, run_lammps, to_backend_calculator
+from matcalc.backend import get_lammps_potential, run_ase, run_lammps, run_lammps_md, to_backend_calculator
 from matcalc.backend._lammps_engine import get_engine, lammps_cell
 from matcalc.utils import PESCalculator
 
@@ -483,6 +484,31 @@ def test_relaxing_prop_calcs(ar_cell: Atoms, monkeypatch: pytest.MonkeyPatch) ->
 
 
 # --- Molecular dynamics -----------------------------------------------------------------------------------------------
+
+
+@needs_lammps
+@pytest.mark.parametrize("left_handed", [False, True])
+def test_md_unwrapped_positions(ar_cell: Atoms, left_handed: bool) -> None:
+    """Sparse trajectory frames retain motion across multiple periodic images."""
+    atoms = _skewed(ar_cell, left_handed=left_handed)
+    atoms.positions += np.array([2, -1, 3]) @ atoms.cell
+    velocity = np.array([1.25, -0.8, 2.1]) @ atoms.cell / (100 * units.fs)
+    atoms.set_velocities(np.tile(velocity, (len(atoms), 1)))
+    calculator = LAMMPSCalculator(["pair_style zero 2.0", "pair_coeff * *"])
+    frames = run_lammps_md(
+        atoms,
+        calculator,
+        ensemble="nve",
+        temperature=50,
+        timestep=1,
+        steps=100,
+        loginterval=50,
+        taut=10,
+        taup=100,
+    )
+    assert len(frames) == 3
+    for step, frame in zip((0, 50, 100), frames, strict=True):
+        np.testing.assert_allclose(frame.positions, atoms.positions + velocity * step * units.fs, atol=1e-10)
 
 
 def _md(calculator: object, atoms: Atoms, **kwargs: Any) -> dict:
