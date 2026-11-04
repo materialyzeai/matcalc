@@ -266,10 +266,19 @@ calculator, once per model and process. A calculator object is converted (the or
 `PropCalc.calculator.source`). Unsupported models and calculators therefore fail immediately, and evaluations made
 directly through ASE (e.g. in `NEBCalc`, `AdsorptionCalc`) also run in LAMMPS.
 
+Relaxations run with LAMMPS `minimize` (`fix box/relax` for the cell) and keep the symmetry of the input, or of a
+`FixSymmetry` constraint, as ASE's cell filters do. LAMMPS has no constant-volume or masked cell relaxation, so those
+(e.g. the shape relaxations of `EOSCalc`) run with ASE's optimizer and cell filter, with LAMMPS evaluating every step.
+MD uses the LAMMPS fixes equivalent to ASE's integrators, with ASE's temperature definition (3N degrees of freedom) and
+center-of-mass handling.
+
 Differences from the ASE backend: BFGS-type optimizers map to LAMMPS `cg`, and cell relaxations always use `cg`; only
-`FixAtoms` constraints are supported in relaxations; `nvt_andersen` is not available; `nvt_bussi` needs the EXTRA-FIX
-package; the Berendsen barostats need an orthogonal cell. Thermostats and barostats sample the same ensembles as their
-ASE counterparts with different integrators, so MD trajectories agree statistically (NVE agrees step by step).
+`FixAtoms` and `FixSymmetry` constraints are supported in relaxations; adsorbate molecules and other non-periodic
+structures are not supported; `nvt_andersen` is not available; `nvt_bussi` needs the EXTRA-FIX package; the Berendsen
+barostats need an orthogonal cell. Thermostats and barostats sample the same ensembles as their ASE counterparts with
+different integrators or random numbers, so those MD trajectories agree statistically (NVE agrees step by step).
+Optimizers stop at different points of a flat energy landscape, so loosely converged relaxations (large `fmax`) of soft
+structures can differ between backends.
 
 ```python
 calc = mtc.LAMMPSCalculator(["pair_style eam/alloy", "pair_coeff * * Cu_u3.eam.alloy {symbols}"], elements=["Cu"])
