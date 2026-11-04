@@ -26,7 +26,7 @@ from ase.optimize import BFGS
 
 from matcalc import ElasticityCalc, EOSCalc, LAMMPSCalculator, MDCalc, PhononCalc, RelaxCalc, backend
 from matcalc.backend import get_lammps_potential, run_ase, run_lammps, to_backend_calculator
-from matcalc.backend._lammps import lammps_cell
+from matcalc.backend._lammps_engine import get_engine, lammps_cell
 from matcalc.utils import PESCalculator
 
 if TYPE_CHECKING:
@@ -218,6 +218,23 @@ def test_lj_parity(ar_cell: Atoms, left_handed: bool) -> None:
     np.testing.assert_allclose(res.stress, ref.stress, atol=1e-9)
     assert np.abs(ref.forces).max() > 1e-3  # non-trivial check
     assert np.abs(ref.stress).max() > 1e-4
+
+
+@needs_lammps
+def test_engine_scoped_failed_setup(ar_cell: Atoms) -> None:
+    """After a setup command fails, cleanup undoes what was set up and the cached instance stays usable."""
+    engine = get_engine(_lj_lammps().potential, ar_cell)
+    engine.load(ar_cell)
+    with (
+        pytest.raises(Exception, match="no_such_style"),
+        engine.scoped(
+            ["fix matcalc_a all nve", "fix matcalc_b all no_such_style"], ["unfix matcalc_b", "unfix matcalc_a"]
+        ),
+    ):
+        pass
+    with engine.scoped(["fix matcalc_a all nve"], ["unfix matcalc_a"]):  # fix matcalc_a was removed
+        engine.lmp.command("run 1")
+    assert engine.compute(ar_cell)[0] < 0
 
 
 @needs_lammps

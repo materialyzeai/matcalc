@@ -1,63 +1,56 @@
-"""LAMMPS backend for ``run_pes_calc``.
+"""LAMMPS backend: static calculations, relaxations and molecular dynamics.
 
-Calculations run in an in-process LAMMPS instance driven through the ``lammps`` Python module. The LAMMPS force field is
-derived from the ASE calculator passed in:
+The three protocols run on the shared, cached LAMMPS instances of ``_lammps_engine.py``:
 
-* MatGL TensorNet / M3GNet potentials (``matgl.ext.ase.PESCalculator``) are exported to TorchScript with
-  ``matgl.ext.lammps.export_lammps_model`` and evaluated with MatGL's own ``pair_style matgl``, which requires LAMMPS
-  built with the ML-MATGL package. To run on a GPU through ``pair_style matgl/kk``, build with Kokkos and set
-  ``MATCALC_LAMMPS_ARGS="-k on g 1 -sf kk -pk kokkos newton on neigh half"``.
-* maml potentials wrapped in ``matcalc.utils.PESCalculator`` (SNAP, MTP, GAP, NNP) use the pair commands from
-  ``Potential.write_param``.
-* :class:`LAMMPSCalculator` evaluates arbitrary LAMMPS force-field commands, e.g. EAM or Tersoff potentials.
+* ``run_lammps`` without relaxation is a single ``run 0``.
+* ``run_lammps`` with relaxation uses ``minimize`` (with ``fix box/relax`` for the cell), judged by ASE's convergence
+  criterion.
+* ``run_lammps_md`` runs the ensembles of ``MDCalc`` with the equivalent LAMMPS time-integration fixes.
 
-LAMMPS instances are cached per force field and element set, so repeated calculations (phonon displacements, strained
-cells, ...) do not reload the model. Molecular dynamics lives in ``_lammps_md.py``.
+Relaxations and MD are separate drivers because LAMMPS treats them differently: ``minimize`` and ``run`` accept
+different fixes (``fix box/relax`` vs ``fix npt``), and MD can be run in chunks without changing the trajectory, while
+restarting ``minimize`` resets its search direction.
 """
 
 from __future__ import annotations
 
-import atexit
 import contextlib
 import logging
-import os
 import shutil
 import tempfile
-import weakref
-from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from ase import Atoms, units
-from ase.calculators.calculator import Calculator, all_changes
+from ase import Atoms
 from ase.calculators.singlepoint import SinglePointCalculator
 from ase.constraints import FixAtoms
-from ase.data import atomic_masses, atomic_numbers
 from ase.io import Trajectory
 from ase.stress import full_3x3_to_voigt_6_stress
 from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
 
-from matcalc.config import LAMMPS_CMDARGS
-from matcalc.units import eVA3ToGPa
-from matcalc.utils import PESCalculator, resolve_model, to_ase_atoms, to_pmg_structure
+from matcalc.utils import to_ase_atoms, to_pmg_structure
 
 from ._base import SimulationResult
+from ._lammps_engine import (
+    ASE_TIME_TO_PS,
+    ASE_VELOCITY_TO_LAMMPS,
+    BAR_TO_EVA3,
+    get_engine,
+    get_lammps_potential,
+    pressure_matrix,
+    scratch_dir,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
+    from ase.calculators.calculator import Calculator
     from pymatgen.core.structure import Structure
+
+    from ._lammps_engine import Frame, LAMMPSEngine
 
 logger = logging.getLogger(__name__)
 
-# LAMMPS ``metal`` units: pressure in bar (1 bar = 1e-4 GPa), time in ps, velocity in Å/ps.
-BAR_TO_EVA3 = 1e-4 / eVA3ToGPa
-ASE_TIME_TO_PS = 1e-3 / units.fs
-ASE_VELOCITY_TO_LAMMPS = units.fs * 1e3
-# Maximum number of live LAMMPS instances per process. Each holds a loaded force field (and, for MatGL, a model).
-_MAX_ENGINES = 4
 # Cell relaxations restart the minimizer every this many iterations to check ASE's convergence criterion (see _relax).
 _CELL_RELAX_CHUNK = 50
 
@@ -78,114 +71,7 @@ _MIN_STYLES = {
 }
 
 
-@dataclass(frozen=True)
-class LAMMPSPotential:
-    """LAMMPS force-field specification.
-
-    Attributes:
-        commands: Force-field commands (``pair_style``, ``pair_coeff``, ...). The placeholder ``{symbols}`` is
-            replaced by the element symbols in LAMMPS atom-type order.
-        elements: Element symbols in LAMMPS atom-type order. ``None`` uses the elements of each structure, sorted by
-            atomic number, which creates one LAMMPS instance per element set.
-        directory: Working directory while issuing ``commands``, for potential files given by relative paths.
-        pre_commands: Commands issued before the simulation box is created (e.g. ``newton on``).
-    """
-
-    commands: tuple[str, ...]
-    elements: tuple[str, ...] | None = None
-    directory: str | None = None
-    pre_commands: tuple[str, ...] = ()
-
-
-class LAMMPSCalculator(Calculator):
-    """ASE calculator that evaluates a LAMMPS force field in an in-process LAMMPS instance.
-
-    It works with both simulation backends: with ``MATCALC_BACKEND=ASE`` ASE drives the optimizers and MD and calls
-    LAMMPS for energies, forces and stresses; with ``MATCALC_BACKEND=LAMMPS`` everything runs in LAMMPS. Under the
-    LAMMPS backend, ``PropCalc.calculator`` holds the ``LAMMPSCalculator`` for the given calculator (see
-    :func:`to_lammps_calculator`), with the original in ``source``.
-
-    Attributes:
-        potential: The LAMMPS force field.
-        source: The ASE calculator this one was converted from, or None.
-
-    Example:
-        >>> calc = LAMMPSCalculator(
-        ...     ["pair_style eam/alloy", "pair_coeff * * Cu_u3.eam.alloy {symbols}"],
-        ...     elements=["Cu"],
-        ... )
-    """
-
-    implemented_properties = ["energy", "free_energy", "forces", "stress"]  # noqa: RUF012
-
-    def __init__(
-        self,
-        commands: Sequence[str],
-        *,
-        elements: Sequence[str] | None = None,
-        potential_dir: str | Path | None = None,
-        pre_commands: Sequence[str] = (),
-        **kwargs: Any,
-    ) -> None:
-        """
-        Args:
-            commands: LAMMPS force-field commands. ``{symbols}`` is replaced by the element symbols in atom-type order.
-            elements: Element symbols in LAMMPS atom-type order. Defaults to the elements of each structure, sorted by
-                atomic number.
-            potential_dir: Directory in which ``commands`` are issued, for potential files given by relative paths.
-                Defaults to the directory current at construction.
-            pre_commands: Commands issued before the simulation box is created.
-            **kwargs: Forwarded to ``ase.calculators.calculator.Calculator``.
-        """
-        super().__init__(**kwargs)
-        self.potential = LAMMPSPotential(
-            commands=tuple(commands),
-            elements=tuple(elements) if elements is not None else None,
-            directory=str(Path(potential_dir or Path.cwd()).resolve()),
-            pre_commands=tuple(pre_commands),
-        )
-        self.source: Calculator | None = None
-
-    @classmethod
-    def from_potential(
-        cls, potential: LAMMPSPotential, *, source: Calculator | None = None, **kwargs: Any
-    ) -> LAMMPSCalculator:
-        """Create a calculator for an existing force-field specification.
-
-        Args:
-            potential: The LAMMPS force field.
-            source: The ASE calculator ``potential`` was derived from, kept for reference.
-            **kwargs: Forwarded to ``ase.calculators.calculator.Calculator``.
-
-        Returns:
-            LAMMPSCalculator.
-        """
-        calc = cls(potential.commands, **kwargs)
-        calc.potential = potential
-        calc.source = source
-        return calc
-
-    def calculate(
-        self,
-        atoms: Atoms | None = None,
-        properties: list[str] | None = None,
-        system_changes: list[str] = all_changes,
-    ) -> None:
-        """Compute energy, forces and stress with LAMMPS.
-
-        Args:
-            atoms: Structure to evaluate.
-            properties: Requested properties; all implemented properties are always computed.
-            system_changes: ASE change list.
-        """
-        super().calculate(atoms, properties, system_changes)
-        energy, forces, stress = get_engine(self.potential, self.atoms).compute(self.atoms)  # type: ignore[arg-type]
-        self.results = {
-            "energy": energy,
-            "free_energy": energy,
-            "forces": forces,
-            "stress": full_3x3_to_voigt_6_stress(stress),
-        }
+# --- Static calculations ----------------------------------------------------------------------------------------------
 
 
 def run_lammps(
@@ -361,7 +247,7 @@ def _residual_force(
 
 
 def _relax(
-    engine: _LAMMPSEngine,
+    engine: LAMMPSEngine,
     atoms: Atoms,
     *,
     relax_cell: bool,
@@ -399,13 +285,10 @@ def _relax(
         cleanup += ["unfix matcalc_setforce", "group matcalc_fixed delete"]
     recorder = _MinimizeRecorder(engine, interval) if traj_file else None
 
-    lmp.commands_list(setup)
-    try:
+    with engine.scoped(setup, cleanup):
         converged = _minimize(
             engine, frame, fixed, target, relax_cell=relax_cell, max_steps=max_steps, fmax=fmax, recorder=recorder
         )
-    finally:
-        lmp.commands_list(cleanup)
 
     lmp.command("run 0")
     cell = engine.cell()
@@ -423,8 +306,8 @@ def _relax(
 
 
 def _minimize(
-    engine: _LAMMPSEngine,
-    frame: _Frame,
+    engine: LAMMPSEngine,
+    frame: Frame,
     fixed: list[int],
     target: _CellTarget,
     *,
@@ -474,10 +357,10 @@ def _minimize(
 class _MinimizeRecorder:
     """Records minimization frames through a dump file and the thermo log, and writes them as an ASE trajectory."""
 
-    def __init__(self, engine: _LAMMPSEngine, interval: int) -> None:
+    def __init__(self, engine: LAMMPSEngine, interval: int) -> None:
         self.engine = engine
         self.interval = interval
-        self.directory = Path(tempfile.mkdtemp(prefix="min-", dir=_scratch_dir()))
+        self.directory = Path(tempfile.mkdtemp(prefix="min-", dir=scratch_dir()))
         self.files: list[tuple[Path, Path]] = []
 
     @contextlib.contextmanager
@@ -498,7 +381,7 @@ class _MinimizeRecorder:
         finally:
             self.engine.lmp.commands_list(["undump matcalc_traj", "log none", "thermo 0", "thermo_modify format none"])
 
-    def write(self, traj_file: str, frame: _Frame, atoms: Atoms, final: Atoms) -> None:
+    def write(self, traj_file: str, frame: Frame, atoms: Atoms, final: Atoms) -> None:
         """Write the recorded frames, ending with ``final``, the accepted relaxed state.
 
         The last minimizer evaluation (e.g. a rejected line-search step) need not be the accepted state, so the final
@@ -518,7 +401,7 @@ class _MinimizeRecorder:
                     image = atoms.copy()
                     image.set_cell(frame.cell(cell))
                     image.positions, _ = frame.positions(data[["x", "y", "z"]].to_numpy(), cell)
-                    stress = -BAR_TO_EVA3 * _pressure_matrix(
+                    stress = -BAR_TO_EVA3 * pressure_matrix(
                         [getattr(row, f"c_matcalc_press_{i}_") for i in range(1, 7)]
                     )
                     image.calc = SinglePointCalculator(
@@ -547,351 +430,230 @@ def _cell_from_thermo(row: Any) -> np.ndarray:
     return np.array([[row.Lx, 0.0, 0.0], [row.Xy, row.Ly, 0.0], [row.Xz, row.Yz, row.Lz]])
 
 
-def _pressure_matrix(p: Sequence[float]) -> np.ndarray:
-    """3x3 pressure tensor from LAMMPS (xx, yy, zz, xy, xz, yz) components."""
-    pxx, pyy, pzz, pxy, pxz, pyz = p
-    return np.array([[pxx, pxy, pxz], [pxy, pyy, pyz], [pxz, pyz, pzz]])
+# --- Molecular dynamics -----------------------------------------------------------------------------------------------
+
+_FIX_IDS = ("matcalc_md", "matcalc_thermostat", "matcalc_barostat")
+_ORTHO_ENSEMBLES = ("npt_berendsen", "npt_inhomogeneous")
 
 
-# --- Force-field resolution -----------------------------------------------------------------------------------------
+def run_lammps_md(
+    atoms: Atoms,
+    calculator: Calculator,
+    *,
+    ensemble: str,
+    temperature: float,
+    timestep: float,
+    steps: int,
+    loginterval: int = 1,
+    pressure: float = 0.0,
+    taut: float,
+    taup: float,
+    friction: float = 1.0e-3,
+    ttime: float = 25.0,
+    fixed_cell: bool = False,
+    external_stress: float | np.ndarray | None = None,
+    compressibility_au: float | None = None,
+    mask: Any = None,
+    tchain: int = 3,
+    pchain: int = 3,
+    tloop: int = 1,
+    ploop: int = 1,
+    seed: int | None = None,
+    logfile: str | None = None,
+) -> list[Atoms]:
+    """Run MD in LAMMPS with the force field of ``calculator``; parameters follow ``MDCalc`` and ASE units.
 
-# Exported force fields keyed by the underlying potential object, so that each model is exported once per process.
-_POTENTIAL_CACHE: weakref.WeakKeyDictionary[Any, LAMMPSPotential] = weakref.WeakKeyDictionary()
-# Exported MatGL models keyed by model name or resolved model directory (see load_lammps_calculator).
-_NAMED_POTENTIALS: dict[str, LAMMPSPotential] = {}
-_SCRATCH_DIR: Path | None = None
-
-
-def get_lammps_potential(calculator: Calculator) -> LAMMPSPotential:
-    """Return the LAMMPS force field equivalent to an ASE calculator.
+    Initial velocities come from ``atoms``, so both backends start from identical conditions. The NVE integrator is the
+    same velocity Verlet scheme as ASE's; thermostats and barostats sample the same ensembles with different integrators
+    (e.g. LAMMPS ``fix npt`` is MTK, ASE ``NPT`` is Melchionna), so those trajectories only agree statistically.
 
     Args:
-        calculator: A :class:`LAMMPSCalculator`, a maml-backed ``matcalc.utils.PESCalculator``, or a MatGL
-            ``PESCalculator`` wrapping a TensorNet or M3GNet potential.
+        atoms: Initial structure with velocities.
+        calculator: ASE calculator with a LAMMPS representation (see ``run_lammps``).
+        ensemble: ``MDCalc`` ensemble name. ``nvt_andersen`` has no LAMMPS equivalent.
+        temperature: Target temperature (K).
+        timestep: Time step (fs).
+        steps: Number of MD steps.
+        loginterval: Interval between returned frames.
+        pressure: Target pressure (eV/Å^3) for the Berendsen and MTK barostats.
+        taut: Thermostat time constant (ASE time units).
+        taup: Barostat time constant (ASE time units); also used for ``npt``/``npt_nose_hoover``, whose ASE
+            ``pfactor`` has no LAMMPS equivalent.
+        friction: Langevin friction (1 / ASE time units).
+        ttime: Thermostat time for ``npt``/``npt_nose_hoover`` (fs).
+        fixed_cell: For ``npt``/``npt_nose_hoover``, keep the cell fixed (Nose-Hoover NVT with ``ttime``), as ASE
+            ``NPT`` does with ``pfactor=None``.
+        external_stress: Target pressure (eV/Å^3, scalar) for ``npt``/``npt_nose_hoover``.
+        compressibility_au: Compressibility (Å^3/eV) for the Berendsen barostats; required, as in ASE.
+        mask: Cell mask for ``npt``/``npt_nose_hoover``: None or diagonal (orthogonal cell changes, LAMMPS ``aniso``)
+            or all ones (fully flexible cell, LAMMPS ``tri``).
+        tchain: Thermostat chain length (MTK ensembles).
+        pchain: Barostat chain length (MTK ensembles).
+        tloop: Thermostat sub-steps (MTK ensembles).
+        ploop: Barostat sub-steps (MTK ensembles).
+        seed: Seed for stochastic thermostats.
+        logfile: Optional LAMMPS log file with thermo output every ``loginterval`` steps.
 
     Returns:
-        The LAMMPS force-field specification.
-
-    Raises:
-        TypeError: If ``calculator`` has no LAMMPS representation.
+        Frames at steps 0, loginterval, 2 * loginterval, ..., as ASE MD observers record them, each with velocities
+        and a SinglePointCalculator holding energy, forces and stress. Positions are unwrapped.
     """
-    if isinstance(calculator, LAMMPSCalculator):
-        return calculator.potential
-    if isinstance(calculator, PESCalculator):
-        return _from_maml(calculator.potential)
-    if type(calculator).__module__.startswith("matgl.") and hasattr(calculator, "potential"):
-        return _from_matgl(calculator.potential)
-    raise TypeError(
-        f"{type(calculator).__name__} has no LAMMPS representation. The LAMMPS backend supports MatGL TensorNet/"
-        "M3GNet calculators, maml potentials loaded through matcalc.utils.PESCalculator and "
-        "matcalc.LAMMPSCalculator. Use MATCALC_BACKEND=ASE for other calculators."
+    engine = get_engine(get_lammps_potential(calculator), atoms)
+    lmp = engine.lmp
+    masses = _type_masses(atoms, engine)
+    frame = engine.load(atoms, velocities=atoms.get_velocities() * ASE_VELOCITY_TO_LAMMPS)
+    fixes = _ensemble_fixes(
+        ensemble,
+        temperature=temperature,
+        taut=taut * ASE_TIME_TO_PS,
+        taup=taup * ASE_TIME_TO_PS,
+        damp=ASE_TIME_TO_PS / friction,
+        ttime=ttime * 1e-3,
+        fixed_cell=fixed_cell,
+        pressure=pressure / BAR_TO_EVA3,
+        external_stress=external_stress,
+        compressibility_au=compressibility_au,
+        mask=mask,
+        chains=f"tchain {tchain} pchain {pchain} tloop {tloop} ploop {ploop}",
+        seed=seed,
     )
+    setup = [*masses, "reset_timestep 0", f"timestep {timestep * 1e-3}"]
+    cleanup = []
+    if ensemble.lower() in _ORTHO_ENSEMBLES:
+        # fix press/berendsen does not support triclinic boxes.
+        cell = engine.cell()
+        if np.abs(cell[np.tril_indices(3, -1)]).max() > 1e-8 * np.abs(np.diag(cell)).max():
+            raise NotImplementedError(f"{ensemble} with the LAMMPS backend requires an orthogonal cell.")
+        setup.append("change_box all xy final 0.0 xz final 0.0 yz final 0.0 ortho")
+        cleanup.append("change_box all triclinic")
+    setup += fixes
+    if logfile:
+        setup += [f'log "{logfile}"', f"thermo {loginterval}"]
+        cleanup += ["log none", "thermo 0"]
+
+    cleanup = [f"unfix {fix}" for fix in _FIX_IDS if any(cmd.startswith(f"fix {fix} ") for cmd in fixes)] + cleanup
+    with engine.scoped(setup, cleanup):
+        lmp.command("run 0")
+        image, frac = _snapshot(engine, frame, atoms, frame.ref_frac)
+        frames = [image]
+        for _ in range(steps // loginterval):
+            lmp.command(f"run {loginterval} pre no post no")
+            image, frac = _snapshot(engine, frame, atoms, frac)
+            frames.append(image)
+        if steps % loginterval:
+            lmp.command(f"run {steps % loginterval} pre no post no")
+    return frames
 
 
-def to_lammps_calculator(calculator: Calculator) -> LAMMPSCalculator:
-    """Return a :class:`LAMMPSCalculator` with the force field of an ASE calculator.
+def _type_masses(atoms: Atoms, engine: LAMMPSEngine) -> list[str]:
+    """``mass`` commands so that LAMMPS uses the masses of ``atoms`` (one mass per element)."""
+    commands = []
+    masses = atoms.get_masses()
+    symbols = np.array(atoms.get_chemical_symbols())
+    for el in sorted(set(symbols)):
+        el_masses = masses[symbols == el]
+        if not np.allclose(el_masses, el_masses[0]):
+            raise NotImplementedError(f"The LAMMPS backend needs one mass per element; {el} atoms have several.")
+        commands.append(f"mass {engine.type_of[el]} {el_masses[0]}")
+    return commands
 
-    Args:
-        calculator: See :func:`get_lammps_potential`. A ``LAMMPSCalculator`` is returned unchanged.
 
-    Returns:
-        LAMMPSCalculator whose ``source`` is ``calculator``.
+def _ensemble_fixes(  # noqa: C901, PLR0911, PLR0912
+    ensemble: str,
+    *,
+    temperature: float,
+    taut: float,
+    taup: float,
+    damp: float,
+    ttime: float,
+    fixed_cell: bool,
+    pressure: float,
+    external_stress: float | np.ndarray | None,
+    compressibility_au: float | None,
+    mask: Any,
+    chains: str,
+    seed: int | None,
+) -> list[str]:
+    """LAMMPS fixes for an ``MDCalc`` ensemble; times in ps, pressures in bar."""
+    t = f"{temperature} {temperature}"
+    nve = "fix matcalc_md all nve"
+    rng = np.random.default_rng(seed)
+    lmp_seed = int(rng.integers(1, 900_000_000))  # LAMMPS' Marsaglia RNG limit
+    ensemble = ensemble.lower()
 
-    Raises:
-        TypeError: If ``calculator`` has no LAMMPS representation.
+    if ensemble == "nve":
+        return [nve]
+    if ensemble in ("nvt", "nvt_nose_hoover"):
+        return [f"fix matcalc_md all nvt temp {t} {taut} tchain 3"]
+    if ensemble == "nvt_berendsen":
+        return [nve, f"fix matcalc_thermostat all temp/berendsen {t} {taut}"]
+    if ensemble == "nvt_langevin":
+        return [nve, f"fix matcalc_thermostat all langevin {t} {damp} {lmp_seed} zero yes"]
+    if ensemble == "nvt_bussi":
+        return [nve, f"fix matcalc_thermostat all temp/csvr {t} {taut} {lmp_seed}"]
+    if ensemble == "nvt_andersen":
+        raise NotImplementedError("LAMMPS has no Andersen thermostat; use MATCALC_BACKEND=ASE for nvt_andersen.")
+    if ensemble in ("npt", "npt_nose_hoover"):
+        if fixed_cell:
+            return [f"fix matcalc_md all nvt temp {t} {ttime}"]
+        if external_stress is None:
+            target = 0.0
+        elif np.ndim(external_stress) == 0:
+            target = float(external_stress) / BAR_TO_EVA3  # type: ignore[arg-type]
+        else:
+            raise NotImplementedError("The LAMMPS backend supports a scalar external_stress (pressure) only.")
+        return [f"fix matcalc_md all npt temp {t} {ttime} {_npt_coupling(mask)} {target} {target} {taup}"]
+    if ensemble in ("npt_berendsen", "npt_inhomogeneous"):
+        if compressibility_au is None:
+            raise ValueError(f"{ensemble} requires compressibility_au.")
+        modulus = 1 / compressibility_au / BAR_TO_EVA3
+        coupling = "iso" if ensemble == "npt_berendsen" else "aniso"
+        return [
+            nve,
+            f"fix matcalc_thermostat all temp/berendsen {t} {taut}",
+            f"fix matcalc_barostat all press/berendsen {coupling} {pressure} {pressure} {taup} modulus {modulus}",
+        ]
+    if ensemble in ("npt_mtk", "npt_isotropic_mtk"):
+        coupling = "tri" if ensemble == "npt_mtk" else "iso"
+        return [f"fix matcalc_md all npt temp {t} {taut} {coupling} {pressure} {pressure} {taup} {chains}"]
+    raise ValueError(f"Unsupported ensemble {ensemble!r}.")
+
+
+def _npt_coupling(mask: Any) -> str:
+    """LAMMPS barostat coupling for an ASE ``NPT`` cell mask."""
+    if mask is None:
+        return "aniso"
+    mask = np.asarray(mask)
+    if mask.shape == (3,):
+        mask = np.diag(mask)
+    if np.array_equal(mask, np.eye(3)):
+        return "aniso"
+    if np.all(mask == 1):
+        return "tri"
+    raise NotImplementedError("The LAMMPS backend supports NPT masks that are diagonal ones or all ones only.")
+
+
+def _snapshot(engine: LAMMPSEngine, frame: Frame, atoms: Atoms, ref_frac: np.ndarray) -> tuple[Atoms, np.ndarray]:
+    """Current LAMMPS state as ASE Atoms in the input frame, and its fractional coordinates.
+
+    Positions are unwrapped to the periodic images closest to ``ref_frac`` (the previous frame).
     """
-    if isinstance(calculator, LAMMPSCalculator):
-        return calculator
-    return LAMMPSCalculator.from_potential(get_lammps_potential(calculator), source=calculator)
-
-
-def _scratch_dir() -> Path:
-    """Per-process directory for exported models, potential files and trajectories, removed at exit."""
-    global _SCRATCH_DIR
-    if _SCRATCH_DIR is None:
-        _SCRATCH_DIR = Path(tempfile.mkdtemp(prefix="matcalc-lammps-"))
-        atexit.register(shutil.rmtree, _SCRATCH_DIR, ignore_errors=True)
-    return _SCRATCH_DIR
-
-
-def load_lammps_calculator(name: str) -> LAMMPSCalculator:
-    """Return a :class:`LAMMPSCalculator` for a model name, without building an ASE calculator for it.
-
-    MatGL models (by registry name, alias, raw MatGL name or model directory) are loaded and exported to TorchScript
-    for ``pair_style matgl`` once per process. Models of other providers have no LAMMPS representation and are
-    rejected before anything is loaded.
-
-    Args:
-        name: Model name, as for ``PESCalculator.load_universal``.
-
-    Returns:
-        LAMMPSCalculator (``source`` is None).
-
-    Raises:
-        TypeError: If the model has no LAMMPS representation.
-        ValueError: If ``name`` is not a recognized model.
-    """
-    provider, kwargs = resolve_model(name)
-    if provider != "matgl":
-        raise TypeError(
-            f"{name!r} ({provider}) has no LAMMPS representation. By name, the LAMMPS backend supports MatGL TensorNet/"
-            "M3GNet models; use MATCALC_BACKEND=ASE for other models."
-        )
-    path = kwargs["path"]
-    key = str(Path(path).resolve()) if Path(path).is_dir() else path
-    if (potential := _NAMED_POTENTIALS.get(key)) is None:
-        import matgl
-
-        potential = _NAMED_POTENTIALS[key] = _from_matgl(matgl.load_model(path=path))
-    return LAMMPSCalculator.from_potential(potential)
-
-
-def _from_matgl(potential: Any) -> LAMMPSPotential:
-    """Export a MatGL ``Potential`` to TorchScript for MatGL's ``pair_style matgl``."""
-    if (cached := _POTENTIAL_CACHE.get(potential)) is not None:
-        return cached
-    try:
-        from matgl.ext.lammps import export_lammps_model
-    except ImportError as err:
-        raise ImportError("The LAMMPS backend needs a MatGL version that provides matgl.ext.lammps.") from err
-
-    # Export in the precision the model runs in under ASE, so that both backends agree.
-    dtype = next(potential.parameters()).dtype
-    fd, path = tempfile.mkstemp(suffix=".pt", prefix="matgl-", dir=_scratch_dir())
-    os.close(fd)
-    export_lammps_model(potential, path, dtype=dtype)
-    lmp_potential = LAMMPSPotential(
-        commands=("pair_style matgl", f'pair_coeff * * "{path}" {{symbols}}'),
-        # Map every element of the model to a type, so one LAMMPS instance serves all compositions.
-        elements=tuple(potential.model.element_types),
-        # pair_style matgl requires newton on (ghost-atom force contributions).
-        pre_commands=("newton on",),
+    cell = engine.cell()
+    positions, frac = frame.positions(engine.gather("x"), cell, ref_frac)
+    image = Atoms(
+        atoms.get_chemical_symbols(),
+        positions=positions,
+        cell=frame.cell(cell),
+        pbc=True,
+        masses=atoms.get_masses(),
     )
-    _POTENTIAL_CACHE[potential] = lmp_potential
-    return lmp_potential
-
-
-def _from_maml(potential: Any) -> LAMMPSPotential:
-    """Build a LAMMPS force field from a maml ``Potential`` via ``write_param``."""
-    if (cached := _POTENTIAL_CACHE.get(potential)) is not None:
-        return cached
-    directory = tempfile.mkdtemp(prefix="maml-", dir=_scratch_dir())
-    # write_param writes the parameter files to the working directory and returns commands referring to them.
-    with contextlib.chdir(directory):
-        commands = potential.write_param()
-    elements = getattr(potential, "elements", None)
-    lmp_potential = LAMMPSPotential(
-        commands=tuple(commands),
-        elements=tuple(elements) if elements else None,
-        directory=directory,
+    image.set_velocities(frame.vectors(engine.gather("v")) / ASE_VELOCITY_TO_LAMMPS)
+    energy = engine.energy()
+    image.calc = SinglePointCalculator(
+        image,
+        energy=energy,
+        free_energy=energy,
+        forces=frame.vectors(engine.gather("f")),
+        stress=full_3x3_to_voigt_6_stress(frame.tensor(engine.stress())),
     )
-    _POTENTIAL_CACHE[potential] = lmp_potential
-    return lmp_potential
-
-
-# --- LAMMPS instances -----------------------------------------------------------------------------------------------
-
-_ENGINES: OrderedDict[tuple[LAMMPSPotential, tuple[str, ...]], _LAMMPSEngine] = OrderedDict()
-
-
-def get_engine(potential: LAMMPSPotential, atoms: Atoms) -> _LAMMPSEngine:
-    """Return a cached LAMMPS instance with ``potential`` loaded whose atom types cover the elements of ``atoms``."""
-    if not atoms.pbc.all():
-        raise ValueError("The LAMMPS backend requires structures that are periodic in all three directions.")
-    symbols = atoms.get_chemical_symbols()
-    elements = potential.elements or tuple(sorted(set(symbols), key=lambda s: atomic_numbers[s]))
-    if missing := set(symbols) - set(elements):
-        raise ValueError(f"Elements {sorted(missing)} are not supported by the LAMMPS force field ({elements}).")
-    key = (potential, elements)
-    engine = _ENGINES.get(key)
-    if engine is None:
-        engine = _ENGINES[key] = _LAMMPSEngine(potential, elements)
-        while len(_ENGINES) > _MAX_ENGINES:
-            _ENGINES.popitem(last=False)[1].close()
-    else:
-        _ENGINES.move_to_end(key)
-    return engine
-
-
-@dataclass(frozen=True)
-class _Frame:
-    """Maps quantities between the Cartesian frame and lattice basis of a structure and its LAMMPS representation.
-
-    Attributes:
-        rot: Orthogonal matrix; Cartesian vectors map as ``v_lammps = v @ rot``.
-        basis: Integer unimodular matrix with ``cell_lammps = basis @ (cell @ rot)``.
-        ref_frac: Fractional coordinates of the input structure, to which positions are unwrapped.
-    """
-
-    rot: np.ndarray
-    basis: np.ndarray
-    ref_frac: np.ndarray
-    lammps_frac: np.ndarray  # wrapped fractional coordinates in the LAMMPS cell, as loaded
-
-    def cell(self, cell_lammps: np.ndarray) -> np.ndarray:
-        """LAMMPS cell -> cell in the input frame and lattice basis."""
-        return np.linalg.solve(self.basis, cell_lammps) @ self.rot.T
-
-    def vectors(self, vectors_lammps: np.ndarray) -> np.ndarray:
-        """Per-atom vectors (forces, velocities) -> input frame."""
-        return vectors_lammps @ self.rot.T
-
-    def tensor(self, tensor_lammps: np.ndarray) -> np.ndarray:
-        """Rank-2 tensor (stress) -> input frame."""
-        return self.rot @ tensor_lammps @ self.rot.T
-
-    def positions(
-        self, x_lammps: np.ndarray, cell_lammps: np.ndarray, ref_frac: np.ndarray | None = None
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Wrapped LAMMPS positions -> Cartesian positions and fractional coordinates in the input frame and basis.
-
-        Each atom takes the periodic image closest to ``ref_frac`` (default: the input structure), which undoes the
-        wrapping into the LAMMPS box.
-        """
-        cell = self.cell(cell_lammps)
-        frac = np.linalg.solve(cell.T, self.vectors(x_lammps).T).T
-        ref = self.ref_frac if ref_frac is None else ref_frac
-        frac += np.round(ref - frac)
-        return frac @ cell, frac
-
-
-class _LAMMPSEngine:
-    """A LAMMPS instance with a force field loaded, reused for any cell and number of atoms."""
-
-    def __init__(self, potential: LAMMPSPotential, elements: tuple[str, ...]) -> None:
-        try:
-            from lammps import LMP_STYLE_GLOBAL, LMP_TYPE_VECTOR, lammps
-        except ImportError as err:
-            raise ImportError(
-                "The LAMMPS backend requires the LAMMPS Python module (`import lammps`), built with the packages "
-                "for the force field in use, e.g. ML-MATGL for MatGL potentials."
-            ) from err
-
-        self._vector_args = (LMP_STYLE_GLOBAL, LMP_TYPE_VECTOR)
-        self.lmp = lammps(cmdargs=["-log", "none", "-screen", "none", "-nocite", *LAMMPS_CMDARGS])
-        self.kokkos = bool(self.lmp.extract_setting("kokkos_active"))
-        self.elements = elements
-        self.type_of = {el: i + 1 for i, el in enumerate(elements)}
-        self.lmp.commands_list(
-            [
-                "units metal",
-                "atom_style atomic",
-                "boundary p p p",
-                "atom_modify map yes",
-                *potential.pre_commands,
-                "region box prism 0 1 0 1 0 1 0 0 0",
-                f"create_box {len(elements)} box",
-                *(f"mass {i + 1} {atomic_masses[atomic_numbers[el]]}" for i, el in enumerate(elements)),
-            ]
-        )
-        symbols = " ".join(elements)
-        with contextlib.chdir(potential.directory) if potential.directory else contextlib.nullcontext():
-            self.lmp.commands_list([cmd.replace("{symbols}", symbols) for cmd in potential.commands])
-        # Virial-only pressure, so the stress excludes the kinetic contribution, as for ASE calculators.
-        self.lmp.commands_list(
-            [
-                "compute matcalc_press all pressure NULL virial",
-                "thermo_style custom step pe c_matcalc_press[*] lx ly lz xy xz yz",
-                "thermo_modify norm no",
-            ]
-        )
-
-    def load(self, atoms: Atoms, velocities: np.ndarray | None = None) -> _Frame:
-        """Replace the atoms and box with ``atoms`` (velocities in Å/ps, input frame)."""
-        cell = np.asarray(atoms.cell)
-        rot, cell_lammps = lammps_cell(cell)
-        basis = np.rint(cell_lammps @ np.linalg.inv(cell @ rot))
-        frac = np.linalg.solve(cell_lammps.T, (atoms.positions @ rot).T).T
-        frac -= np.floor(frac)
-        positions = frac @ cell_lammps
-        n_atoms = len(atoms)
-        types = [self.type_of[s] for s in atoms.get_chemical_symbols()]
-
-        lmp = self.lmp
-        lmp.command("delete_atoms group all")
-        lmp.reset_box(
-            [0.0, 0.0, 0.0], np.diag(cell_lammps).tolist(), cell_lammps[1, 0], cell_lammps[2, 1], cell_lammps[2, 0]
-        )
-        v = None if velocities is None else (velocities @ rot).ravel().tolist()
-        created = lmp.create_atoms(n_atoms, list(range(1, n_atoms + 1)), types, positions.ravel().tolist(), v=v)
-        if created != n_atoms:
-            raise RuntimeError(f"LAMMPS created {created} of {n_atoms} atoms.")
-        return _Frame(rot, basis, atoms.cell.scaled_positions(atoms.positions), frac)
-
-    def set_volume(self, volume: float) -> None:
-        """Scale the cell (and atoms) isotropically to ``volume``."""
-        cell = self.cell() * (volume / abs(np.linalg.det(self.cell()))) ** (1 / 3)
-        self.lmp.command(
-            f"change_box all x final 0 {cell[0, 0]} y final 0 {cell[1, 1]} z final 0 {cell[2, 2]} "
-            f"xy final {cell[1, 0]} xz final {cell[2, 0]} yz final {cell[2, 1]} remap units box"
-        )
-
-    def pin(self, indices: Sequence[int], frame: _Frame) -> None:
-        """Put atoms ``indices`` back on their loaded fractional coordinates in the current cell."""
-        from ctypes import c_double
-
-        x = self.gather("x")
-        x[indices] = frame.lammps_frac[indices] @ self.cell()
-        self.lmp.scatter_atoms("x", 1, 3, (c_double * x.size)(*x.ravel()))
-
-    def compute(self, atoms: Atoms) -> tuple[float, np.ndarray, np.ndarray]:
-        """Single point on ``atoms``; forces and stress are returned in the Cartesian frame of ``atoms``."""
-        frame = self.load(atoms)
-        self.lmp.command("run 0")
-        return self.energy(), frame.vectors(self.gather("f")), frame.tensor(self.stress())
-
-    def energy(self) -> float:
-        """Potential energy (eV) of the last evaluated step."""
-        return float(self.lmp.get_thermo("pe"))
-
-    def stress(self) -> np.ndarray:
-        """Virial stress (eV/Å^3, ASE sign convention) of the last evaluated step, in the LAMMPS frame."""
-        press = self.lmp.extract_compute("matcalc_press", *self._vector_args)
-        return -BAR_TO_EVA3 * _pressure_matrix([press[i] for i in range(6)])
-
-    def gather(self, name: str) -> np.ndarray:
-        """Per-atom 3-vectors (``x``, ``v`` or ``f``) ordered by atom ID, in the LAMMPS frame."""
-        n_atoms = int(self.lmp.get_natoms())
-        return np.ctypeslib.as_array(self.lmp.gather_atoms(name, 1, 3)).reshape(n_atoms, 3).copy()
-
-    def cell(self) -> np.ndarray:
-        """Current lower-triangular LAMMPS cell."""
-        boxlo, boxhi, xy, yz, xz, *_ = self.lmp.extract_box()
-        lx, ly, lz = np.subtract(boxhi, boxlo)
-        return np.array([[lx, 0.0, 0.0], [xy, ly, 0.0], [xz, yz, lz]])
-
-    def step(self) -> int:
-        """Current timestep (minimizer iterations also advance it)."""
-        return int(self.lmp.extract_global("ntimestep"))
-
-    def close(self) -> None:
-        """Release the LAMMPS instance."""
-        self.lmp.close()
-
-
-def lammps_cell(cell: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Map a cell onto the restricted triclinic form required by LAMMPS.
-
-    The lattice vectors (rows of ``cell``) are transformed by an orthogonal matrix ``rot`` into a lower-triangular cell
-    with a positive diagonal, and the tilt factors are then reduced to ``|xy|, |xz| <= lx/2`` and ``|yz| <= ly/2``
-    by integer combinations of lattice vectors. The reduced cell describes the same periodic system, so energies,
-    per-atom forces and the stress are unchanged. A left-handed cell gives an improper ``rot``, which is fine for any
-    O(3)-invariant potential.
-
-    Args:
-        cell: 3x3 matrix with lattice vectors as rows.
-
-    Returns:
-        ``(rot, lammps_cell)``: Cartesian vectors map as ``v_lammps = v @ rot``, and ``lammps_cell`` is the reduced
-        lower-triangular cell in that frame.
-    """
-    q, r = np.linalg.qr(cell.T)
-    signs = np.where(np.diag(r) < 0, -1.0, 1.0)
-    rot = q * signs
-    a, b, c = (r * signs[:, None]).T
-    b = b - np.round(b[0] / a[0]) * a
-    c = c - np.round(c[1] / b[1]) * b
-    c = c - np.round(c[0] / a[0]) * a
-    lower = np.array([a, b, c])
-    lower[np.triu_indices(3, 1)] = 0.0
-    return rot, lower
+    return image, frac
