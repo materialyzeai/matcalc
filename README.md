@@ -254,9 +254,10 @@ Setting `MATCALC_BACKEND=LAMMPS` runs single points, relaxations (`minimize`, wi
 
 - MatGL TensorNet and M3GNet potentials, exported to TorchScript and run with MatGL's `pair_style matgl`. This needs
   LAMMPS built with MatGL's ML-MATGL package (see `lammps/README.md` in the MatGL repository), as a shared library
-  linked against the same libtorch as the Python `torch`. The `materialyzeai/matgl:latest-kokkos-cpu` Docker image
-  provides such a build. For the Kokkos variant `pair_style matgl/kk`, set e.g.
-  `MATCALC_LAMMPS_ARGS="-k on g 1 -sf kk -pk kokkos newton on neigh half"`.
+  linked against the same libtorch as the Python `torch`. The `materialyzeai/matml:latest-kokkos-cpu` Docker image
+  provides such a build together with MatCalc and pymatgen, and is the image the CI tests run in. For the Kokkos
+  variant `pair_style matgl/kk`, set e.g. `MATCALC_LAMMPS_ARGS="-k on t 4 -sf kk -pk kokkos newton on neigh half"`
+  (OpenMP threads; use `-k on g 1` instead with a Kokkos CUDA build).
 - maml potentials loaded through `PESCalculator` (SNAP, MTP, GAP, NNP).
 - Any LAMMPS force field via `LAMMPSCalculator`, which also works as a regular ASE calculator.
 
@@ -319,6 +320,8 @@ subset before running the full suite. HPC resources are recommended for full ben
 ## Docker Images
 
 Docker images with MatCalc and LAMMPS support are available at the [Materialyze AI Docker Repository].
+`materialyzeai/matml:latest-kokkos-cpu` bundles MatCalc, MatGL, pymatgen and LAMMPS (with `pair_style matgl` and
+`matgl/kk`) and is the image used for the MatCalc CI.
 
 ## Tutorials
 

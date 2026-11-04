@@ -6,6 +6,44 @@ nav_order: 2
 
 # Change Log
 
+## v0.8.0
+1. **PR #317 Full LAMMPS backend (`MATCALC_BACKEND=LAMMPS`)** by @shyuep, @rul048
+   - Static calculations, relaxations (`minimize` + `fix box/relax`, judged by ASE's `FrechetCellFilter` criterion) and all `MDCalc` ensembles run in an in-process LAMMPS instance. Previously `run_lammps` was a stub and most `PropCalc`s failed on this backend.
+   - MatGL TensorNet/M3GNet run through MatGL's `pair_style matgl` (`matgl/kk` with Kokkos via `MATCALC_LAMMPS_ARGS`); maml potentials and arbitrary force fields via `LAMMPSCalculator`. New `utils.resolve_model`, split from `load_universal`.
+   - Semantics match ASE: 3N-DOF thermostat temperatures, COM momentum handling, seeding from NumPy's global RNG, crystal symmetry preserved during cell relaxation (`FixSymmetry` honored), inputs already within `fmax` left unrelaxed. Constant-volume and masked cell relaxations run with ASE's optimizer and cell filter, with LAMMPS evaluating each step.
+   - Fixed positions measured from the moving box origin (cell relaxations and NPT frames were rigidly shifted) and MD frame unwrapping for atoms on box faces.
+   - **Breaking:** `LAMMPSMDCalc` (AdvanceSoft ML-GNNP) is deprecated and emits a `DeprecationWarning`; use `MDCalc` with `MATCALC_BACKEND=LAMMPS`. `DiffusionCalc` loses its `backend` argument and always runs `MDCalc`.
+   - CI runs the full test suite on both backends in the `materialyzeai/matml:latest-kokkos-cpu` image; tests of features the LAMMPS backend lacks are marked `ase_only`.
+2. **Behavior changes to defaults** by @shyuep
+   - PR #311: `matcalc calc` without `-m` now uses `TensorNet-MatPES-r2SCAN-2025.2` (was the PBE variant). Pass `-m pbe` for the old behavior.
+   - PR #312: `EnergeticsCalc(elemental_refs=None)` infers the reference set from the model name (r2SCAN models get `MatPES-r2SCAN`; PBE models and unrecognized names get `MatPES-PBE`, the latter with a warning). Previously r2SCAN potentials were silently paired with PBE references (Si E_coh with TensorNet-MatPES-r2SCAN: -7.83 -> -4.55 eV/atom).
+   - PR #314: NPT `pfactor` is passed to ASE unchanged (ASE units), default `(75 fs)^2 * 100 GPa`; it was previously multiplied by `units.fs`, giving a ~16x slower barostat. `pfactor=None` disables the barostat. Langevin `friction` default is now `0.01 / units.fs` (was `1e-3`, effectively no thermostat).
+   - PR #310: `RelaxCalc.is_converged` uses the optimizer's verdict, which includes the cell stress. Pre-relaxations that stop with an unconverged cell now raise `RuntimeError` instead of feeding an unrelaxed cell to elastic, EOS, phonon or QHA calculations. `SimulationResult` gains `converged`.
+   - PR #300: NPT honors the user `pressure` (`external_stress` defaulted to 0). With `append_trajectory=True`, only frames from the current run enter the averaging window.
+3. **Correctness fixes in property calculators** by @shyuep
+   - PR #295 `ElasticityCalc`: `symmetry=True` no longer raises `KeyError` when the reduction drops a strain state; `r2_score_mean` is a pooled R² over symmetry-allowed C_ij (the spurious low-R² warning is gone); `residuals_sum` has squared units; deformed-structure stresses reused from the relaxation.
+   - PR #305 `RelaxCalc`: `relax_atoms=False, relax_cell=True` now relaxes the cell (was a silent single point); `fix_atoms` accepts NumPy index arrays.
+   - PR #288 `AdsorptionCalc`: uses the relaxed slab energy (adsorption energies were too negative by the slab relaxation energy); clean slab and adsorbate relaxed once rather than per site.
+   - PR #298 `InterfaceCalc`, #307 `SurfaceCalc`, #297 `GBCalc`, #315: interfaces and slabs are built from the relaxed bulk; GB CSL angles use the generator's lattice type (trigonal crystals were treated as tetragonal); bulk relaxations go through `_check_and_prelax`, so unconverged bulks raise.
+   - PR #294 `DiffusionCalc`: conductivity uses the mobile ion's oxidation state (new `charge` kwarg). Ag+/Cu+ and O2- conductivities were overestimated 100x and 4x.
+   - PR #302 `OrderCalc`: species stay on their own sublattice; MC energies cached per ordering.
+   - PR #304 `QHACalc`: temperature grid taken from phonopy (fixes `IndexError` when `t_max - t_min` is not a multiple of `t_step`); pressure suffix applied to the file name only.
+   - PR #296 `EOSCalc`: user `cell_filter_kwargs` (e.g. cell masks) kept at constant volume.
+   - PR #301 `NEBCalc`: image keys sorted numerically; endpoints evaluated once.
+   - PR #293 `DefectCalc`, #306 `EnergeticsCalc`: elemental reference energies cached and invalidated correctly when the calculator or relaxation settings change.
+   - PR #308 maml `PESCalculator`: stress sign, Voigt order and default unit (eV/Å³) fixed (stresses were 160x too large); `load_universal` accepts `Path`. MatGL model listing deferred, so `import matcalc` no longer imports torch or queries the HF Hub.
+   - PR #303 `PhononCalc`: imaginary-mode percentage printed with two decimals.
+4. **Parallel execution and infrastructure** by @shyuep
+   - PR #290: `ChainedCalc.calc_many` runs the whole chain per structure in one job (fixes a deadlock with `n_jobs > 1`); `_units` no longer polluted by upstream results.
+   - PR #316: `calc_many` caps loky worker threads when `OMP/MKL_NUM_THREADS` are inherited from the environment (up to 4.9x faster on clusters).
+   - PR #289: `run_ase` max-steps warning uses the optimizer verdict and is emitted once.
+   - PR #291 `Benchmark`: checkpoints validated on resume and written atomically; user kwargs override defaults; sampling uses a local RNG.
+   - PR #292 CLI: `matcalc clear -y` no longer inverted; bare `matcalc` prints usage; YAML output round-trips MSONables.
+   - PR #299: faster `LAMMPSMDCalc` trajectory parsing (~70x per frame).
+   - PR #309: tests wipe model caches only when `MATCALC_TEST_CLEAR_CACHE=1`.
+5. **Removed models** by @shyuep
+   - `QET-MatQ` removed in favor of `QET-MatPES-{PBE,r2SCAN}-2025.2`; `TensorNet-PES-ANI-1x-Subset` no longer provided by MatGL.
+
 ## v0.7.0
 1. **PR #271 New `DiffusionCalc` for diffusivity and ionic conductivity** by @rul048
    - Wraps pymatgen's `DiffusionAnalyzer`; runs MD via `MDCalc` or `LAMMPSMDCalc`, or analyses an existing `trajectory` in the input dict (e.g. after `MDCalc` in a `ChainedCalc`). Requires the new `diffusion` extra.
