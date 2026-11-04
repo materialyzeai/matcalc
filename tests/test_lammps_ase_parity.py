@@ -150,12 +150,13 @@ def test_lammps_cell(left_handed: bool) -> None:
     ("args", "expected"),
     [
         ([], []),
-        (["-k", "on", "t", "2"], ["-k", "on", "t", "2"]),
+        (["-k", "on", "t", "2"], ["-k", "on", "t", "2", "-pk", "kokkos", "atom/map", "no"]),
+        (["-k", "off"], ["-k", "off"]),
         (
             ["-k", "on", "g", "1", "-sf", "kk", "-pk", "kokkos", "newton", "on", "neigh", "half"],
-            ["-k", "on", "g", "1", "-sf", "kk", "-pk", "kokkos", "atom/map", "host", "newton", "on", "neigh", "half"],
+            ["-k", "on", "g", "1", "-sf", "kk", "-pk", "kokkos", "atom/map", "no", "newton", "on", "neigh", "half"],
         ),
-        (["-package", "kokkos", "-sf", "kk"], ["-package", "kokkos", "atom/map", "host", "-sf", "kk"]),
+        (["-package", "kokkos", "-sf", "kk"], ["-package", "kokkos", "atom/map", "no", "-sf", "kk"]),
         # An explicit atom/map setting is kept; other packages are left alone.
         (["-pk", "kokkos", "atom/map", "device"], ["-pk", "kokkos", "atom/map", "device"]),
         (["-pk", "omp", "4"], ["-pk", "omp", "4"]),
@@ -265,10 +266,7 @@ def test_engine_scoped_failed_setup(ar_cell: Atoms) -> None:
 
 @needs_lammps
 def test_lammps_calculator_with_ase_backend(ar_cell: Atoms) -> None:
-    """LAMMPSCalculator is a regular ASE calculator: engines are reused across cell sizes.
-
-    Growing a cached engine aborted under Kokkos CUDA without ``atom/map host`` (see ``kokkos_cmdargs``).
-    """
+    """LAMMPSCalculator is a regular ASE calculator: engines are reused across cell sizes."""
     for atoms in (_skewed(ar_cell), _skewed(ar_cell.repeat((1, 2, 1)), seed=1)):
         ref = run_ase(atoms, _lj_ase())
         res = run_ase(atoms, _lj_lammps())

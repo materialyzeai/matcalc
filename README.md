@@ -256,8 +256,7 @@ Setting `MATCALC_BACKEND=LAMMPS` runs single points, relaxations (`minimize`, wi
   LAMMPS built with MatGL's ML-MATGL package (see `lammps/README.md` in the MatGL repository), as a shared library
   linked against the same libtorch as the Python `torch`. The `materialyzeai/matgl:latest-kokkos-cpu` Docker image
   provides such a build. For the Kokkos variant `pair_style matgl/kk`, set e.g.
-  `MATCALC_LAMMPS_ARGS="-k on g 1 -sf kk -pk kokkos newton on neigh half"`. matcalc adds `atom/map host` to the
-  `-pk kokkos` options: on CUDA, the device atom map crashes when a cached LAMMPS instance is reloaded with more atoms.
+  `MATCALC_LAMMPS_ARGS="-k on g 1 -sf kk -pk kokkos newton on neigh half"`.
 - maml potentials loaded through `PESCalculator` (SNAP, MTP, GAP, NNP).
 - Any LAMMPS force field via `LAMMPSCalculator`, which also works as a regular ASE calculator.
 
