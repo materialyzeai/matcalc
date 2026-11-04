@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -75,7 +76,7 @@ class PhononCalc(PropCalc):
         t_step: float = 10,
         t_max: float = 1000,
         t_min: float = 0,
-        fmax: float = 1e-5,
+        fmax: float = 1e-4,
         max_steps: int = 5000,
         optimizer: str = "FIRE",
         relax_structure: bool = True,
@@ -102,7 +103,10 @@ class PhononCalc(PropCalc):
             t_step: Temperature step for thermal properties (K).
             t_max: Maximum temperature (K).
             t_min: Minimum temperature (K).
-            fmax: Relaxation force tolerance (eV/Å).
+            fmax: Relaxation force tolerance (eV/Å). Default 1e-4 (previously 1e-5): 1e-5 is
+                at the float32 force noise floor of foundation potentials (relaxations end at max|F| ~ 5e-6 to
+                1e-5 eV/Å) and costs 1.5-2.4x more steps for no measurable change in the thermal properties. Pass
+                ``fmax=1e-5`` to restore the old behavior.
             max_steps: Maximum relaxation steps before phonopy.
             optimizer: Optimizer for pre-phonon relaxation.
             relax_structure: Whether to relax before building phonopy.
@@ -380,8 +384,22 @@ class PhononCalc(PropCalc):
 
         Returns:
             Full result dict from RelaxCalc.
+
+        Warns:
+            UserWarning: If the relaxation did not reach ``fmax`` within ``max_steps``. Unlike the
+                other calculators, PhononCalc does not raise here, so that existing workflows keep
+                running; the force constants are then computed around a non-equilibrium structure.
         """
-        return self._relaxer(fmax=self.fmax, optimizer=self.optimizer, max_steps=self.max_steps).calc(structure_in)
+        relaxer = self._relaxer(fmax=self.fmax, optimizer=self.optimizer, max_steps=self.max_steps)
+        result = relaxer.calc(structure_in)
+        if not result.get("is_converged", True):
+            warnings.warn(
+                f"PhononCalc pre-relaxation did not converge: max|F| = {result['max_force']:.3g} eV/A > "
+                f"fmax = {relaxer.fmax:.3g} eV/A after {relaxer.max_steps} steps. Phonons are computed "
+                "around a non-equilibrium structure; increase max_steps or loosen fmax.",
+                stacklevel=3,
+            )
+        return result
 
 
 # _mc_rattle and _phonon_rattle are adapted from hiphive (https://gitlab.com/materials-modeling/hiphive),

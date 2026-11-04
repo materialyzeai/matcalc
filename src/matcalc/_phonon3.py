@@ -67,7 +67,7 @@ class Phonon3Calc(PropCalc):
         thermal_conductivity_kwargs: dict | None = None,
         relax_structure: bool = True,
         relax_calc_kwargs: dict | None = None,
-        fmax: float = 0.1,
+        fmax: float = 1e-3,
         optimizer: str = "FIRE",
         t_min: float = 0,
         t_max: float = 1000,
@@ -90,7 +90,10 @@ class Phonon3Calc(PropCalc):
             thermal_conductivity_kwargs: Kwargs for ``run_thermal_conductivity``.
             relax_structure: Relax input before building phono3py.
             relax_calc_kwargs: Kwargs for ``RelaxCalc``.
-            fmax: Force tolerance for relaxation (eV/Å).
+            fmax: Force tolerance for relaxation (eV/Å). Default 1e-3 (previously 0.1, which leaves residual
+                forces comparable to the displacement forces used for FC2/FC3). The relaxation uses
+                ``RelaxCalc``'s default ``max_steps=500``; set ``relax_calc_kwargs={"max_steps": ...}`` for
+                large cells. Pass ``fmax=0.1`` to restore the old behavior.
             optimizer: ASE optimizer for relaxation.
             t_min: Minimum temperature for κ (K).
             t_max: Maximum temperature for κ (K).

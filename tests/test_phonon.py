@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -310,6 +311,27 @@ def test_phonon_calc_rattle_temperature(Si: Structure, matpes_calculator: PESCal
     assert_allclose(disp_1200, 2 * disp_300)  # amplitudes scale with sqrt(T), stdev is unused
     with pytest.raises(ValueError, match="rattle_temperature is only used"):
         PhononCalc(calculator=matpes_calculator, rattle_temperature=300.0)
+
+
+@pytest.mark.parametrize(("max_steps", "should_warn"), [(1, True), (500, False)])
+def test_phonon_calc_unconverged_prerelax_warns(
+    Si: Structure, matpes_calculator: PESCalculator, *, max_steps: int, should_warn: bool
+) -> None:
+    """A pre-relaxation that runs out of steps warns instead of passing silently (or raising)."""
+    structure = Si.copy()
+    structure.translate_sites([0], [0.05, 0, 0], frac_coords=False)
+    phonon_calc = PhononCalc(
+        calculator=matpes_calculator,
+        supercell_matrix=((2, 0, 0), (0, 2, 0), (0, 0, 2)),
+        max_steps=max_steps,
+        write_phonon=False,
+    )
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        result = phonon_calc.calc(structure)
+    messages = [str(w.message) for w in record if "pre-relaxation did not converge" in str(w.message)]
+    assert bool(messages) is should_warn
+    assert result["is_converged"] is not should_warn
 
 
 def test_mc_rattle_min_distance(Si_atoms: Atoms) -> None:
