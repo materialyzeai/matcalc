@@ -22,9 +22,17 @@ permissions:
   contents: read
 
 jobs:
+  # Every test runs on both simulation backends (MATCALC_BACKEND). The LAMMPS-only tests (tests/test_backend_lammps.py:
+  # pair styles and ASE parity) run in the LAMMPS leg only, where missing LAMMPS features fail rather than skip, and
+  # are repeated through the Kokkos pair styles (OpenMP host backend; GitHub-hosted runners have no GPU).
   test:
+    name: test (${{ matrix.backend }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [ASE, LAMMPS]
     container:
       # MatML stack on LAMMPS built as a shared library with its Python module, MatGL's pair_style matgl / matgl/kk
       # (Kokkos), ML-SNAP and EXTRA-FIX, linked against the image's torch (materialyzeai/matml,
@@ -35,13 +43,16 @@ jobs:
       PMG_MAPI_KEY: ${{ secrets.PMG_MAPI_KEY }}
       # Wipe matgl/matcalc caches at pytest start so CI always exercises fresh downloads (see tests/conftest.py).
       MATCALC_TEST_CLEAR_CACHE: "1"
+      MATCALC_BACKEND: ${{ matrix.backend }}
+      MATCALC_TEST_REQUIRE_LAMMPS: ${{ matrix.backend == 'LAMMPS' && '1' || '' }}
 
     steps:
-      # git before checkout, so that the checkout is a git repository (setuptools-scm version, Codecov metadata).
+      # git before checkout, so that the checkout is a git repository (setuptools-scm version, Codecov metadata);
+      # curl and gnupg for the Codecov uploader.
       - name: Install system packages
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends curl git
+          apt-get install -y --no-install-recommends curl git gnupg
 
       - uses: actions/checkout@v5
 
@@ -54,7 +65,16 @@ jobs:
       - name: pytest
         run: pytest -n auto --dist worksteal --cov=matcalc --cov-report=xml --cov-report=term-missing tests --color=yes
 
+      - name: pytest (LAMMPS backend tests through Kokkos)
+        if: matrix.backend == 'LAMMPS'
+        env:
+          MATCALC_LAMMPS_ARGS: "-k on t 2 -sf kk -pk kokkos newton on neigh half"
+          OMP_NUM_THREADS: "2"
+        run: pytest tests/test_backend_lammps.py --color=yes
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
+        with:
+          flags: ${{ matrix.backend }}
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

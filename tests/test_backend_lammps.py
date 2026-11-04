@@ -1,6 +1,8 @@
 """Tests for the LAMMPS simulation backend.
 
-Tests that run LAMMPS are skipped unless the ``lammps`` Python module can start LAMMPS. The MatGL tests also need LAMMPS
+The module runs only with ``MATCALC_BACKEND=LAMMPS``; it checks LAMMPS-specific behavior and parity with the ASE
+backend (each test switches backends as needed). Tests that run LAMMPS are skipped unless the ``lammps`` Python module
+can start LAMMPS. The MatGL tests also need LAMMPS
 built with MatGL's ML-MATGL package (``pair_style matgl``); the SNAP tests need maml and an ``lmp`` executable, which
 maml requires to construct SNAP potentials. Set ``MATCALC_LAMMPS_ARGS`` (e.g. ``-k on t 2 -sf kk -pk kokkos newton on
 neigh half``) to run the same tests through the Kokkos styles.
@@ -62,7 +64,11 @@ def _has_style(style: str) -> bool:
     return styles is not None and style in styles
 
 
-# The LAMMPS CI workflow sets this so that a missing LAMMPS feature fails the tests instead of skipping them.
+pytestmark = pytest.mark.skipif(
+    not backend.is_lammps_backend(), reason="LAMMPS backend tests run with MATCALC_BACKEND=LAMMPS"
+)
+
+# CI sets this in its LAMMPS leg so that a missing LAMMPS feature fails the tests instead of skipping them.
 REQUIRE_LAMMPS = os.environ.get("MATCALC_TEST_REQUIRE_LAMMPS") == "1"
 needs_lammps = pytest.mark.skipif(
     not (REQUIRE_LAMMPS or _has_style("lj/cut")), reason="LAMMPS Python module not available"
