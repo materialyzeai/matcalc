@@ -22,9 +22,9 @@ permissions:
   contents: read
 
 jobs:
-  # Every test runs on both simulation backends (MATCALC_BACKEND). The LAMMPS-only tests (tests/test_backend_lammps.py:
-  # pair styles and ASE parity) run in the LAMMPS leg only, where missing LAMMPS features fail rather than skip, and
-  # are repeated through the Kokkos pair styles (OpenMP host backend; GitHub-hosted runners have no GPU).
+  # Every test runs on both simulation backends (MATCALC_BACKEND). tests/test_lammps_ase_parity.py (LAMMPS pair
+  # styles and parity with ASE) runs in the LAMMPS leg only, where missing LAMMPS features fail rather than skip, and
+  # is repeated through the Kokkos pair styles (OpenMP host backend; GitHub-hosted runners have no GPU).
   test:
     name: test (${{ matrix.backend }})
     runs-on: ubuntu-latest
@@ -70,7 +70,7 @@ jobs:
         env:
           MATCALC_LAMMPS_ARGS: "-k on t 2 -sf kk -pk kokkos newton on neigh half"
           OMP_NUM_THREADS: "2"
-        run: pytest tests/test_backend_lammps.py --color=yes
+        run: pytest tests/test_lammps_ase_parity.py --color=yes
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

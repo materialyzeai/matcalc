@@ -34,7 +34,7 @@ invoke update-changelog # generates changes.md entries from PR titles
 invoke release          # creates GitHub release for current pyproject version
 ```
 
-The `Test` workflow runs every test on both backends (matrix over `MATCALC_BACKEND=ASE`/`LAMMPS`) inside `docker.io/materialyzeai/matml:latest-kokkos-cpu`: LAMMPS as a shared library with its Python module, MatGL's `pair_style matgl`/`matgl/kk` (Kokkos), ML-SNAP and EXTRA-FIX, linked against the image's torch (install with `-c /opt/lammps/torch-constraint.txt` to keep it). It has no ML-GNNP, so the `LAMMPSMDCalc` tests (AdvanceSoft `pair_style gnnp`, `lmp_gnnp` fixture) skip there. `tests/test_backend_lammps.py` (pair styles, ASE parity) runs only with `MATCALC_BACKEND=LAMMPS`, where CI sets `MATCALC_TEST_REQUIRE_LAMMPS=1` to turn its skips into failures and reruns it through Kokkos (`MATCALC_LAMMPS_ARGS`). Locally, LAMMPS-dependent tests skip without such a build.
+The `Test` workflow runs every test on both backends (matrix over `MATCALC_BACKEND=ASE`/`LAMMPS`) inside `docker.io/materialyzeai/matml:latest-kokkos-cpu`: LAMMPS as a shared library with its Python module, MatGL's `pair_style matgl`/`matgl/kk` (Kokkos), ML-SNAP and EXTRA-FIX, linked against the image's torch (install with `-c /opt/lammps/torch-constraint.txt` to keep it). It has no ML-GNNP, so the `LAMMPSMDCalc` tests (AdvanceSoft `pair_style gnnp`, `lmp_gnnp` fixture) skip there. `tests/test_lammps_ase_parity.py` (pair styles, ASE parity) runs only with `MATCALC_BACKEND=LAMMPS`, where CI sets `MATCALC_TEST_REQUIRE_LAMMPS=1` to turn its skips into failures and reruns it through Kokkos (`MATCALC_LAMMPS_ARGS`). Locally, LAMMPS-dependent tests skip without such a build.
 
 ## Architecture
 
