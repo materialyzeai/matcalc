@@ -20,6 +20,7 @@ from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
 from ase.md.verlet import VelocityVerlet
 
 from ._base import PropCalc
+from .backend import is_lammps_backend, run_lammps_md
 from .utils import to_ase_atoms, to_pmg_structure
 
 if TYPE_CHECKING:
@@ -366,6 +367,86 @@ class MDCalc(PropCalc):
             ]
             atoms.set_cell(new_basis, scale_atoms=True)
 
+    def _window(self, n_frames: int) -> list[int]:
+        """Indices of the averaging window among the ``n_frames`` frames of a run.
+
+        Drops ``equilibration_frames`` from the start of the run, then takes the trailing ``frames`` frames.
+        """
+        return list(range(n_frames))[self.equilibration_frames :][-self.frames :]
+
+    def _run_ase(self, atoms: Atoms) -> tuple[list[Atoms], Atoms, int]:
+        """Run the MD with ASE.
+
+        Returns:
+            The frames of the averaging window, the final frame and the number of frames of this run (frames are
+            recorded every ``loginterval`` steps).
+        """
+        # Initialize the molecular dynamics (MD) simulation and set up the simulation parameters.
+        md = self._initialize_md(atoms)
+
+        # Set up ASE native Trajectory as observer, writing frames at loginterval steps.
+        use_temp = self.trajfile is None
+        if use_temp:
+            with tempfile.NamedTemporaryFile(suffix=".traj", delete=False) as tmp_file:
+                traj_path = tmp_file.name
+        else:
+            traj_path = str(self.trajfile)
+
+        # Frames already in an appended-to trajectory belong to earlier runs and are excluded below.
+        n_prev = 0
+        if self.append_trajectory and os.path.isfile(traj_path) and os.path.getsize(traj_path) > 0:
+            with Trajectory(traj_path) as reader:
+                n_prev = len(reader)
+
+        mode = "a" if self.append_trajectory else "w"
+        try:
+            with TrajectoryWriter(traj_path, mode, atoms) as ase_traj:
+                md.attach(ase_traj.write, interval=self.loginterval)
+                # Run the MD simulation for the specified number of steps.
+                md.run(self.steps)
+
+            # Read back only the frames needed: the averaging window and the final frame.
+            with Trajectory(traj_path) as reader:
+                n_frames = len(reader) - n_prev
+                traj = [reader[n_prev + i] for i in self._window(n_frames)]
+                final_atoms = traj[-1] if traj else reader[len(reader) - 1]
+        finally:
+            if use_temp:
+                os.unlink(traj_path)
+        return traj, final_atoms, n_frames
+
+    def _run_lammps(self, atoms: Atoms) -> tuple[list[Atoms], Atoms, int]:
+        """Run the MD with the LAMMPS backend; returns the same as ``_run_ase``."""
+        frames = run_lammps_md(
+            atoms,
+            self.calculator,
+            ensemble=self.ensemble,
+            temperature=self.temperature,
+            timestep=self.timestep,
+            steps=self.steps,
+            loginterval=self.loginterval,
+            pressure=self.pressure,
+            taut=self.taut if self.taut is not None else 100 * self.timestep * units.fs,
+            taup=self.taup if self.taup is not None else 1000 * self.timestep * units.fs,
+            friction=self.friction,
+            ttime=self.ttime,
+            fixed_cell=self.pfactor is None,
+            external_stress=self.external_stress if self.external_stress is not None else self.pressure,
+            compressibility_au=self.compressibility_au,
+            mask=self.mask,
+            tchain=self.tchain,
+            pchain=self.pchain,
+            tloop=self.tloop,
+            ploop=self.ploop,
+            seed=self.seed,
+            logfile=self.logfile,
+        )
+        if self.trajfile is not None:
+            with TrajectoryWriter(str(self.trajfile), "a" if self.append_trajectory else "w") as traj:
+                for image in frames:
+                    traj.write(image)
+        return [frames[i] for i in self._window(len(frames))], frames[-1], len(frames)
+
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict[str, Any]:
         """
         Performs the MD simulation calculation for the input structure. Prior to generating initial velocities,
@@ -415,48 +496,14 @@ class MDCalc(PropCalc):
         if self.set_zero_rotation:
             ZeroRotation(atoms)
 
-        # Initialize the molecular dynamics (MD) simulation and set up the simulation parameters.
-        md = self._initialize_md(atoms)
-
-        # Set up ASE native Trajectory as observer, writing frames at loginterval steps.
-        use_temp = self.trajfile is None
-        if use_temp:
-            with tempfile.NamedTemporaryFile(suffix=".traj", delete=False) as tmp_file:
-                traj_path = tmp_file.name
-        else:
-            traj_path = str(self.trajfile)
-
-        # Frames already in an appended-to trajectory belong to earlier runs and are excluded below.
-        n_prev = 0
-        if self.append_trajectory and os.path.isfile(traj_path) and os.path.getsize(traj_path) > 0:
-            with Trajectory(traj_path) as reader:
-                n_prev = len(reader)
-
-        mode = "a" if self.append_trajectory else "w"
-        try:
-            with TrajectoryWriter(traj_path, mode, atoms) as ase_traj:
-                md.attach(ase_traj.write, interval=self.loginterval)
-                # Run the MD simulation for the specified number of steps.
-                md.run(self.steps)
-
-            # Read back only the frames needed: the averaging window and the final frame.
-            with Trajectory(traj_path) as reader:
-                n_total = len(reader)
-                # Drop equilibration_frames from the start of this run, then take the trailing ``frames`` window.
-                indices = list(range(n_prev, n_total))[self.equilibration_frames :][-self.frames :]
-                traj = [reader[i] for i in indices]
-                final_atoms = traj[-1] if traj else reader[n_total - 1]
-        finally:
-            if use_temp:
-                os.unlink(traj_path)
-
+        traj, final_atoms, n_frames = self._run_lammps(atoms) if is_lammps_backend() else self._run_ase(atoms)
         result["final_structure"] = to_pmg_structure(final_atoms)
 
         n_avg = len(traj)
         if n_avg == 0:
             raise ValueError(
                 f"No frames left to average after dropping {self.equilibration_frames=} "
-                f"and taking the last {self.frames=}; got {n_total - n_prev} total frames."
+                f"and taking the last {self.frames=}; got {n_frames} total frames."
             )
 
         # Calculate the average potential, kinetic and total energies over the selected window.

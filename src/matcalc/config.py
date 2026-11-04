@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
+import shlex
 import shutil
 
 logger = logging.getLogger(__name__)
@@ -12,6 +13,9 @@ logger = logging.getLogger(__name__)
 BENCHMARK_HF_REPO_ID: str = "materialyze/matcalc-bench"
 BENCHMARK_DATA_DIR: pathlib.Path = pathlib.Path.home() / ".cache" / "matcalc"
 SIMULATION_BACKEND: str = os.environ.get("MATCALC_BACKEND", "ASE").upper()
+# Extra command-line arguments for in-process LAMMPS instances of the LAMMPS backend, e.g.
+# "-k on g 1 -sf kk -pk kokkos newton on neigh half" to run MatGL potentials with pair_style matgl/kk on a GPU.
+LAMMPS_CMDARGS: list[str] = shlex.split(os.environ.get("MATCALC_LAMMPS_ARGS", ""))
 
 
 def clear_cache(*, confirm: bool = True) -> None:
