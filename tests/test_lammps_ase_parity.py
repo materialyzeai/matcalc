@@ -29,7 +29,7 @@ from ase.optimize import BFGS
 
 from matcalc import ElasticityCalc, EOSCalc, LAMMPSCalculator, MDCalc, PhononCalc, RelaxCalc, backend
 from matcalc.backend import get_lammps_potential, run_ase, run_lammps, run_lammps_md, to_backend_calculator
-from matcalc.backend._lammps_engine import get_engine, lammps_cell
+from matcalc.backend._lammps_engine import get_engine, kokkos_cmdargs, lammps_cell
 from matcalc.utils import PESCalculator
 
 if TYPE_CHECKING:
@@ -144,6 +144,26 @@ def test_lammps_cell(left_handed: bool) -> None:
     transform = np.linalg.solve((cell @ rot).T, lower.T).T
     np.testing.assert_allclose(transform, np.round(transform), atol=1e-9)
     assert abs(round(np.linalg.det(transform))) == 1
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        ([], []),
+        (["-k", "on", "t", "2"], ["-k", "on", "t", "2", "-pk", "kokkos", "atom/map", "no"]),
+        (["-k", "off"], ["-k", "off"]),
+        (
+            ["-k", "on", "g", "1", "-sf", "kk", "-pk", "kokkos", "newton", "on", "neigh", "half"],
+            ["-k", "on", "g", "1", "-sf", "kk", "-pk", "kokkos", "atom/map", "no", "newton", "on", "neigh", "half"],
+        ),
+        (["-package", "kokkos", "-sf", "kk"], ["-package", "kokkos", "atom/map", "no", "-sf", "kk"]),
+        # An explicit atom/map setting is kept; other packages are left alone.
+        (["-pk", "kokkos", "atom/map", "device"], ["-pk", "kokkos", "atom/map", "device"]),
+        (["-pk", "omp", "4"], ["-pk", "omp", "4"]),
+    ],
+)
+def test_kokkos_cmdargs(args: list[str], expected: list[str]) -> None:
+    assert kokkos_cmdargs(args) == expected
 
 
 def test_get_lammps_potential_unsupported() -> None:

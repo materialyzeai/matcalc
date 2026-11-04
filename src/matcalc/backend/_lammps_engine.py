@@ -374,6 +374,31 @@ class Frame:
         return frac @ cell, frac
 
 
+def kokkos_cmdargs(args: Sequence[str]) -> list[str]:
+    """Set ``atom/map no`` in the Kokkos package options of LAMMPS command-line arguments that do not set ``atom/map``.
+
+    The device atom map (``atom/map device``, the Kokkos default on GPUs) crashes when an instance is reloaded with
+    more atoms than it has held before (LAMMPS stable_22Jul2025_update5), which every cached engine does for
+    supercells. The host map is as fast on GPU: ``pair_style matgl/kk`` looks atoms up in it in any case.
+
+    Args:
+        args: LAMMPS command-line arguments.
+
+    Returns:
+        The arguments with ``atom/map no`` inserted after each ``-pk kokkos``, or appended as ``-pk kokkos atom/map no``
+        if Kokkos is enabled without ``-pk kokkos``.
+    """
+    out = list(args)
+    pk = [i for i in range(len(out) - 1) if out[i] in ("-pk", "-package") and out[i + 1] == "kokkos"]
+    for i in reversed(pk):
+        end = next((j for j in range(i + 2, len(out)) if out[j].startswith("-")), len(out))
+        if "atom/map" not in out[i + 2 : end]:
+            out[i + 2 : i + 2] = ["atom/map", "no"]
+    if not pk and any(out[i] in ("-k", "-kokkos") and out[i + 1] == "on" for i in range(len(out) - 1)):
+        out += ["-pk", "kokkos", "atom/map", "no"]
+    return out
+
+
 class LAMMPSEngine:
     """A LAMMPS instance with a force field loaded, reused for any cell and number of atoms."""
 
@@ -387,7 +412,7 @@ class LAMMPSEngine:
             ) from err
 
         self._vector_args = (LMP_STYLE_GLOBAL, LMP_TYPE_VECTOR)
-        self.lmp = lammps(cmdargs=["-log", "none", "-screen", "none", "-nocite", *LAMMPS_CMDARGS])
+        self.lmp = lammps(cmdargs=["-log", "none", "-screen", "none", "-nocite", *kokkos_cmdargs(LAMMPS_CMDARGS)])
         self.kokkos = bool(self.lmp.extract_setting("kokkos_active"))
         self.elements = elements
         self.type_of = {el: i + 1 for i, el in enumerate(elements)}
