@@ -658,10 +658,10 @@ def _snapshot(engine: LAMMPSEngine, frame: Frame, atoms: Atoms) -> Atoms:
     Image flags retain boundary crossings between saved frames; the initial lattice offset restores the input images.
     """
     cell = engine.cell()
-    # Positions relative to the (possibly moved) box origin, unwrapped with the image flags.
-    unwrapped = engine.positions() + engine.gather("image") @ cell
-    offset = frame.ref_frac - frame.lammps_frac @ frame.basis
-    positions = frame.vectors(unwrapped) + offset @ frame.cell(cell)
+    # Fractional coordinates relative to the (possibly moved) box origin, unwrapped with the image flags, then mapped
+    # to the input basis and periodic images.
+    frac_lammps = np.linalg.solve(cell.T, engine.positions().T).T + engine.gather("image")
+    positions = (frac_lammps @ frame.basis + frame.image_offset) @ frame.cell(cell)
     image = Atoms(
         atoms.get_chemical_symbols(),
         positions=positions,

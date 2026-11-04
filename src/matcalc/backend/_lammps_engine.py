@@ -335,12 +335,17 @@ class Frame:
         rot: Orthogonal matrix; Cartesian vectors map as ``v_lammps = v @ rot``.
         basis: Integer unimodular matrix with ``cell_lammps = basis @ (cell @ rot)``.
         ref_frac: Fractional coordinates of the input structure, to which positions are unwrapped.
+        lammps_frac: Fractional coordinates in the LAMMPS cell as LAMMPS placed the atoms on loading (wrapped into its
+            box, which may differ from ``ref_frac`` by lattice vectors, including for atoms on a box face).
+        image_offset: Integer lattice offsets, in the input basis, from the loaded LAMMPS images (positions plus image
+            flags) to the input images.
     """
 
     rot: np.ndarray
     basis: np.ndarray
     ref_frac: np.ndarray
-    lammps_frac: np.ndarray  # wrapped fractional coordinates in the LAMMPS cell, as loaded
+    lammps_frac: np.ndarray
+    image_offset: np.ndarray
 
     def cell(self, cell_lammps: np.ndarray) -> np.ndarray:
         """LAMMPS cell -> cell in the input frame and lattice basis."""
@@ -430,7 +435,11 @@ class LAMMPSEngine:
         created = lmp.create_atoms(n_atoms, list(range(1, n_atoms + 1)), types, positions.ravel().tolist(), v=v)
         if created != n_atoms:
             raise RuntimeError(f"LAMMPS created {created} of {n_atoms} atoms.")
-        return Frame(rot, basis, atoms.cell.scaled_positions(atoms.positions), frac)
+        # Reference the atoms as LAMMPS stored them: it may wrap an atom on a box face to the opposite face.
+        lammps_frac = np.linalg.solve(cell_lammps.T, self.positions().T).T
+        ref_frac = atoms.cell.scaled_positions(atoms.positions)
+        image_offset = np.round(ref_frac - (lammps_frac + self.gather("image")) @ basis)
+        return Frame(rot, basis, ref_frac, lammps_frac, image_offset)
 
     @contextlib.contextmanager
     def scoped(self, setup: Sequence[str], cleanup: Sequence[str]) -> Iterator[None]:
