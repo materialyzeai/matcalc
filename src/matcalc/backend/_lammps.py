@@ -26,13 +26,14 @@ import numpy as np
 from ase import Atoms
 from ase.calculators.singlepoint import SinglePointCalculator
 from ase.constraints import FixAtoms, FixSymmetry
+from ase.filters import FrechetCellFilter
 from ase.io import Trajectory
 from ase.stress import full_3x3_to_voigt_6_stress
 from pymatgen.io.lammps.outputs import parse_lammps_dumps, parse_lammps_log
 
 from matcalc.utils import to_ase_atoms, to_pmg_structure
 
-from ._ase import VALID_OPTIMIZERS
+from ._ase import VALID_OPTIMIZERS, run_ase
 from ._base import SimulationResult
 from ._lammps_engine import (
     ASE_TIME_TO_PS,
@@ -42,6 +43,7 @@ from ._lammps_engine import (
     get_lammps_potential,
     pressure_matrix,
     scratch_dir,
+    to_lammps_calculator,
 )
 
 if TYPE_CHECKING:
@@ -88,7 +90,7 @@ def run_lammps(
     traj_file: str | None = None,
     interval: int = 1,
     fmax: float = 0.1,
-    cell_filter: Any = None,  # noqa: ARG001
+    cell_filter: Any = None,
     cell_filter_kwargs: dict | None = None,
 ) -> SimulationResult:
     """Run a static calculation or relaxation in LAMMPS with the force field of ``calculator``.
@@ -96,6 +98,8 @@ def run_lammps(
     Relaxations use ``minimize`` and, with ``relax_cell``, ``fix box/relax``. ``FixAtoms`` constraints become
     ``fix setforce``. Convergence is judged by the same criterion as ``run_ase`` with ``FrechetCellFilter``: the largest
     atomic force and the largest row of the cell virial divided by the number of atoms must not exceed ``fmax``.
+    LAMMPS has no constant-volume or masked cell relaxation; those run with ASE's optimizer and cell filter, with
+    LAMMPS evaluating every step.
 
     Args:
         structure: Input structure. Must be periodic in all three directions.
@@ -110,9 +114,11 @@ def run_lammps(
         traj_file: Optional ASE trajectory file for the relaxation frames.
         interval: Frame interval for ``traj_file``.
         fmax: Force convergence criterion (eV/Å).
-        cell_filter: Ignored; the cell is relaxed with ``fix box/relax``.
-        cell_filter_kwargs: Supported keys: ``scalar_pressure`` (eV/Å^3), ``hydrostatic_strain`` and
-            ``exp_cell_factor`` (``cell_factor`` for UnitCellFilter).
+        cell_filter: ASE cell filter, used only for constant-volume or masked cell relaxations (default
+            ``FrechetCellFilter``); otherwise the cell is relaxed with ``fix box/relax``.
+        cell_filter_kwargs: ``scalar_pressure`` (eV/Å^3), ``hydrostatic_strain`` and ``exp_cell_factor``
+            (``cell_factor`` for UnitCellFilter) run in LAMMPS; ``constant_volume`` and ``mask`` run with ASE's cell
+            filter.
 
     Returns:
         SimulationResult with energies (eV), forces (eV/Å) and stress (eV/Å^3, 3x3, ASE sign convention) in the
@@ -128,6 +134,20 @@ def run_lammps(
     if not relax_atoms:
         energy, forces, stress = engine.compute(atoms)
         return _result(atoms, energy, forces, stress, structure=structure)
+    if relax_cell and _needs_ase_cell_filter(cell_filter_kwargs):
+        return run_ase(
+            structure,
+            to_lammps_calculator(calculator),
+            relax_atoms=relax_atoms,
+            relax_cell=relax_cell,
+            optimizer=optimizer,
+            max_steps=max_steps,
+            traj_file=traj_file,
+            interval=interval,
+            fmax=fmax,
+            cell_filter=cell_filter or FrechetCellFilter,  # type: ignore[arg-type]  # run_ase takes the class
+            cell_filter_kwargs=cell_filter_kwargs,
+        )
     final, energy, forces, stress, converged = _relax(
         engine,
         atoms,
@@ -144,6 +164,13 @@ def run_lammps(
             "Maximum steps reached in structure relaxation. Max|F| = %s eV/Å", np.linalg.norm(forces, axis=1).max()
         )
     return _result(final, energy, forces, stress, converged=converged)
+
+
+def _needs_ase_cell_filter(cell_filter_kwargs: dict | None) -> bool:
+    """Whether a cell relaxation needs a feature fix box/relax lacks: a constant volume or a cell mask."""
+    kwargs = cell_filter_kwargs or {}
+    mask = kwargs.get("mask")
+    return bool(kwargs.get("constant_volume")) or (mask is not None and not np.all(np.asarray(mask) == 1))
 
 
 def _result(
@@ -179,21 +206,18 @@ class _CellTarget:
 
     pressure: float = 0.0  # eV/Å^3
     hydrostatic: bool = False
-    constant_volume: bool = False
     exp_cell_factor: float | None = None
 
     @classmethod
     def from_kwargs(cls, kwargs: dict | None) -> _CellTarget:
         kwargs = dict(kwargs or {})
-        mask = kwargs.pop("mask", None)
-        if mask is not None and not np.all(np.asarray(mask) == 1):
-            raise NotImplementedError("A cell filter mask is not supported by the LAMMPS backend.")
+        kwargs.pop("mask", None)  # all ones; other masks run with ASE's cell filter
+        kwargs.pop("constant_volume", None)  # False; True runs with ASE's cell filter
         factor = kwargs.pop("exp_cell_factor", None)
         factor = kwargs.pop("cell_factor", factor)
         target = cls(
             pressure=float(kwargs.pop("scalar_pressure", 0.0)),
             hydrostatic=bool(kwargs.pop("hydrostatic_strain", False)),
-            constant_volume=bool(kwargs.pop("constant_volume", False)),
             exp_cell_factor=factor,
         )
         if kwargs:
@@ -249,8 +273,6 @@ def _residual_force(
     virial = -abs(np.linalg.det(cell)) * (stress + target.pressure * np.eye(3))
     if target.hydrostatic:
         virial = np.trace(virial) / 3 * np.eye(3)
-    if target.constant_volume:
-        virial = virial - np.trace(virial) / 3 * np.eye(3)
     cell_forces = virial / (target.exp_cell_factor or len(forces))
     return max(residual, float(np.linalg.norm(cell_forces, axis=1).max()))
 
@@ -273,10 +295,6 @@ def _relax(
     its own stopping criterion is far stricter than ASE's for cells. Cell relaxations therefore run in chunks of
     ``_CELL_RELAX_CHUNK`` iterations and stop once ASE's criterion is met; restarting also resets the reference cell of
     ``fix box/relax``, as the LAMMPS documentation recommends.
-
-    ``fix box/relax`` has no volume constraint. A constant-volume relaxation (``constant_volume``, as in ASE's cell
-    filters) targets the current mean pressure in each chunk, which removes the drive to change the volume, and rescales
-    the cell isotropically back to the initial volume after each chunk.
 
     ``fix box/relax`` treats box lengths and tilt factors as independent degrees of freedom, so even a hydrostatic
     stress changes the shape of an oblique cell along the way, and the relaxation ends slightly off symmetry. ASE's cell
@@ -347,7 +365,6 @@ def _minimize(
 ) -> tuple[bool, Frame]:
     """Run ``minimize`` (in chunks, see ``_relax``) until ASE's criterion is met; return it and the final frame."""
     lmp = engine.lmp
-    volume = abs(np.linalg.det(engine.cell()))
     couple = "iso" if target.hydrostatic else "tri"
     current = atoms.copy()  # state at the start of the chunk, in the input frame
     current.constraints = []
@@ -369,8 +386,7 @@ def _minimize(
         chunked = relax_cell or symmetry is not None
         chunk = min(steps_left, _CELL_RELAX_CHUNK) if chunked else steps_left
         if relax_cell:
-            pressure = -np.trace(engine.stress()) / 3 if target.constant_volume else target.pressure
-            lmp.command(f"fix matcalc_box all box/relax {couple} {pressure / BAR_TO_EVA3} vmax 0.001")
+            lmp.command(f"fix matcalc_box all box/relax {couple} {target.pressure / BAR_TO_EVA3} vmax 0.001")
         start = engine.step()
         try:
             with recorder.record(frame) if recorder else contextlib.nullcontext():
@@ -382,8 +398,6 @@ def _minimize(
         steps_left -= used
         if symmetry is not None:
             current, frame = _symmetrize(engine, frame, current, atoms, symmetry, fixed)
-        if target.constant_volume:
-            engine.set_volume(volume)
         if fixed and relax_cell:
             # The minimizer lets fix box/relax shift atoms held by fix setforce; ASE keeps their fractional
             # coordinates, so restore them before checking convergence.

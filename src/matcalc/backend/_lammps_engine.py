@@ -458,14 +458,6 @@ class LAMMPSEngine:
                 except Exception:
                     logger.debug("LAMMPS cleanup command failed: %s", command, exc_info=True)
 
-    def set_volume(self, volume: float) -> None:
-        """Scale the cell (and atoms) isotropically to ``volume``."""
-        cell = self.cell() * (volume / abs(np.linalg.det(self.cell()))) ** (1 / 3)
-        self.lmp.command(
-            f"change_box all x final 0 {cell[0, 0]} y final 0 {cell[1, 1]} z final 0 {cell[2, 2]} "
-            f"xy final {cell[1, 0]} xz final {cell[2, 0]} yz final {cell[2, 1]} remap units box"
-        )
-
     def pin(self, indices: Sequence[int], frame: Frame) -> None:
         """Put atoms ``indices`` back on their loaded fractional coordinates in the current cell."""
         from ctypes import c_double

@@ -493,8 +493,18 @@ def test_relax_calc_options(ar_cell: Atoms, tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="has no LAMMPS equivalent"):
         RelaxCalc(_lj_lammps(), optimizer="GPMin").calc(atoms)
     assert RelaxCalc(_lj_lammps(), fix_symmetry=True, fmax=1e-3, max_steps=2000).calc(atoms)["is_converged"]
-    with pytest.raises(NotImplementedError, match="mask"):
-        RelaxCalc(_lj_lammps(), cell_filter_kwargs={"mask": [1, 1, 0, 0, 0, 0]}).calc(atoms)
+    # Masked cells run with ASE's cell filter (LAMMPS evaluating each step), so they match the ASE backend.
+    mask_kwargs: dict[str, Any] = {"cell_filter_kwargs": {"mask": [1, 1, 0, 0, 0, 0]}, "fmax": 1e-3, "max_steps": 2000}
+    masked = RelaxCalc(_lj_lammps(), **mask_kwargs).calc(atoms)
+    backend.SIMULATION_BACKEND = "ASE"
+    try:
+        masked_ref = RelaxCalc(_lj_ase(), **mask_kwargs).calc(atoms)
+    finally:
+        backend.SIMULATION_BACKEND = "LAMMPS"
+    assert masked["energy"] == pytest.approx(masked_ref["energy"], abs=1e-6)
+    np.testing.assert_allclose(
+        masked["final_structure"].lattice.matrix, masked_ref["final_structure"].lattice.matrix, atol=1e-5
+    )
 
     # Trajectory frames, ending at the relaxed structure.
     traj_file = tmp_path / "relax.traj"
