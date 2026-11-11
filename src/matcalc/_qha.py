@@ -75,7 +75,7 @@ class QHACalc(PropCalc):
         t_max: float = 1000,
         t_min: float = 0,
         pressure: float | Sequence[float] | None = None,
-        fmax: float = 1e-5,
+        fmax: float = 1e-4,
         max_steps: int = 5000,
         optimizer: str = "FIRE",
         eos: Literal["vinet", "birch_murnaghan", "murnaghan"] = "vinet",
@@ -108,7 +108,8 @@ class QHACalc(PropCalc):
             pressure: Pressure in GPa for Gibbs terms. Accepts a single float, a list of
                 floats, or None. When multiple pressures are supplied the phonon calculations
                 are performed only once and the QHA fit is repeated for each pressure.
-            fmax: Force tolerance for relaxations.
+            fmax: Force tolerance for relaxations (eV/Å). Default 1e-4 (previously 1e-5); see
+                ``PhononCalc``. Pass ``fmax=1e-5`` to restore the old behavior.
             max_steps: Max steps per relaxation.
             optimizer: ASE optimizer name.
             eos: EOS key for ``PhonopyQHA``.
