@@ -5326,7 +5326,7 @@ lint = [
 requires-dist = [
     { name = "ase", specifier = ">=3.26.0" },
     { name = "codecov-cli", marker = "extra == 'ci'", specifier = ">=10.3.0" },
-    { name = "coverage", marker = "extra == 'ci'", specifier = ">=7.7.1" },
+    { name = "coverage", marker = "extra == 'ci'", specifier = ">=7.10.0" },
     { name = "coveralls", marker = "extra == 'ci'", specifier = ">=4.0.1" },
     { name = "deepmd-kit", extras = ["torch"], marker = "extra == 'deepmd'", specifier = ">=3.2.0" },
     { name = "fairchem-core", marker = "extra == 'fairchem'", specifier = ">=2" },
@@ -5371,7 +5371,7 @@ provides-extras = ["phonon", "phonon3", "benchmark", "defects", "diffusion", "ma
 [package.metadata.requires-dev]
 dev = [
     { name = "codecov-cli", specifier = ">=10.3.0" },
-    { name = "coverage", specifier = ">=7.7.1" },
+    { name = "coverage", specifier = ">=7.10.0" },
     { name = "coveralls", specifier = ">=4.0.1" },
     { name = "docutils", specifier = ">=0.21.2" },
     { name = "invoke", specifier = ">=2.2.0" },

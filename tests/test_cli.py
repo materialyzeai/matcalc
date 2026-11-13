@@ -162,6 +162,7 @@ def test_cli_unknown_model() -> None:
 
 
 def test_cli_removed_model() -> None:
+    """A removed model name exits with the removal reason and its replacement."""
     result = subprocess.run(
         ["matcalc", "calc", "-s", "structure.cif", "-m", "QET-MatQ"],
         capture_output=True,
@@ -170,6 +171,7 @@ def test_cli_removed_model() -> None:
     )
     assert result.returncode == 2
     assert "'QET-MatQ' was removed" in result.stderr
+    assert "QET-MatPES-r2SCAN-2025.2" in result.stderr
 
 
 @pytest.mark.parametrize("answer", ["y", "n"])
