@@ -251,6 +251,7 @@ check-filenames = true
 
 [tool.coverage.run]
 relative_files = true
+patch = ["subprocess"]
 
 [tool.coverage.report]
 exclude_lines = [

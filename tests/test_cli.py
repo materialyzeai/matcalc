@@ -161,6 +161,17 @@ def test_cli_unknown_model() -> None:
     assert "TensorNet-MatPES-PBE-2025.2" in result.stderr
 
 
+def test_cli_removed_model() -> None:
+    result = subprocess.run(
+        ["matcalc", "calc", "-s", "structure.cif", "-m", "QET-MatQ"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "'QET-MatQ' was removed" in result.stderr
+
+
 @pytest.mark.parametrize("answer", ["y", "n"])
 def test_main_clear_prompts_without_yes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: str) -> None:
     """Without -y/--yes, 'matcalc clear' asks for confirmation and honors the answer."""
