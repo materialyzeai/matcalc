@@ -122,7 +122,7 @@
     <e0 Z="118" value="-.96999999999999997" />
   </GAP_data>
   <gpSparse label="GAP_2020_3_19_-420_18_20_29_102" n_coordinate="2">
-    <gpCoordinates covariance_type="2" dimensions="1225" label="GAP_2020_3_19_-420_18_20_29_1021" n_permutations="1" n_sparseX="200" signal_mean=".00000000000000000E+000" signal_variance="1.0000000000000000" sparseX_filename="tests/pes/GAP-NiMo-2020.3-PES/Ni.soapparam" sparseX_md5sum="ded4919e8f7804772bff79ab9e776c1b" sparsified="T" zeta="4.0000000000000000">
+    <gpCoordinates covariance_type="2" dimensions="1225" label="GAP_2020_3_19_-420_18_20_29_1021" n_permutations="1" n_sparseX="200" signal_mean=".00000000000000000E+000" signal_variance="1.0000000000000000" sparseX_filename="Ni.soapparam" sparseX_md5sum="ded4919e8f7804772bff79ab9e776c1b" sparsified="T" zeta="4.0000000000000000">
       <descriptor>soap l_max=8 n_max=8 atom_sigma=0.5 zeta=4 cutoff=5.0 cutoff_transition_width=0.5 delta=1.0 f0=0.0 n_sparse=200 covariance_type=dot_product sparse_method=cur_points               n_species=2 Z=28 species_Z={28 42 }</descriptor>
       <permutation i="1">1  </permutation>
       <sparseX alpha="60.430679387003572" i="1" sparseCutoff="1.0000000000000000" />
@@ -326,7 +326,7 @@
       <sparseX alpha="14.030193433355484" i="199" sparseCutoff="1.0000000000000000" />
       <sparseX alpha="-26.891938408832949" i="200" sparseCutoff="1.0000000000000000" />
     </gpCoordinates>
-    <gpCoordinates covariance_type="2" dimensions="1225" label="GAP_2020_3_19_-420_18_20_29_1022" n_permutations="1" n_sparseX="200" signal_mean=".00000000000000000E+000" signal_variance="1.0000000000000000" sparseX_filename="tests/pes/GAP-NiMo-2020.3-PES/Mo.soapparam" sparseX_md5sum="a19c3806cba8df57ce4e214b7066fc0f" sparsified="T" zeta="4.0000000000000000">
+    <gpCoordinates covariance_type="2" dimensions="1225" label="GAP_2020_3_19_-420_18_20_29_1022" n_permutations="1" n_sparseX="200" signal_mean=".00000000000000000E+000" signal_variance="1.0000000000000000" sparseX_filename="Mo.soapparam" sparseX_md5sum="a19c3806cba8df57ce4e214b7066fc0f" sparsified="T" zeta="4.0000000000000000">
       <descriptor>soap l_max=8 n_max=8 atom_sigma=0.5 zeta=4 cutoff=5.0 cutoff_transition_width=0.5 delta=1.0 f0=0.0 n_sparse=200 covariance_type=dot_product sparse_method=cur_points               n_species=2 Z=42 species_Z={28 42 }</descriptor>
       <permutation i="1">1  </permutation>
       <sparseX alpha="-484.37444156302229" i="1" sparseCutoff="1.0000000000000000" />
