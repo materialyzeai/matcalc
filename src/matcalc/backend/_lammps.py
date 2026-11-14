@@ -723,7 +723,7 @@ def _npt_coupling(mask: Any) -> str:
         return "aniso"
     mask = np.asarray(mask)
     if mask.shape == (3,):
-        mask = np.diag(mask)
+        mask = np.outer(mask, mask)  # as ase.md.npt.NPT
     if np.array_equal(mask, np.eye(3)):
         return "aniso"
     if np.all(mask == 1):
