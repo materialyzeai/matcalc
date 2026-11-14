@@ -690,6 +690,21 @@ def test_md_npt_fixed_cell() -> None:
 
 @needs_lammps
 @pytest.mark.usefixtures("lammps_backend")
+@pytest.mark.parametrize(
+    ("mask", "shear"), [(None, False), (np.eye(3), False), ((1, 1, 1), True), (np.ones((3, 3)), True)]
+)
+def test_md_npt_mask(mask: tuple | np.ndarray | None, shear: bool) -> None:
+    """A mask of ones, as a 3-vector or a 3x3 array, frees the shear strains as in ASE's NPT."""
+    atoms = bulk("Ar", "fcc", a=5.0, cubic=True).repeat((2, 2, 2))
+    result = _md(_lj_lammps(), atoms, ensemble="npt", pressure=0.0, mask=mask, temperature=20, timestep=5.0, steps=100)
+    cell = np.array(result["trajectory"][-1].cell)
+    assert bool(np.abs(cell - np.diag(np.diag(cell))).max() > 1e-3) is shear
+    with pytest.raises(NotImplementedError, match="NPT masks"):
+        _md(_lj_lammps(), atoms, ensemble="npt", mask=(1, 1, 0), steps=2)
+
+
+@needs_lammps
+@pytest.mark.usefixtures("lammps_backend")
 def test_md_unsupported(ar_supercell: Atoms) -> None:
     with pytest.raises(NotImplementedError, match="Andersen"):
         _md(_lj_lammps(), ar_supercell, ensemble="nvt_andersen", steps=2)
