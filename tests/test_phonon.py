@@ -323,6 +323,7 @@ def test_phonon_calc_unconverged_prerelax_warns(
     phonon_calc = PhononCalc(
         calculator=matpes_calculator,
         supercell_matrix=((2, 0, 0), (0, 2, 0), (0, 0, 2)),
+        fmax=1e-3,
         max_steps=max_steps,
         write_phonon=False,
     )
