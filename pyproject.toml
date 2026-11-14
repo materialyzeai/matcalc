@@ -85,7 +85,7 @@ deepmd = [
 ci = [
     "setuptools<82",  # Required by maml which uses pkg_resources
     "codecov-cli>=10.3.0",
-    "coverage>=7.7.1",
+    "coverage>=7.10.0",
     "coveralls>=4.0.1",
     "ipython>=8.34.0",
     "jupyter>=1.1.1",
@@ -130,7 +130,7 @@ fallback_version = "0.0.0"
 dev = [
     "setuptools<82",  # Required by maml which uses pkg_resources
     "codecov-cli>=10.3.0",
-    "coverage>=7.7.1",
+    "coverage>=7.10.0",
     "coveralls>=4.0.1",
     "docutils>=0.21.2",
     "invoke>=2.2.0",
@@ -251,6 +251,7 @@ check-filenames = true
 
 [tool.coverage.run]
 relative_files = true
+patch = ["subprocess"]
 
 [tool.coverage.report]
 exclude_lines = [
