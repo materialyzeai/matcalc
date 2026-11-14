@@ -10,16 +10,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 from ase import Atoms
+from ase.build import molecule
 from ase.calculators.calculator import Calculator
 
-from matcalc import RelaxCalc, backend
+from matcalc import RelaxCalc, backend, load_fp
 from matcalc.utils import (
+    _MATGL_AVAILABLE,
     _REMOVED_MODELS,
     MODEL_ALIASES,
     MODEL_REGISTRY,
     UNIVERSAL_CALCULATORS,
     PESCalculator,
     _resolve_canonical,
+    to_pmg_molecule,
 )
 
 DIR = Path(__file__).parent.absolute()
@@ -294,6 +297,31 @@ def test_resolve_canonical_variants() -> None:
     assert _resolve_canonical(case_folded_name) == "TensorNet-MatPES-PBE-2025.2"
     # Unknown names resolve to None.
     assert _resolve_canonical("not-a-real-model-xyz") is None
+
+
+@pytest.mark.parametrize(
+    ("package", "name", "extra"),
+    [
+        ("mace", "MACE-MPA-0-medium", "mace"),
+        ("sevenn", "SevenNet-Omni", "sevennet"),
+        ("tensorpotential", "GRACE-SMAX-OMat24-2L-medium", "grace"),
+        ("orb_models", "ORB-OMat24-v3-conservative-inf", "orb"),
+    ],
+)
+def test_load_fp_missing_provider(package: str, name: str, extra: str) -> None:
+    if find_spec(package):
+        pytest.skip(f"{package} is installed")
+    with pytest.raises(ImportError, match=rf"pip install 'matcalc\[{extra}\]'"):
+        load_fp(name)
+
+
+@pytest.mark.skipif(not find_spec("matgl"), reason="matgl is not installed")
+def test_matgl_available() -> None:
+    assert len(_MATGL_AVAILABLE) == len(list(_MATGL_AVAILABLE)) > 0
+
+
+def test_to_pmg_molecule() -> None:
+    assert to_pmg_molecule(molecule("H2O")).composition.reduced_formula == "H2O"
 
 
 def test_install_hint() -> None:
