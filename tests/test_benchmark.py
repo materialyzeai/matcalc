@@ -60,9 +60,12 @@ def test_get_benchmark_data() -> None:
         get_benchmark_data("bad_url")
 
 
+# Benchmarks run with n_jobs=1: under pytest-xdist the default n_jobs=-1 spawns loky workers that each reload the
+# model and compete with the other xdist workers for the CI runner's 4 vCPUs (test_phonon_benchmark: 503 s on CI).
+# Parallel calc_many is covered in test_base.py and test_chain.py.
 def test_equilibrium_benchmark(matpes_calculator: PESCalculator) -> None:
     benchmark = EquilibriumBenchmark(seed=1, n_samples=2)
-    results = benchmark.run(matpes_calculator, "toy")
+    results = benchmark.run(matpes_calculator, "toy", n_jobs=1)
     assert len(results) == 2
     assert results["d_toy"].mean() == pytest.approx(0.2392, abs=1e-1)
     assert np.abs(results["Eform_toy"] - results["Eform_DFT"]).mean() == pytest.approx(0.05689055202524909, abs=1e-1)
@@ -73,7 +76,12 @@ def test_elasticity_benchmark(matpes_calculator: PESCalculator) -> None:
     chkpt_file = "checkpoint.json"
 
     results = benchmark.run(
-        matpes_calculator, "toy", checkpoint_file=chkpt_file, checkpoint_freq=1, delete_checkpoint_on_finish=True
+        matpes_calculator,
+        "toy",
+        n_jobs=1,
+        checkpoint_file=chkpt_file,
+        checkpoint_freq=1,
+        delete_checkpoint_on_finish=True,
     )
 
     # Makes sure that checkpoint file is deleted upon completion.
@@ -87,6 +95,7 @@ def test_elasticity_benchmark(matpes_calculator: PESCalculator) -> None:
     results = benchmark.run(
         matpes_calculator,
         "toy",
+        n_jobs=1,
         checkpoint_file=chkpt_file,
         checkpoint_freq=1,
         delete_checkpoint_on_finish=False,
@@ -105,11 +114,12 @@ def test_elasticity_benchmark(matpes_calculator: PESCalculator) -> None:
 
 def test_phonon_benchmark(matpes_calculator: PESCalculator) -> None:
     # seed=5 samples MgCl2, SiC and P2O5. Avoid soft structures (e.g. TeI at seed=0), whose relaxations at the default
-    # fmax stop at optimizer-dependent points of a flat energy landscape.
-    benchmark = PhononBenchmark(seed=5, n_samples=3)
-    results = benchmark.run(matpes_calculator, "toy")
+    # fmax stop at optimizer-dependent points of a flat energy landscape. min_length=10 cuts the P2O5 supercell from
+    # 1260 to 336 atoms (29 s -> 7 s); C_V changes by <0.15 J/K/mol per structure relative to the default 20 A.
+    benchmark = PhononBenchmark(seed=5, n_samples=3, min_length=10.0)
+    results = benchmark.run(matpes_calculator, "toy", n_jobs=1)
     assert len(results) == 3
-    assert np.abs(results["CV_toy"] - results["CV_DFT"]).mean() == pytest.approx(24.108, abs=3e-1)
+    assert np.abs(results["CV_toy"] - results["CV_DFT"]).mean() == pytest.approx(24.067, abs=3e-1)
 
 
 def test_softening_benchmark(matpes_calculator: PESCalculator) -> None:
@@ -124,13 +134,17 @@ def test_benchmark_suite(matpes_calculator: PESCalculator) -> None:
     elasticity_benchmark.run(
         matpes_calculator,
         "toy1",
+        n_jobs=1,
         checkpoint_freq=1,
         delete_checkpoint_on_finish=False,
     )
     phonon_benchmark = PhononBenchmark(seed=0, n_samples=2)
     suite = BenchmarkSuite(benchmarks=[elasticity_benchmark, phonon_benchmark])
     results = suite.run(
-        {"toy1": matpes_calculator, "toy2": matpes_calculator}, checkpoint_freq=1, delete_checkpoint_on_finish=False
+        {"toy1": matpes_calculator, "toy2": matpes_calculator},
+        n_jobs=1,
+        checkpoint_freq=1,
+        delete_checkpoint_on_finish=False,
     )
     for bench, name in itertools.product(["ElasticityBenchmark", "PhononBenchmark"], ["toy1", "toy2"]):
         assert os.path.exists(f"{bench}_{name}.csv")
