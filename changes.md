@@ -13,12 +13,14 @@ nav_order: 2
    - Semantics match ASE: 3N-DOF thermostat temperatures, COM momentum handling, seeding from NumPy's global RNG, crystal symmetry preserved during cell relaxation (`FixSymmetry` honored), inputs already within `fmax` left unrelaxed. Constant-volume and masked cell relaxations run with ASE's optimizer and cell filter, with LAMMPS evaluating each step.
    - Fixed positions measured from the moving box origin (cell relaxations and NPT frames were rigidly shifted) and MD frame unwrapping for atoms on box faces.
    - **Breaking:** `LAMMPSMDCalc` (AdvanceSoft ML-GNNP) is deprecated and emits a `DeprecationWarning`; use `MDCalc` with `MATCALC_BACKEND=LAMMPS`. `DiffusionCalc` loses its `backend` argument and always runs `MDCalc`.
+   - PR #328 (@rul048): a 3-vector NPT `mask` is expanded with `np.outer`, as in ASE, so `mask=(1, 1, 1)` is a fully flexible cell (shear was frozen).
    - CI runs the full test suite on both backends in the `materialyzeai/matml:latest-kokkos-cpu` image; tests of features the LAMMPS backend lacks are marked `ase_only`.
 2. **Behavior changes to defaults** by @shyuep
    - PR #311: `matcalc calc` without `-m` now uses `TensorNet-MatPES-r2SCAN-2025.2` (was the PBE variant). Pass `-m pbe` for the old behavior.
    - PR #312: `EnergeticsCalc(elemental_refs=None)` infers the reference set from the model name (r2SCAN models get `MatPES-r2SCAN`; PBE models and unrecognized names get `MatPES-PBE`, the latter with a warning). Previously r2SCAN potentials were silently paired with PBE references (Si E_coh with TensorNet-MatPES-r2SCAN: -7.83 -> -4.55 eV/atom).
    - PR #314: NPT `pfactor` is passed to ASE unchanged (ASE units), default `(75 fs)^2 * 100 GPa`; it was previously multiplied by `units.fs`, giving a ~16x slower barostat. `pfactor=None` disables the barostat. Langevin `friction` default is now `0.01 / units.fs` (was `1e-3`, effectively no thermostat).
    - PR #310: `RelaxCalc.is_converged` uses the optimizer's verdict, which includes the cell stress. Pre-relaxations that stop with an unconverged cell now raise `RuntimeError` instead of feeding an unrelaxed cell to elastic, EOS, phonon or QHA calculations. `SimulationResult` gains `converged`.
+   - PR #313: pre-relaxation `fmax` default for `PhononCalc`/`QHACalc` is 1e-4 eV/Å (was 1e-5, at the float32 force-noise floor of foundation potentials; LiFePO4 with TensorNet-MatPES-r2SCAN could end marginally unconverged, making `QHACalc` raise). 1.5-2.4x fewer relaxation steps; F, S, C_v at 300 K change <0.01%. `Phonon3Calc` default is 1e-3 eV/Å (was 0.1, an FC error comparable to the force constants). `PhononCalc` warns when its pre-relaxation does not converge. Pass the old `fmax` to restore previous behavior.
    - PR #300: NPT honors the user `pressure` (`external_stress` defaulted to 0). With `append_trajectory=True`, only frames from the current run enter the averaging window.
 3. **Correctness fixes in property calculators** by @shyuep
    - PR #295 `ElasticityCalc`: `symmetry=True` no longer raises `KeyError` when the reduction drops a strain state; `r2_score_mean` is a pooled R² over symmetry-allowed C_ij (the spurious low-R² warning is gone); `residuals_sum` has squared units; deformed-structure stresses reused from the relaxation.
@@ -41,6 +43,8 @@ nav_order: 2
    - PR #292 CLI: `matcalc clear -y` no longer inverted; bare `matcalc` prints usage; YAML output round-trips MSONables.
    - PR #299: faster `LAMMPSMDCalc` trajectory parsing (~70x per frame).
    - PR #309: tests wipe model caches only when `MATCALC_TEST_CLEAR_CACHE=1`.
+   - PR #322, #324 (@rul048): `maml>=2026.11.12` in the `ci` extra and `dev` group; GAP test potential updated for its `sparseX_filename` resolution.
+   - PR #325, #329, #330 (@rul048): CLI subprocess coverage measured (`_cli.py` at 100%); tests for removed model names, provider install hints, `to_pmg_molecule` and the MatGL model list.
 5. **Removed models** by @shyuep
    - `QET-MatQ` removed in favor of `QET-MatPES-{PBE,r2SCAN}-2025.2`; `TensorNet-PES-ANI-1x-Subset` no longer provided by MatGL.
 
