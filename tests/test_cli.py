@@ -29,12 +29,12 @@ def test_clear_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert not matcalc.config.BENCHMARK_DATA_DIR.exists()
 
 
-def test_calculate_property(LiFePO4: Structure) -> None:
+def test_calculate_property(Si: Structure) -> None:
     args = namedtuple("args", ["model", "property", "structure", "outfile", "verbose"])  # noqa: PYI024
 
     with ScratchDir(".") as _:
         cif_file = "cli_test.cif"
-        LiFePO4.to(filename=cif_file)
+        Si.to(filename=cif_file)
         a = args(
             model="TensorNet",
             property="ElasticityCalc",
