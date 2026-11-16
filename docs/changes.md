@@ -6,6 +6,151 @@ nav_order: 2
 
 # Change Log
 
+## v0.8.0
+1. **PR #317 Full LAMMPS backend (`MATCALC_BACKEND=LAMMPS`)** by @shyuep, @rul048
+   - Static calculations, relaxations (`minimize` + `fix box/relax`, judged by ASE's `FrechetCellFilter` criterion) and all `MDCalc` ensembles run in an in-process LAMMPS instance. Previously `run_lammps` was a stub and most `PropCalc`s failed on this backend.
+   - MatGL TensorNet/M3GNet run through MatGL's `pair_style matgl` (`matgl/kk` with Kokkos via `MATCALC_LAMMPS_ARGS`); maml potentials and arbitrary force fields via `LAMMPSCalculator`. New `utils.resolve_model`, split from `load_universal`.
+   - Semantics match ASE: 3N-DOF thermostat temperatures, COM momentum handling, seeding from NumPy's global RNG, crystal symmetry preserved during cell relaxation (`FixSymmetry` honored), inputs already within `fmax` left unrelaxed. Constant-volume and masked cell relaxations run with ASE's optimizer and cell filter, with LAMMPS evaluating each step.
+   - Fixed positions measured from the moving box origin (cell relaxations and NPT frames were rigidly shifted) and MD frame unwrapping for atoms on box faces.
+   - **Breaking:** `LAMMPSMDCalc` (AdvanceSoft ML-GNNP) is deprecated and emits a `DeprecationWarning`; use `MDCalc` with `MATCALC_BACKEND=LAMMPS`. `DiffusionCalc` loses its `backend` argument and always runs `MDCalc`.
+   - PR #328 (@rul048): a 3-vector NPT `mask` is expanded with `np.outer`, as in ASE, so `mask=(1, 1, 1)` is a fully flexible cell (shear was frozen).
+   - CI runs the full test suite on both backends in the `materialyzeai/matml:latest-kokkos-cpu` image; tests of features the LAMMPS backend lacks are marked `ase_only`.
+2. **Behavior changes to defaults** by @shyuep
+   - PR #311: `matcalc calc` without `-m` now uses `TensorNet-MatPES-r2SCAN-2025.2` (was the PBE variant). Pass `-m pbe` for the old behavior.
+   - PR #312: `EnergeticsCalc(elemental_refs=None)` infers the reference set from the model name (r2SCAN models get `MatPES-r2SCAN`; PBE models and unrecognized names get `MatPES-PBE`, the latter with a warning). Previously r2SCAN potentials were silently paired with PBE references (Si E_coh with TensorNet-MatPES-r2SCAN: -7.83 -> -4.55 eV/atom).
+   - PR #314: NPT `pfactor` is passed to ASE unchanged (ASE units), default `(75 fs)^2 * 100 GPa`; it was previously multiplied by `units.fs`, giving a ~16x slower barostat. `pfactor=None` disables the barostat. Langevin `friction` default is now `0.01 / units.fs` (was `1e-3`, effectively no thermostat).
+   - PR #310: `RelaxCalc.is_converged` uses the optimizer's verdict, which includes the cell stress. Pre-relaxations that stop with an unconverged cell now raise `RuntimeError` instead of feeding an unrelaxed cell to elastic, EOS, phonon or QHA calculations. `SimulationResult` gains `converged`.
+   - PR #313: pre-relaxation `fmax` default for `PhononCalc`/`QHACalc` is 1e-4 eV/Å (was 1e-5, at the float32 force-noise floor of foundation potentials; LiFePO4 with TensorNet-MatPES-r2SCAN could end marginally unconverged, making `QHACalc` raise). 1.5-2.4x fewer relaxation steps; F, S, C_v at 300 K change <0.01%. `Phonon3Calc` default is 1e-3 eV/Å (was 0.1, an FC error comparable to the force constants). `PhononCalc` warns when its pre-relaxation does not converge. Pass the old `fmax` to restore previous behavior.
+   - PR #300: NPT honors the user `pressure` (`external_stress` defaulted to 0). With `append_trajectory=True`, only frames from the current run enter the averaging window.
+3. **Correctness fixes in property calculators** by @shyuep
+   - PR #295 `ElasticityCalc`: `symmetry=True` no longer raises `KeyError` when the reduction drops a strain state; `r2_score_mean` is a pooled R² over symmetry-allowed C_ij (the spurious low-R² warning is gone); `residuals_sum` has squared units; deformed-structure stresses reused from the relaxation.
+   - PR #305 `RelaxCalc`: `relax_atoms=False, relax_cell=True` now relaxes the cell (was a silent single point); `fix_atoms` accepts NumPy index arrays.
+   - PR #288 `AdsorptionCalc`: uses the relaxed slab energy (adsorption energies were too negative by the slab relaxation energy); clean slab and adsorbate relaxed once rather than per site.
+   - PR #298 `InterfaceCalc`, #307 `SurfaceCalc`, #297 `GBCalc`, #315: interfaces and slabs are built from the relaxed bulk; GB CSL angles use the generator's lattice type (trigonal crystals were treated as tetragonal); bulk relaxations go through `_check_and_prelax`, so unconverged bulks raise.
+   - PR #294 `DiffusionCalc`: conductivity uses the mobile ion's oxidation state (new `charge` kwarg). Ag+/Cu+ and O2- conductivities were overestimated 100x and 4x.
+   - PR #302 `OrderCalc`: species stay on their own sublattice; MC energies cached per ordering.
+   - PR #304 `QHACalc`: temperature grid taken from phonopy (fixes `IndexError` when `t_max - t_min` is not a multiple of `t_step`); pressure suffix applied to the file name only.
+   - PR #296 `EOSCalc`: user `cell_filter_kwargs` (e.g. cell masks) kept at constant volume.
+   - PR #301 `NEBCalc`: image keys sorted numerically; endpoints evaluated once.
+   - PR #293 `DefectCalc`, #306 `EnergeticsCalc`: elemental reference energies cached and invalidated correctly when the calculator or relaxation settings change.
+   - PR #308 maml `PESCalculator`: stress sign, Voigt order and default unit (eV/Å³) fixed (stresses were 160x too large); `load_universal` accepts `Path`. MatGL model listing deferred, so `import matcalc` no longer imports torch or queries the HF Hub.
+   - PR #303 `PhononCalc`: imaginary-mode percentage printed with two decimals.
+4. **Parallel execution and infrastructure** by @shyuep
+   - PR #290: `ChainedCalc.calc_many` runs the whole chain per structure in one job (fixes a deadlock with `n_jobs > 1`); `_units` no longer polluted by upstream results.
+   - PR #316: `calc_many` caps loky worker threads when `OMP/MKL_NUM_THREADS` are inherited from the environment (up to 4.9x faster on clusters).
+   - PR #289: `run_ase` max-steps warning uses the optimizer verdict and is emitted once.
+   - PR #291 `Benchmark`: checkpoints validated on resume and written atomically; user kwargs override defaults; sampling uses a local RNG.
+   - PR #292 CLI: `matcalc clear -y` no longer inverted; bare `matcalc` prints usage; YAML output round-trips MSONables.
+   - PR #299: faster `LAMMPSMDCalc` trajectory parsing (~70x per frame).
+   - PR #309: tests wipe model caches only when `MATCALC_TEST_CLEAR_CACHE=1`.
+   - PR #322, #324 (@rul048): `maml>=2026.11.12` in the `ci` extra and `dev` group; GAP test potential updated for its `sparseX_filename` resolution.
+   - PR #325, #329, #330 (@rul048): CLI subprocess coverage measured (`_cli.py` at 100%); tests for removed model names, provider install hints, `to_pmg_molecule` and the MatGL model list.
+5. **Removed models** by @shyuep
+   - `QET-MatQ` removed in favor of `QET-MatPES-{PBE,r2SCAN}-2025.2`; `TensorNet-PES-ANI-1x-Subset` no longer provided by MatGL.
+
+## v0.7.0
+1. **PR #271 New `DiffusionCalc` for diffusivity and ionic conductivity** by @rul048
+   - Wraps pymatgen's `DiffusionAnalyzer`; runs MD via `MDCalc` or `LAMMPSMDCalc`, or analyses an existing `trajectory` in the input dict (e.g. after `MDCalc` in a `ChainedCalc`). Requires the new `diffusion` extra.
+   - `MDCalc` accepts a velocity `seed`. `LAMMPSMDCalc` gains `seed`, `equilibration_frames`, `set_com_stationary` and `set_zero_rotation` (defaults preserve previous behavior).
+   - `LAMMPSMDCalc` fixes: element order in `pair_coeff`/`dump_modify` follows the data-file type order, raises when `lmp` fails, averages energies over returned frames, returns the last frame as `final_structure` and all frames by default (`frames=None`), matching `MDCalc`.
+2. **PR #272 New `DefectCalc` for neutral point-defect formation energies** by @rul048
+   - `calc_defects` relaxes the bulk and generates vacancies, substitutions, antisites and interstitials (given coordinates, or Voronoi sites via the new `defects` extra); `calc` evaluates a single defect structure.
+   - `NEBCalc.calc_endpoints` relaxes both endpoints at fixed cell.
+   - Fixed `NEBCalc.calc_images` to interpolate along the shortest periodic displacement (`pbc=True`).
+   - **Breaking:** the `NEBCalc` result key `force` previously held the final-minus-initial energy; that value is now `reaction_energy`, and `force` holds the NEB image forces (eV/Å).
+3. **PR #273 Adhesion energy in `InterfaceCalc`** by @rul048
+   - `adhesion_energy=True` returns `(E_film_slab + E_substrate_slab - E_interface) / A` (eV/Å²). New `calc_slab` and `calc_bulk` helpers; `relax_slab` (default True) relaxes slabs at fixed cell.
+   - **Behavior change:** `interfacial_energy` is now the energy of a single film/substrate contact, `film_surface_energy + substrate_surface_energy - adhesion_energy`, and costs two extra fixed-cell slab relaxations. `calc` needs `film_slab`/`substrate_slab` or an `Interface` with `interface_label`; the composition-based atom-count fallback is removed. `interfacial_energy=False` skips bulk inputs entirely.
+4. **PR #270 Unified foundation potential names and fixed model loading** by @rul048
+   - Naming convention `<Architecture>-<Dataset>[-<Functional>]-<Version>[-<Variant>]`, with `<A>-ft-<B>` for fine-tuned models. Old names remain as case-insensitive aliases (e.g. `SevenNet-0` -> `SevenNet-MPtrj-0`, `MACE-MP-0-medium` -> `MACE-MPtrj-0a-medium`).
+   - New models: `QET-MatPES-{PBE,r2SCAN}-2025.2`, `QET-MatQ`, `TensorNet-MatPES-{PBE,r2SCAN}-2025.2-m`, `M3GNet-MatPES-r2SCAN-2025.2`, `MACE-MH-{0,1}`, `SevenNet-Omni{,-i8,-i12}`, 26 GRACE models, and more.
+   - Loader fixes for M3GNet MatPES 2025.2 (matgl >= 4.1.0), SevenNet `OAM-MF` modal, GRACE r6, ORB (orb-models >= 0.6 API), DeePMD built-in names; PET models now load via `upet`.
+   - `load_universal` and `LAMMPSMDCalc` accept a local MatGL model directory; the CLI accepts any canonical name or alias and suggests close matches.
+   - `invoke make-docs` generates `docs/models.md` from the registry.
+   - **Breaking:** removed `M3GNet-MatPES-PBE-2025.1`, `PETMAD-1.0.0`, `DPA3-LAM-2025.3.14` (error names the replacement). Alias targets changed for `m3gnet`, `sevennet`, `grace`, `tensorpotential`, `orb`, `uma`, `fairchem`, `deepmd`. Extra `matcalc[petmad]` renamed to `matcalc[upet]`; ORB requires Python >= 3.12. Minimum versions bumped for matgl, mace-torch, sevenn, fairchem-core, deepmd-kit, orb-models.
+5. **PR #269 MC and phonon rattle in `PhononCalc`; fixed random rattle** by @rul048
+   - Each imaginary-mode correction retry now draws fresh displacements (new `seed`, default 42). New `rattle_stdev` (default 0.01 Å).
+   - `rattle_method="mc"` and `rattle_method="phonon"` (optionally with `rattle_temperature`), adapted from hiphive. Default remains `"random"`.
+6. **PR #268 `QHACalc` `write_energy_volume` option** by @rul048
+   - Writes `e-v.dat` in `phonopy-qha` format so the QHA can be redone without new MLIP calculations.
+7. **PR #284 / #285 `relax_calc_kwargs` now override all `RelaxCalc` arguments** by @shyuep
+   - New `PropCalc._relaxer` builds every internal `RelaxCalc`; passing keys such as `fmax` or `relax_cell` in `relax_calc_kwargs` no longer raises `TypeError`. `DefectCalc` uses it directly, so `relax_calc_kwargs` also override `relax_cell`/`relax_atoms` there.
+   - Foundation potential loader smoke tests moved to a path-triggered `test-fp-loaders.yml` workflow.
+8. **PR #283 Tests run in parallel with pytest-xdist** by @shyuep
+   - Per-test `tmp_path` isolation, controller-only cache setup, and fixes for order-dependent tests. CI suite time drops from ~290 s to ~60–70 s.
+9. Test coverage improvements for CLI, MD, NEB, backend dispatch, surface, utils, interface, adsorption and stability modules (PRs #274–#282) by @shyuep.
+
+## v0.6.0
+1. **PR #224 New `OrderCalc` for Monte Carlo ordering of disordered structures** by @shyuep
+   - Builds a random ordering commensurate with site occupancies (partial occupancy < 1 treated as vacancies), then runs Metropolis MC swaps on disordered sites using the PES calculator.
+   - Supports early stopping (`patience`), multiple parallel chains (`n_init`, `n_jobs`), and returning the `n_lowest` distinct orderings (`lowest_structures` / `lowest_energies`).
+   - `OrderCalc` now handles `Element` and `DummySpecies` sites in addition to `Species` (@rul048).
+2. **PR #267 Default CHGNet switched to the 1M MatPES models** by @YiqingChen524
+   - Registered `CHGNet-MatPES-PBE-1M-2026.9` and `CHGNet-MatPES-r2SCAN-1M-2026.9`; the `chgnet` alias and LAMMPS alias now point to them. The 2.7M `2025.2.10` names still resolve.
+3. **PR #263 Added `UMA-S-1.2.1` to the model registry** by @Andrew-S-Rosen
+4. **PR #233 Switch from deprecated phonopy dictionaries to attributes; `phono3py` now optional** by @Andrew-S-Rosen, @rul048
+   - Install via the `phonon3` extra (`pip install matcalc[phonon3]`). Minimum versions bumped to `phonopy>=4.2.0` and `phono3py>=4.2.0`.
+   - `PhononCalc` builds the `thermal_properties` dict directly instead of the deprecated `get_thermal_properties_dict()`.
+5. **PR #230 `PhononCalc` / `QHACalc` use `primitive_matrix="P"` instead of `"auto"`** by @Andrew-S-Rosen
+6. **PR #227 Reverted the QHA volume-drift skip**: a volume change during fixed-cell relaxation raises again rather than silently dropping the scale factor. By @Andrew-S-Rosen
+7. **PR #234 Fixed `QHACalc` units**: `gibbs_free_energies` is in eV, not kJ/mol (docstring and `_units`). By @Andrew-S-Rosen
+8. **PR #242 Renamed `PropCalc._prerelax` to `_check_and_prelax`** by @shyuep
+9. Docs: `ElasticityCalc` examples use `units_GPa=True` (PR #243); added citation info for Andrew Rosen (PR #266).
+
+## v0.5.1
+1. CI hygiene: drop `dgl` install pin from all GitHub Actions workflows (matgl now resolves its own backend); fix `release.yml` permissions/`secrets: inherit` so the reusable `test.yml` call satisfies the subset rule and PyPI trusted publishing works.
+
+## v0.5.0
+1. **`RelaxCalc` convergence checks.**
+   - `RelaxCalc.calc` surfaces `is_converged` and `max_force` in its result dict.
+   - `PropCalc._prerelax` raises `RuntimeError` when the pre-relaxation fails to converge, instead of silently feeding an unrelaxed structure into downstream property calcs.
+   - `RelaxCalc` now copies the structure before perturbing, eliminating a caller-mutation hazard.
+2. **PR #218 Extract `PropCalc._prerelax` helper; fold relax boilerplate** by @shyuep
+   - Centralises the `if self.relax_structure: relaxer = RelaxCalc(...); result |= relaxer.calc(structure); structure = result['final_structure']` pattern duplicated across `_phonon3`, `_eos`, `_qha`, `_md`, `_stability`, and `_elasticity`.
+3. **PR #210 / #85 Fix `youngs_modulus` and add `_units` metadata across all `PropCalc`s** by @shyuep
+   - Self-consistent `youngs_modulus` computation; every `PropCalc` result now carries a `_units` dict, with assertions in the test suite.
+4. **`Phonon3Calc` adapted to the new phono3py conductivity API.**
+5. **Foundation potential model naming unified.** UMA model names updated to match FAIRChem upstream; CHGNet alias typo fixed; small registry cleanups.
+
+## v0.4.8
+1. Updated the Hugging Face organization to `materialyze` (lower case).
+
+## v0.4.7
+1. **`ElasticityCalc` can now return moduli in GPa.**
+   - Added a new `units_GPa` keyword argument (default `False`). When set to `True`, the returned `elastic_tensor`, `bulk_modulus_vrh`, `shear_modulus_vrh`, and `residuals_sum` are converted from pymatgen's native eV/A^3 units to GPa.
+2. **Bug fix in `EOSCalc`.**
+   - Fixed a variable shadowing issue where the loop-local relaxation result was overwriting the outer merged `result` dict, causing the merged relaxation/structure fields returned by `EOSCalc.calc` to come from a strained calculation rather than the originally relaxed input structure.
+
+## v0.4.6
+1. **PR #199 Add `GBCalc` Class for Grain Boundary Calculation** (originally PR #111)
+   - Author: @rul048
+   - Description: Adds `GBCalc` for generating grain boundary structures and computing grain boundary energies, complementing the existing `SurfaceCalc` and `InterfaceCalc` classes.
+2. **PR #203 Multiple pressure support in `QHACalc`**
+   - Author: @Andrew-S-Rosen
+   - Description: Adds support for evaluating multiple pressures in the quasi-harmonic approximation workflow.
+3. **PR #174, #176, #163 Phonon and QHA refactor**
+   - Author: @Andrew-S-Rosen
+   - Description: Significant refactor of `PhononCalc` and `QHACalc` for clearer logic, more consistent relaxation settings, better error handling, and improved typing.
+   - Description: Adds detection and improved handling of imaginary phonon modes.
+   - Description: Fixes `PhononCalc` handling of `Atoms` inputs and supercell generation, and exposes a `min_length` kwarg for supercell sizing.
+   - Description: Allows users to toggle `symprec` in `Phonopy` calls and sets `primitive_matrix="auto"` by default.
+4. **PR #158 Consistent relaxation settings in `QHACalc`**
+   - Author: @Andrew-S-Rosen
+   - Description: Relaxes atomic positions in the QHA workflow and ensures consistent settings between relaxations.
+5. **PR #179 Allow fixing symmetry or specific atoms during relaxation**
+   - Author: @rul048
+   - Description: Adds support in `RelaxCalc` for fixing symmetry or specifying particular atoms to be held fixed during relaxation.
+6. **PR #161 / #206 Better handling when relaxations hit max steps**
+    - Author: @Andrew-S-Rosen
+    - Description: Logs (instead of warning) when a relaxation reaches its maximum step count, making the behavior easier to track in long-running workflows.
+7. **PR #189 Remove upper triangular cell call in NVT ensemble**
+    - Author: @Andrew-S-Rosen
+    - Description: Avoids unnecessary cell transformation in `MDCalc` NVT runs.
+8. **PR #136 Default NEB method to `improvedtangent`**
+    - Author: @rul048
+    - Description: Changes the default NEB method to `improvedtangent` for more reliable minimum energy paths.
+9. Replaced the custom `TrajectoryObserver` with ASE's native trajectory observer.
+
 ## v0.4.5
 1. **PR #117 Add `InterfaceCalc` Class for Interface Structure and Energy Calculation**
    - Author: @so2koo
