@@ -10,7 +10,7 @@ authors = [
 description = "Calculators for materials properties from the potential energy surface."
 readme = "README.md"
 dynamic = ["version"]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 keywords = [
     "AI",
     "deep learning",
@@ -28,7 +28,6 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Chemistry",
@@ -67,7 +66,7 @@ grace = [
     "tensorpotential>=0.5.1",
 ]
 orb = [
-    "orb-models>=0.6.0; python_version >= '3.12'",
+    "orb-models>=0.6.0",
     "pynanoflann>=0.10.0",
 ]
 mattersim = [

@@ -6,7 +6,7 @@ width="200" alt="MatCalc" style="vertical-align: middle;" /><br>
 [![Test](https://github.com/materialyzeai/matcalc/workflows/Test/badge.svg)](https://github.com/materialyzeai/matcalc/workflows/Test/badge.svg)
 [![Lint](https://github.com/materialyzeai/matcalc/workflows/Lint/badge.svg)](https://github.com/materialyzeai/matcalc/workflows/Lint/badge.svg)
 [![codecov](https://codecov.io/gh/materialyzeai/matcalc/branch/main/graph/badge.svg?token=OR7Z9WWRRC)](https://codecov.io/gh/materialyzeai/matcalc)
-[![Requires Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg?logo=python&logoColor=white)](https://python.org/downloads)
+[![Requires Python 3.12+](https://img.shields.io/badge/Python-3.12+-blue.svg?logo=python&logoColor=white)](https://python.org/downloads)
 [![PyPI](https://img.shields.io/pypi/v/matcalc?logo=pypi&logoColor=white)](https://pypi.org/project/matcalc?logo=pypi&logoColor=white)
 [![GitHub license](https://img.shields.io/github/license/materialyzeai/matcalc)](https://github.com/materialyzeai/matcalc/blob/main/LICENSE)
 
