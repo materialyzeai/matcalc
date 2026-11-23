@@ -7,12 +7,14 @@ import gzip
 import json
 import logging
 import random
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 from huggingface_hub import HfApi, hf_hub_download
+from joblib import Parallel, delayed, parallel_config
 from matminer.featurizers.site import CrystalNNFingerprint
 from matminer.featurizers.structure import SiteStatsFingerprint
 from monty.json import MontyDecoder
@@ -28,6 +30,7 @@ if TYPE_CHECKING:
 
     from ._base import PropCalc
 
+from ._base import _worker_thread_cap
 from ._elasticity import ElasticityCalc
 from ._phonon import PhononCalc
 from ._relaxation import RelaxCalc
@@ -744,6 +747,48 @@ class SofteningBenchmark:
         popt, _ = curve_fit(linear_model, x, y)
         return popt[0]
 
+    @classmethod
+    def _calc_material(
+        cls, material_id: str, frames: dict[str, Any], calculator: Calculator, model_name: str
+    ) -> tuple[dict, str | None]:
+        """
+        Evaluate the forces of all frames of one material and fit the softening scale.
+
+        Args:
+            material_id: Id of the material.
+            frames: Frames of the material, each with a ``structure`` and its DFT forces ``vasp_f``.
+            calculator: ASE calculator for force evaluation.
+            model_name: Column suffix for softening scale.
+
+        Returns:
+            Row with ``material_id``, ``formula``, ``softening_scale_{model_name}`` and ``raw_force_predictions``,
+            and the error message; if the calculation fails, the last two entries of the row are ``None``.
+        """
+        test_structure = next(iter(frames.values()))["structure"]
+        error = None
+
+        try:
+            force_ground_truth, force_prediction = [], []
+            for frame in frames.values():
+                r = run_pes_calc(frame["structure"], calculator)
+                forces = r.forces.tolist()
+                force_prediction.append(forces)
+                force_ground_truth.append(frame["vasp_f"])
+
+            softening_scale = cls.get_linear_fitted_slope(force_ground_truth, force_prediction)
+        except Exception as exc:  # noqa: BLE001
+            error = f"({type(exc).__name__}): {exc}"
+            softening_scale = None
+            force_prediction = None
+
+        row = {
+            "material_id": material_id,
+            "formula": test_structure.composition.reduced_formula,
+            f"softening_scale_{model_name}": softening_scale,
+            "raw_force_predictions": force_prediction,
+        }
+        return row, error
+
     def run(
         self,
         calculator: Calculator,
@@ -751,6 +796,8 @@ class SofteningBenchmark:
         checkpoint_file: str | Path | None = None,
         checkpoint_freq: int = 10,
         *,
+        n_jobs: int | None = None,
+        delete_checkpoint_on_finish: bool = False,
         include_full_results: bool = False,
     ) -> pd.DataFrame:
         """
@@ -764,6 +811,8 @@ class SofteningBenchmark:
             model_name: Column suffix for softening scale.
             checkpoint_file: Optional resume path.
             checkpoint_freq: Checkpoint every N materials completed.
+            n_jobs: ``joblib`` worker count for evaluating the materials in parallel; ``None`` uses joblib defaults.
+            delete_checkpoint_on_finish: Remove checkpoint file after success.
             include_full_results: Keep ``raw_force_predictions`` column when True.
 
         Returns:
@@ -777,39 +826,21 @@ class SofteningBenchmark:
             results, material_ids = checkpoint.load(self.material_ids)
             _check_checkpoint_ids([r.get("material_id") for r in results], self.material_ids, checkpoint.path)
 
-        for material_id in material_ids:
-            frames = self.data[material_id]
-            test_structure = next(iter(frames.values()))["structure"]
-
-            try:
-                force_ground_truth, force_prediction = [], []
-                for frame in frames.values():
-                    r = run_pes_calc(frame["structure"], calculator)
-                    forces = r.forces.tolist()
-                    force_prediction.append(forces)
-                    force_ground_truth.append(frame["vasp_f"])
-
-                softening_scale = self.get_linear_fitted_slope(force_ground_truth, force_prediction)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "SofteningBenchmark: failed for material_id=%s (%s): %s",
-                    material_id,
-                    type(exc).__name__,
-                    exc,
-                )
-                softening_scale = None
-                force_prediction = None
-
-            results.append(
-                {
-                    "material_id": material_id,
-                    "formula": test_structure.composition.reduced_formula,
-                    f"softening_scale_{model_name}": softening_scale,
-                    "raw_force_predictions": force_prediction,
-                }
+        cap = _worker_thread_cap(n_jobs, {})
+        with parallel_config(backend="loky", inner_max_num_threads=cap) if cap else nullcontext():
+            rows = Parallel(n_jobs=n_jobs, return_as="generator")(
+                delayed(self._calc_material)(material_id, self.data[material_id], calculator, model_name)
+                for material_id in material_ids
             )
+        for material_id, (row, error) in zip(material_ids, rows, strict=True):
+            if error:
+                logger.warning("SofteningBenchmark: failed for material_id=%s %s", material_id, error)
+            results.append(row)
             if checkpoint and (len(results) % checkpoint_freq == 0 or material_id == self.material_ids[-1]):
                 checkpoint.save(results)
+
+        if checkpoint and delete_checkpoint_on_finish:
+            checkpoint.path.unlink(missing_ok=True)
 
         if include_full_results:
             results_df = pd.DataFrame(results)

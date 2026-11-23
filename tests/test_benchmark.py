@@ -129,6 +129,78 @@ def test_softening_benchmark(matpes_calculator: PESCalculator) -> None:
     assert "softening_scale_toy" in results
 
 
+@pytest.fixture
+def softening_dataset(tmp_path: Path, Si: Structure) -> Path:
+    data = {}
+    for material_id, shifts, n_ref in [("wbm-1", [0.1, 0.2], 2), ("wbm-2", [0.15, 0.25], 1), ("wbm-3", [0.05, 0.3], 2)]:
+        frames = {}
+        for i, shift in enumerate(shifts):
+            structure = Si.copy()
+            structure.translate_sites([0], [shift, 0, 0], frac_coords=False)
+            vasp_f = np.zeros((n_ref, 3))
+            vasp_f[0, 0] = -shift
+            vasp_f[-1, 0] += shift
+            frames[str(i)] = {"structure": structure, "vasp_f": vasp_f.tolist()}
+        data[material_id] = frames
+    path = tmp_path / "softening.json.gz"
+    dumpfn(data, path)
+    return path
+
+
+def test_softening_benchmark_parallel(
+    softening_dataset: Path, matpes_calculator: PESCalculator, caplog: pytest.LogCaptureFixture
+) -> None:
+    benchmark = SofteningBenchmark(benchmark_name=softening_dataset)
+    serial = benchmark.run(matpes_calculator, "toy", include_full_results=True)
+    caplog.clear()
+    parallel = benchmark.run(matpes_calculator, "toy", n_jobs=2, include_full_results=True)
+    assert "failed for material_id=wbm-2" in caplog.text
+    assert list(serial.columns) == ["material_id", "formula", "softening_scale_toy", "raw_force_predictions"]
+    assert list(parallel.columns) == list(serial.columns)
+    assert list(parallel["material_id"]) == list(serial["material_id"]) == ["wbm-1", "wbm-2", "wbm-3"]
+    assert np.isnan(serial["softening_scale_toy"][1])
+    assert parallel["softening_scale_toy"].to_numpy() == pytest.approx(
+        serial["softening_scale_toy"].to_numpy(), rel=1e-4, nan_ok=True
+    )
+    assert parallel["raw_force_predictions"][1] is None
+    for i in (0, 2):
+        assert np.array(parallel["raw_force_predictions"][i]) == pytest.approx(
+            np.array(serial["raw_force_predictions"][i]), abs=1e-4
+        )
+
+
+def test_softening_benchmark_checkpoint(softening_dataset: Path, matpes_calculator: PESCalculator) -> None:
+    benchmark = SofteningBenchmark(benchmark_name=softening_dataset)
+    full = benchmark.run(matpes_calculator, "toy", checkpoint_file="checkpoint.json", checkpoint_freq=2)
+    checkpoint = CheckpointFile("checkpoint.json")
+    rows, *_ = checkpoint.load()
+    assert [r["material_id"] for r in rows] == ["wbm-1", "wbm-2", "wbm-3"]
+
+    rows[0]["softening_scale_toy"] = -1.0
+    checkpoint.save(rows[:1])
+    resumed = benchmark.run(
+        matpes_calculator,
+        "toy",
+        checkpoint_file="checkpoint.json",
+        checkpoint_freq=2,
+        delete_checkpoint_on_finish=True,
+    )
+    assert list(resumed["material_id"]) == ["wbm-1", "wbm-2", "wbm-3"]
+    assert resumed["softening_scale_toy"][0] == -1.0
+    assert np.isnan(resumed["softening_scale_toy"][1])
+    assert resumed["softening_scale_toy"][2] == pytest.approx(full["softening_scale_toy"][2], rel=1e-4)
+    assert not checkpoint.path.exists()
+
+
+def test_softening_benchmark_in_suite(softening_dataset: Path, matpes_calculator: PESCalculator) -> None:
+    suite = BenchmarkSuite([SofteningBenchmark(benchmark_name=softening_dataset)])
+    results = suite.run({"toy": matpes_calculator}, n_jobs=1)
+    assert len(results) == 1
+    assert list(results[0]["material_id"]) == ["wbm-1", "wbm-2", "wbm-3"]
+    assert np.isfinite(results[0]["softening_scale_toy"][0])
+    assert not os.path.exists("SofteningBenchmark_toy.csv")
+
+
 def test_benchmark_suite(matpes_calculator: PESCalculator) -> None:
     elasticity_benchmark = ElasticityBenchmark(seed=0, n_samples=2, benchmark_name="mp-pbe-elasticity-2025.3.json.gz")
     elasticity_benchmark.run(
