@@ -81,6 +81,7 @@ def test_adsorption_calc_slab_inputs(
         "slab": Pt_slab,
         "adsorbate": CO2,
         "adslab": Pt_adslab,
+        "_units": {"energy": "eV"},
     } | test_input
 
     ad_calc = AdsorptionCalc(
@@ -95,6 +96,14 @@ def test_adsorption_calc_slab_inputs(
     assert (results["slab_energy_per_atom"]) == pytest.approx(expected[0], rel=1e-1)
     assert (results["adsorbate_energy"]) == pytest.approx(expected[1], rel=1e-1)
     assert "adsorption_energy" in results
+    assert results["_units"] == {
+        "energy": "eV",
+        "adsorbate_energy": "eV",
+        "slab_energy": "eV",
+        "slab_energy_per_atom": "eV/atom",
+        "adslab_energy": "eV",
+        "adsorption_energy": "eV",
+    }
 
 
 @pytest.mark.parametrize("relax_slab", [True, False])

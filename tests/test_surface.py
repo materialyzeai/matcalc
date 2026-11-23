@@ -46,6 +46,7 @@ def test_surface_calc_basic(Si: Structure, matpes_calculator: PESCalculator) -> 
 
     assert slab_res["bulk_energy_per_atom"] == pytest.approx(-5.419038772583008, rel=1e-1)
     assert slab_res["surface_energy"] == pytest.approx(0.04857103179280209, rel=1e-1)
+    assert slab_res["_units"] == {"bulk_energy_per_atom": "eV/atom", "slab_energy": "eV", "surface_energy": "eV/A^2"}
 
     slab_res = results[1]
 
@@ -123,8 +124,12 @@ def test_surface_calc_plain_structure_slab(Si: Structure, matpes_calculator: PES
     plain = Structure(slab.lattice, slab.species, slab.frac_coords)
 
     from_slab = surf_calc.calc({"slab": slab, "bulk": Si})
-    from_plain = surf_calc.calc({"slab": plain, "bulk_energy_per_atom": from_slab["bulk_energy_per_atom"]})
+    from_plain = surf_calc.calc(
+        {"slab": plain, "bulk_energy_per_atom": from_slab["bulk_energy_per_atom"], "_units": {"energy": "eV"}}
+    )
     assert from_plain["surface_energy"] == pytest.approx(from_slab["surface_energy"])
+    assert from_plain["_units"]["energy"] == "eV"
+    assert from_plain["_units"]["surface_energy"] == "eV/A^2"
 
 
 def test_surface_calc_bulk_relaxation(Si: Structure, matpes_calculator: PESCalculator) -> None:

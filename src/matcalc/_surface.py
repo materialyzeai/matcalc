@@ -142,7 +142,8 @@ class SurfaceCalc(PropCalc):
                 or a structure type (invalid combinations raise).
 
         Returns:
-            Dict with ``final_slab``, ``slab_energy``, ``surface_energy``, and related bulk fields.
+            Dict with ``final_slab``, ``slab_energy`` (eV), ``surface_energy`` (eV/A^2), related bulk fields
+            (``bulk_energy_per_atom`` in eV/atom), and ``_units`` mapping each numeric output to its unit string.
         """
         if not (
             isinstance(structure, dict)
@@ -186,6 +187,10 @@ class SurfaceCalc(PropCalc):
             "final_slab": final_slab,
             "slab_energy": slab_energy,
             "surface_energy": gamma,
+            "_units": self._merge_units(
+                structure,
+                {"bulk_energy_per_atom": "eV/atom", "slab_energy": "eV", "surface_energy": "eV/A^2"},
+            ),
         }
 
     def _calc_bulk(self, bulk: Structure | Atoms) -> dict[str, Any]:
