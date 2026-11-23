@@ -13,6 +13,7 @@ from matcalc.units import eVA3ToGPa
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from typing import Any
 
     from ase.filters import Filter
     from matgl.ext.ase import PESCalculator
@@ -254,6 +255,25 @@ def test_relax_calc_perturb_distance(
     assert alpha == pytest.approx(60, abs=5)
     assert beta == pytest.approx(60, abs=5)
     assert gamma == pytest.approx(60, abs=5)
+
+
+def test_relax_calc_perturb_seed(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    def perturbed(**kwargs: Any) -> Structure:
+        relax_calc = RelaxCalc(matpes_calculator, relax_atoms=False, relax_cell=False, perturb_distance=0.1, **kwargs)
+        return relax_calc.calc(Li2O)["final_structure"]
+
+    seeded = perturbed(perturb_seed=1)
+    assert np.allclose(seeded.cart_coords, perturbed(perturb_seed=1).cart_coords, atol=1e-8)
+    assert not np.allclose(seeded.cart_coords, perturbed(perturb_seed=2).cart_coords, atol=1e-4)
+
+    expected = Li2O.copy().perturb(distance=0.1, min_distance=0.0, seed=1)
+    assert np.allclose(seeded.cart_coords, expected.cart_coords, atol=1e-6)
+    disp = np.array([site.distance(ref) for site, ref in zip(seeded, Li2O, strict=True)])
+    assert disp.max() <= 0.1 + 1e-6
+    assert disp.min() < 0.1 - 1e-3
+
+    fixed = perturbed(perturb_seed=1, perturb_min_distance=0.1)
+    assert [site.distance(ref) for site, ref in zip(fixed, Li2O, strict=True)] == pytest.approx([0.1] * 3, abs=1e-6)
 
 
 @pytest.mark.parametrize(

@@ -4,6 +4,7 @@ import math
 import warnings
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pytest
 from monty.serialization import loadfn
 
@@ -48,6 +49,21 @@ def test_energetics_calc(
         assert key in result, f"{key=} not in result"
     assert result["formation_energy_per_atom"] == pytest.approx(-1.8454608797021486, rel=1e-2)
     assert result["cohesive_energy_per_atom"] == pytest.approx(-4.053125177202149, rel=1e-2)
+
+
+def test_energetics_perturb_seed(Li2O: Structure, matpes_calculator: PESCalculator) -> None:
+    energetics_calc = EnergeticsCalc(
+        matpes_calculator,
+        fmax=100.0,
+        perturb_distance=0.1,
+        perturb_seed=3,
+        use_gs_reference=True,
+        relax_calc_kwargs={"relax_atoms": False, "relax_cell": False},
+    )
+    assert energetics_calc.perturb_seed == 3
+    final_structure = energetics_calc.calc(Li2O)["final_structure"]
+    expected = Li2O.copy().perturb(distance=0.1, min_distance=0.0, seed=3)
+    assert np.allclose(final_structure.cart_coords, expected.cart_coords, atol=1e-6)
 
 
 def test_energetics_calc_element_atoms(
