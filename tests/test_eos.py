@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -110,3 +111,23 @@ def test_eos_calc_keeps_user_cell_filter_kwargs(
     (eos_kwargs,) = captured
     assert eos_kwargs["relax_cell"] is True
     assert eos_kwargs["cell_filter_kwargs"] == {"mask": mask, "constant_volume": True}
+
+
+def test_eos_calc_fit_failure_keeps_ev(
+    Si: Structure,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """A failed Birch-Murnaghan fit warns and still returns the energy-volume data."""
+    expanded = Si.copy()
+    expanded.apply_strain(0.15)
+    eos_calc = EOSCalc(matpes_calculator, relax_structure=False, allow_shape_change=False)
+    with pytest.warns(RuntimeWarning, match="Birch-Murnaghan EOS fit failed"):
+        result = eos_calc.calc(expanded)
+
+    assert math.isnan(result["bulk_modulus_bm"])
+    assert math.isnan(result["r2_score_bm"])
+    assert len(result["eos"]["volumes"]) == 11
+    assert len(result["eos"]["energies"]) == 11
+    assert result["eos"]["volumes"] == sorted(result["eos"]["volumes"])
+    assert result["eos"]["volumes"][5] == pytest.approx(expanded.volume)
+    assert result["eos"]["energies"] == sorted(result["eos"]["energies"])
