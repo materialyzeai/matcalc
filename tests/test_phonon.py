@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from matcalc import PhononCalc
+from matcalc import PhononCalc, QHACalc
 from matcalc._phonon import _mc_rattle, _phonon_rattle
 
 if TYPE_CHECKING:
@@ -311,6 +311,59 @@ def test_phonon_calc_rattle_temperature(Si: Structure, matpes_calculator: PESCal
     assert_allclose(disp_1200, 2 * disp_300)  # amplitudes scale with sqrt(T), stdev is unused
     with pytest.raises(ValueError, match="rattle_temperature is only used"):
         PhononCalc(calculator=matpes_calculator, rattle_temperature=300.0)
+
+
+def test_phonon_calc_mesh(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    def run(**kwargs: object) -> dict:
+        return PhononCalc(
+            calculator=matpes_calculator,
+            supercell_matrix=((2, 0, 0), (0, 2, 0), (0, 0, 2)),
+            relax_structure=False,
+            t_step=100,
+            t_max=300,
+            write_phonon=False,
+            **kwargs,  # type: ignore[arg-type]
+        ).calc(Si)
+
+    default = run()
+    shifted = run(mesh=(4, 4, 4))
+    centred = run(mesh=(4, 4, 4), is_gamma_center=True)
+    from_length = run(mesh=20.0)
+
+    assert default["phonon"].mesh.mesh_numbers.tolist() == run(mesh=100.0)["phonon"].mesh.mesh_numbers.tolist()
+    assert shifted["phonon"].mesh.mesh_numbers.tolist() == [4, 4, 4]
+    assert centred["phonon"].mesh.mesh_numbers.tolist() == [4, 4, 4]
+    assert from_length["phonon"].mesh.mesh_numbers.tolist() != default["phonon"].mesh.mesh_numbers.tolist()
+    # An even mesh contains Gamma only when it is Gamma-centred; a mesh from a length always does.
+    assert not np.any(np.all(shifted["phonon"].mesh.qpoints == 0, axis=1))
+    assert np.any(np.all(centred["phonon"].mesh.qpoints == 0, axis=1))
+    assert np.any(np.all(from_length["phonon"].mesh.qpoints == 0, axis=1))
+
+    cv_default = default["thermal_properties"]["heat_capacity"][-1]
+    for result in (shifted, centred):
+        cv = result["thermal_properties"]["heat_capacity"][-1]
+        assert cv != cv_default
+        assert cv == pytest.approx(cv_default, rel=2e-2)
+
+
+def test_qha_calc_phonon_mesh(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    qha_calc = QHACalc(
+        calculator=matpes_calculator,
+        t_step=50,
+        t_max=300,
+        scale_factors=[0.98, 0.99, 1.00, 1.01, 1.02],
+        fmax=0.1,
+        store_ha_phonon=True,
+        phonon_calc_kwargs={
+            "supercell_matrix": ((2, 0, 0), (0, 2, 0), (0, 0, 2)),
+            "mesh": (4, 4, 4),
+            "is_gamma_center": True,
+        },
+    )
+    result = qha_calc.calc(Si)
+    for ha_result in result["ha"]:
+        assert ha_result["phonon"].mesh.mesh_numbers.tolist() == [4, 4, 4]
+        assert np.any(np.all(ha_result["phonon"].mesh.qpoints == 0, axis=1))
 
 
 @pytest.mark.parametrize(("max_steps", "should_warn"), [(1, True), (500, False)])

@@ -19,6 +19,7 @@ from .backend import run_pes_calc
 from .utils import to_ase_atoms, to_pmg_structure
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
     from typing import Literal
 
@@ -60,6 +61,8 @@ class PhononCalc(PropCalc):
         rattle_temperature: Temperature (K) for thermal phonon rattle amplitudes, or None.
         seed: Seed for the rattle random number generator (default 42 is reproducible; None for nondeterministic).
         symprec: symmetry precision used for spglib symmetry finding.
+        mesh: q-point mesh (three integers or a length in Å), or None for the phonopy default.
+        is_gamma_center: Whether a mesh given as three integers is Gamma-centred.
         write_force_constants: Output path for force constants (or False).
         write_band_structure: Band structure YAML path (or False).
         write_total_dos: Total DOS path (or False).
@@ -89,6 +92,8 @@ class PhononCalc(PropCalc):
         rattle_temperature: float | None = None,
         seed: int | None = 42,
         symprec: float = 1e-5,
+        mesh: Sequence[int] | float | None = None,
+        is_gamma_center: bool = False,
         write_force_constants: bool | str | Path = False,
         write_band_structure: bool | str | Path = False,
         write_total_dos: bool | str | Path = False,
@@ -126,6 +131,11 @@ class PhononCalc(PropCalc):
                 temperature (K) instead of ``rattle_stdev``. Only used with ``rattle_method="phonon"``.
             seed: Seed for the rattle random number generator (default 42 is reproducible; None for nondeterministic).
             symprec: symmetry precision used for spglib symmetry finding.
+            mesh: q-point mesh for the frequencies and thermal properties, passed to phonopy ``run_mesh``: three
+                integers, or a length (Å) from which phonopy derives the mesh. None uses the phonopy default
+                (a length of 100 Å).
+            is_gamma_center: Whether a mesh given as three integers is Gamma-centred. If False, even meshes are
+                shifted by half a grid spacing. A mesh given as a length is always Gamma-centred.
             write_force_constants: Path to write FCs, True for default name, or False.
             write_band_structure: Path, True for default YAML, or False.
             write_total_dos: Path, True for default DOS file, or False.
@@ -151,6 +161,8 @@ class PhononCalc(PropCalc):
         self.rattle_temperature = rattle_temperature
         self.seed = seed
         self.symprec = symprec
+        self.mesh = mesh
+        self.is_gamma_center = is_gamma_center
         self.write_force_constants = write_force_constants
         self.write_band_structure = write_band_structure
         self.write_total_dos = write_total_dos
@@ -268,7 +280,10 @@ class PhononCalc(PropCalc):
         logger.info("Computing forces on %d displaced supercells", len(disp_supercells))
         phonon.forces = [run_pes_calc(supercell, self.calculator).forces for supercell in disp_supercells]
         phonon.produce_force_constants()
-        phonon.run_mesh(with_eigenvectors=True)
+        if self.mesh is None:
+            phonon.run_mesh(with_eigenvectors=True, is_gamma_center=self.is_gamma_center)
+        else:
+            phonon.run_mesh(self.mesh, with_eigenvectors=True, is_gamma_center=self.is_gamma_center)
         if phonon.mesh is None:
             raise RuntimeError("phonon.mesh is None after run_mesh")
         frequencies = phonon.mesh.frequencies  # type: ignore[union-attr]
