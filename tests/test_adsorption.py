@@ -11,6 +11,7 @@ from pymatgen.core import Lattice, Molecule, Structure
 from pymatgen.core.surface import SlabGenerator
 
 from matcalc import AdsorptionCalc
+from matcalc.backend import run_pes_calc
 from matcalc.utils import to_ase_atoms
 
 if TYPE_CHECKING:
@@ -414,3 +415,35 @@ def test_adsorption_calc_bulk_relaxation(Pt_bulk: Structure, matpes_calculator: 
     assert ad_calc.final_bulk == bulk_opt["final_structure"]
     assert ad_calc.bulk_energy == pytest.approx(bulk_opt["energy"])
     assert ad_calc.n_bulk_atoms == len(Pt_bulk)
+
+
+@pytest.mark.ase_only(reason="isolated adsorbate molecules are not periodic")
+@pytest.mark.parametrize("relax_adslab", [False, True])
+def test_adsorption_calc_relax_adslab(
+    Pt_slab: Slab, CO2: Molecule, Pt_adslab: Structure, matpes_calculator: PESCalculator, relax_adslab: bool
+) -> None:
+    """With relax_adslab=False the adslab is evaluated at the given geometry; otherwise it is relaxed."""
+    ad_calc = AdsorptionCalc(
+        calculator=matpes_calculator,
+        relax_slab=False,
+        relax_bulk=False,
+        relax_adsorbate=False,
+        relax_adslab=relax_adslab,
+        max_steps=5,
+    )
+    res = ad_calc.calc({"slab": Pt_slab, "adsorbate": CO2, "adslab": Pt_adslab})
+    single_point = run_pes_calc(to_ase_atoms(Pt_adslab), matpes_calculator, relax_atoms=False, relax_cell=False)
+
+    if relax_adslab:
+        assert res["adslab_energy"] < single_point.potential_energy - 1e-2
+    else:
+        assert res["final_adslab"].cart_coords == pytest.approx(Pt_adslab.cart_coords, abs=1e-8)
+        assert res["adslab_energy"] == pytest.approx(single_point.potential_energy, abs=1e-4)
+    assert res["adsorption_energy"] == pytest.approx(
+        res["adslab_energy"] - res["slab_energy"] - res["adsorbate_energy"], abs=1e-4
+    )
+
+
+def test_adsorption_calc_relax_adslab_default(matpes_calculator: PESCalculator) -> None:
+    """The adslab is relaxed by default."""
+    assert AdsorptionCalc(calculator=matpes_calculator).relax_adslab
