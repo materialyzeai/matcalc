@@ -38,6 +38,7 @@ class AdsorptionCalc(PropCalc):
         relax_adsorbate: bool = True,
         relax_slab: bool = True,
         relax_bulk: bool = True,
+        relax_adslab: bool = True,
         fmax: float = 0.1,
         optimizer: str | Optimizer = "BFGS",
         max_steps: int = 500,
@@ -50,6 +51,9 @@ class AdsorptionCalc(PropCalc):
             relax_adsorbate: Relax isolated adsorbate in a box when True.
             relax_slab: Relax clean slab (fixed cell) when True.
             relax_bulk: Relax bulk with cell when True.
+            relax_adslab: Relax slab with adsorbate (fixed cell) when True. When False, its energy is that of
+                the given geometry; with ``relax_slab=False`` and ``relax_adsorbate=False`` the adsorption
+                energy is then a single-point quantity.
             fmax: Force tolerance (eV/Å).
             optimizer: ASE optimizer name or class.
             max_steps: Max relaxation steps.
@@ -63,6 +67,7 @@ class AdsorptionCalc(PropCalc):
         self.relax_adsorbate = relax_adsorbate
         self.relax_bulk = relax_bulk
         self.relax_slab = relax_slab
+        self.relax_adslab = relax_adslab
         self.fmax = fmax
         self.optimizer = optimizer
         self.max_steps = max_steps
@@ -393,7 +398,7 @@ class AdsorptionCalc(PropCalc):
         adslab_opt = self._relaxer(
             fmax=self.fmax,
             max_steps=self.max_steps,
-            relax_atoms=True,
+            relax_atoms=self.relax_adslab,
             relax_cell=False,
             optimizer=self.optimizer,
         ).calc(adslab)
