@@ -7,7 +7,7 @@ import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
-from pymatgen.analysis.eos import BirchMurnaghan, EOSError
+from pymatgen.analysis.eos import EOS, EOSError
 from sklearn.metrics import r2_score
 
 from ._base import PropCalc
@@ -15,6 +15,8 @@ from ._relaxation import RelaxCalc
 from .utils import to_pmg_structure
 
 logger = logging.getLogger(__name__)
+
+EOS_MODELS = ("birch", "birch_murnaghan", "murnaghan", "pourier_tarantola", "vinet")
 
 if TYPE_CHECKING:
     from typing import Any
@@ -29,8 +31,8 @@ class EOSCalc(PropCalc):
     """
     Performs equation of state (EOS) calculations using a specified ASE calculator.
 
-    This class is intended to fit the Birch-Murnaghan equation of state, determine the
-    bulk modulus, and provide other relevant physical properties of a given structure.
+    This class is intended to fit an equation of state (Birch-Murnaghan by default), determine
+    the bulk modulus, and provide other relevant physical properties of a given structure.
     The EOS calculation includes applying volumetric strain to the structure, optional
     initial relaxation of the structure, and evaluation of energies and volumes
     corresponding to the applied strain.
@@ -45,6 +47,8 @@ class EOSCalc(PropCalc):
         max_steps: Max optimizer steps per relaxation.
         allow_shape_change: Allow cell shape to change at fixed volume during EOS points.
         relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
+        eos: EOS model for the energy-volume fit (``birch``, ``birch_murnaghan``, ``murnaghan``,
+            ``pourier_tarantola``, ``vinet``).
     """
 
     def __init__(
@@ -60,6 +64,7 @@ class EOSCalc(PropCalc):
         relax_structure: bool = True,
         relax_calc_kwargs: dict | None = None,
         r2_min: float = 0.95,
+        eos: str = "birch_murnaghan",
     ) -> None:
         """
         Args:
@@ -73,11 +78,18 @@ class EOSCalc(PropCalc):
             allow_shape_change: Relax cell shape at fixed volume for EOS points when True.
             relax_structure: Relax input structure before the strain scan.
             relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
-            r2_min: Minimum acceptable R² for the Birch-Murnaghan fit. A
+            r2_min: Minimum acceptable R² for the EOS fit. A
                 ``RuntimeWarning`` is emitted (and the value is still returned)
                 if the fit's R² falls below this threshold. Set to a negative
                 number to disable the check.
+            eos: EOS model for the energy-volume fit, one of the pymatgen ``EOS`` model names
+                ``birch``, ``birch_murnaghan``, ``murnaghan``, ``pourier_tarantola`` and ``vinet``.
+
+        Raises:
+            ValueError: If ``eos`` is not one of the supported EOS models.
         """
+        if eos not in EOS_MODELS:
+            raise ValueError(f"Unknown eos {eos!r}. Allowed values: {EOS_MODELS}.")
         self.calculator = calculator  # type: ignore[assignment]
         self.optimizer = optimizer
         self.max_steps = max_steps
@@ -88,6 +100,7 @@ class EOSCalc(PropCalc):
         self.relax_structure = relax_structure
         self.relax_calc_kwargs = relax_calc_kwargs
         self.r2_min = r2_min
+        self.eos = eos
 
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict:
         """
@@ -95,12 +108,13 @@ class EOSCalc(PropCalc):
             structure: Pymatgen structure, ASE atoms, or dict with structure keys.
 
         Returns:
-            Dict with ``eos`` (``volumes`` in A^3, ``energies`` in eV), ``bulk_modulus_bm``
-            (GPa), ``r2_score_bm`` (dimensionless), and fields from the final relaxation
-            merged in. ``_units`` maps each numeric output to its unit string. See pymatgen
-            ``BirchMurnaghan`` / ``EOSBase`` for fit details. If the fit fails (pymatgen
-            ``EOSError``), a ``RuntimeWarning`` is emitted and ``bulk_modulus_bm`` and
-            ``r2_score_bm`` are NaN; ``eos`` is still returned.
+            Dict with ``eos`` (``volumes`` in A^3, ``energies`` in eV), ``bulk_modulus``
+            (GPa), ``r2_score`` (dimensionless) of the fitted EOS model, and fields from the
+            final relaxation merged in. With ``eos="birch_murnaghan"``, ``bulk_modulus_bm`` and
+            ``r2_score_bm`` are returned as well, with the same values. ``_units`` maps each
+            numeric output to its unit string. See pymatgen ``EOS`` / ``EOSBase`` for fit
+            details. If the fit fails (pymatgen ``EOSError``), a ``RuntimeWarning`` is emitted
+            and the bulk modulus and R² are NaN; ``eos`` is still returned.
         """
         result = super().calc(structure)
         relax_calc_kwargs = {
@@ -147,12 +161,13 @@ class EOSCalc(PropCalc):
             volumes.append(r["final_structure"].volume)
             energies.append(r["energy"])
 
-        bm = BirchMurnaghan(volumes=volumes, energies=energies)
+        eos_name = self.eos.replace("_", "-").title()
+        eos_fit = EOS.MODELS[self.eos](volumes=volumes, energies=energies)
         try:
-            bm.fit()
+            eos_fit.fit()
         except EOSError as exc:
             warnings.warn(
-                f"Birch-Murnaghan EOS fit failed ({exc}); bulk_modulus_bm and r2_score_bm are set to NaN. "
+                f"{eos_name} EOS fit failed ({exc}); bulk_modulus and r2_score are set to NaN. "
                 f"The energy-volume data are returned in eos.",
                 RuntimeWarning,
                 stacklevel=2,
@@ -165,11 +180,11 @@ class EOSCalc(PropCalc):
             list, zip(*sorted(zip(volumes, energies, strict=True), key=lambda i: i[0]), strict=False)
         )
 
-        bulk_modulus_bm = bm.b0_GPa if fitted else float("nan")
-        r2_bm = r2_score(energies, bm.func(volumes)) if fitted else float("nan")
-        if r2_bm < self.r2_min:
+        bulk_modulus = eos_fit.b0_GPa if fitted else float("nan")
+        r2 = r2_score(energies, eos_fit.func(volumes)) if fitted else float("nan")
+        if r2 < self.r2_min:
             warnings.warn(
-                f"Birch-Murnaghan EOS fit R²={r2_bm:.4f} is below r2_min={self.r2_min}. "
+                f"{eos_name} EOS fit R²={r2:.4f} is below r2_min={self.r2_min}. "
                 f"The bulk modulus may be unreliable; check that the energy-volume scan is "
                 f"monotonic over [-{self.max_abs_strain}, {self.max_abs_strain}] and that "
                 f"the calculator is converged.",
@@ -177,10 +192,9 @@ class EOSCalc(PropCalc):
                 stacklevel=2,
             )
 
-        eos_units = {**result.get("_units", {}), "eos.volumes": "A^3", "eos.energies": "eV", "bulk_modulus_bm": "GPa"}
-        return result | {
-            "eos": {"volumes": volumes, "energies": energies},
-            "bulk_modulus_bm": bulk_modulus_bm,
-            "r2_score_bm": r2_bm,
-            "_units": eos_units,
-        }
+        eos_units = {**result.get("_units", {}), "eos.volumes": "A^3", "eos.energies": "eV", "bulk_modulus": "GPa"}
+        eos_result = {"eos": {"volumes": volumes, "energies": energies}, "bulk_modulus": bulk_modulus, "r2_score": r2}
+        if self.eos == "birch_murnaghan":
+            eos_units["bulk_modulus_bm"] = "GPa"
+            eos_result |= {"bulk_modulus_bm": bulk_modulus, "r2_score_bm": r2}
+        return result | eos_result | {"_units": eos_units}

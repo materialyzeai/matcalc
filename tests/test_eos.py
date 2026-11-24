@@ -131,3 +131,54 @@ def test_eos_calc_fit_failure_keeps_ev(
     assert result["eos"]["volumes"] == sorted(result["eos"]["volumes"])
     assert result["eos"]["volumes"][5] == pytest.approx(expanded.volume)
     assert result["eos"]["energies"] == sorted(result["eos"]["energies"])
+
+
+def test_eos_calc_eos_model(
+    Si: Structure,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """The fitted equation of state is selected with ``eos``."""
+    result_bm = EOSCalc(matpes_calculator, relax_structure=False).calc(Si)
+
+    assert result_bm["bulk_modulus"] == result_bm["bulk_modulus_bm"]
+    assert result_bm["r2_score"] == result_bm["r2_score_bm"]
+    assert result_bm["_units"]["bulk_modulus"] == "GPa"
+    assert result_bm["_units"]["bulk_modulus_bm"] == "GPa"
+
+    for eos in ("vinet", "murnaghan", "pourier_tarantola"):
+        result = EOSCalc(matpes_calculator, relax_structure=False, eos=eos).calc(Si)
+        assert math.isfinite(result["bulk_modulus"])
+        assert result["bulk_modulus"] > 0
+        assert result["bulk_modulus"] == pytest.approx(result_bm["bulk_modulus"], rel=1e-1)
+        assert result["r2_score"] > 0.99
+        assert result["_units"]["bulk_modulus"] == "GPa"
+        assert "bulk_modulus_bm" not in result
+        assert "r2_score_bm" not in result
+        assert "bulk_modulus_bm" not in result["_units"]
+
+
+@pytest.mark.parametrize(("eos", "eos_name"), [("vinet", "Vinet"), ("pourier_tarantola", "Pourier-Tarantola")])
+def test_eos_calc_eos_model_fit_failure(
+    eos: str,
+    eos_name: str,
+    Si: Structure,
+    matpes_calculator: PESCalculator,
+) -> None:
+    """A failed fit of another EOS model warns with the model name and still returns the energy-volume data."""
+    expanded = Si.copy()
+    expanded.apply_strain(0.15)
+    eos_calc = EOSCalc(matpes_calculator, relax_structure=False, allow_shape_change=False, eos=eos)
+    with pytest.warns(RuntimeWarning, match=f"{eos_name} EOS fit failed"):
+        result = eos_calc.calc(expanded)
+
+    assert math.isnan(result["bulk_modulus"])
+    assert math.isnan(result["r2_score"])
+    assert "bulk_modulus_bm" not in result
+    assert len(result["eos"]["volumes"]) == 11
+    assert len(result["eos"]["energies"]) == 11
+
+
+def test_eos_calc_unknown_eos(matpes_calculator: PESCalculator) -> None:
+    """An unknown EOS model name is rejected at construction."""
+    with pytest.raises(ValueError, match=r"Unknown eos 'not_an_eos'\. Allowed values: .*'birch_murnaghan'.*'vinet'"):
+        EOSCalc(matpes_calculator, eos="not_an_eos")

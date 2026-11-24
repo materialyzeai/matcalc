@@ -71,7 +71,7 @@ MLIPs such as MTP, NNP, GAP, SNAP, ACE, etc.
 |---|---|---|
 | `RelaxCalc` | Structural relaxation | `energy`, `forces`, `stress`, `a`, `b`, `c`, `alpha`, `beta`, `gamma`, `volume`, `final_structure` |
 | `ElasticityCalc` | Elastic constants via strain-stress fitting | `elastic_tensor`, `bulk_modulus_vrh`, `shear_modulus_vrh`, `youngs_modulus`, `residuals_sum` |
-| `EOSCalc` | Birch-Murnaghan equation of state | `eos`, `bulk_modulus_bm`, `r2_score_bm` |
+| `EOSCalc` | Equation of state (Birch-Murnaghan by default) | `eos`, `bulk_modulus`, `r2_score` (and `bulk_modulus_bm`, `r2_score_bm` for Birch-Murnaghan) |
 | `PhononCalc` | Phonon band structure and thermal properties | `phonon`, `thermal_properties`, `frequencies`, `disp_supercells` |
 | `Phonon3Calc` | Third-order force constants and thermal conductivity | `phonon3` (Phono3py object), `temperatures`, `thermal_conductivity` |
 | `QHACalc` | Quasi-harmonic approximation | `gibbs_temperature`, `thermal_expansion`, `bulk_modulus_temperature` |
