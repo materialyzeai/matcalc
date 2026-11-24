@@ -7,7 +7,7 @@ import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
-from pymatgen.analysis.eos import BirchMurnaghan
+from pymatgen.analysis.eos import BirchMurnaghan, EOSError
 from sklearn.metrics import r2_score
 
 from ._base import PropCalc
@@ -98,7 +98,9 @@ class EOSCalc(PropCalc):
             Dict with ``eos`` (``volumes`` in A^3, ``energies`` in eV), ``bulk_modulus_bm``
             (GPa), ``r2_score_bm`` (dimensionless), and fields from the final relaxation
             merged in. ``_units`` maps each numeric output to its unit string. See pymatgen
-            ``BirchMurnaghan`` / ``EOSBase`` for fit details.
+            ``BirchMurnaghan`` / ``EOSBase`` for fit details. If the fit fails (pymatgen
+            ``EOSError``), a ``RuntimeWarning`` is emitted and ``bulk_modulus_bm`` and
+            ``r2_score_bm`` are NaN; ``eos`` is still returned.
         """
         result = super().calc(structure)
         relax_calc_kwargs = {
@@ -146,13 +148,25 @@ class EOSCalc(PropCalc):
             energies.append(r["energy"])
 
         bm = BirchMurnaghan(volumes=volumes, energies=energies)
-        bm.fit()
+        try:
+            bm.fit()
+        except EOSError as exc:
+            warnings.warn(
+                f"Birch-Murnaghan EOS fit failed ({exc}); bulk_modulus_bm and r2_score_bm are set to NaN. "
+                f"The energy-volume data are returned in eos.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            fitted = False
+        else:
+            fitted = True
 
         volumes, energies = map(
             list, zip(*sorted(zip(volumes, energies, strict=True), key=lambda i: i[0]), strict=False)
         )
 
-        r2_bm = r2_score(energies, bm.func(volumes))
+        bulk_modulus_bm = bm.b0_GPa if fitted else float("nan")
+        r2_bm = r2_score(energies, bm.func(volumes)) if fitted else float("nan")
         if r2_bm < self.r2_min:
             warnings.warn(
                 f"Birch-Murnaghan EOS fit R²={r2_bm:.4f} is below r2_min={self.r2_min}. "
@@ -166,7 +180,7 @@ class EOSCalc(PropCalc):
         eos_units = {**result.get("_units", {}), "eos.volumes": "A^3", "eos.energies": "eV", "bulk_modulus_bm": "GPa"}
         return result | {
             "eos": {"volumes": volumes, "energies": energies},
-            "bulk_modulus_bm": bm.b0_GPa,
+            "bulk_modulus_bm": bulk_modulus_bm,
             "r2_score_bm": r2_bm,
             "_units": eos_units,
         }
