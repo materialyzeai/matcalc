@@ -78,6 +78,7 @@ class EnergeticsCalc(PropCalc):
         fmax: float = 0.1,
         optimizer: str = "FIRE",
         perturb_distance: float | None = None,
+        perturb_seed: int | None = None,
         use_gs_reference: bool = False,
         relax_structure: bool = True,
         relax_calc_kwargs: dict | None = None,
@@ -96,6 +97,7 @@ class EnergeticsCalc(PropCalc):
             fmax: Force convergence tolerance (eV/Å) for relaxation.
             optimizer: ASE optimizer name for relaxation.
             perturb_distance: Random displacement (Å) before relaxation, or None.
+            perturb_seed: Seed of the random displacements, or None.
             use_gs_reference: Use tabulated ground-state energies from references when True.
             relax_structure: Relax input structure before computing energetics.
             relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
@@ -104,6 +106,7 @@ class EnergeticsCalc(PropCalc):
         self.fmax = fmax
         self.optimizer = optimizer
         self.perturb_distance = perturb_distance
+        self.perturb_seed = perturb_seed
         if elemental_refs is None:
             elemental_refs = _infer_elemental_refs(calculator)
         if isinstance(elemental_refs, str):
@@ -176,6 +179,7 @@ class EnergeticsCalc(PropCalc):
             fmax=self.fmax,
             optimizer=self.optimizer,
             perturb_distance=self.perturb_distance,
+            perturb_seed=self.perturb_seed,
         )
         energy = result["energy"] if self.relax_structure else run_pes_calc(structure_in, self.calculator).energy
         nsites = len(structure_in)

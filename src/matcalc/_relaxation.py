@@ -43,6 +43,8 @@ class RelaxCalc(PropCalc):
         cell_filter: Cell filter class when ``relax_cell`` is True.
         cell_filter_kwargs: Kwargs for ``cell_filter``.
         perturb_distance: Random displacement before relax, or None.
+        perturb_min_distance: Lower bound of the random displacement magnitude.
+        perturb_seed: Seed of the random displacements, or None.
         fix_symmetry: Apply ``FixSymmetry`` when True.
         fix_atoms: Fix all atoms, or list of indices to fix.
         symprec: Symmetry tolerance for ``FixSymmetry``.
@@ -62,6 +64,8 @@ class RelaxCalc(PropCalc):
         cell_filter: Filter = FrechetCellFilter,  # type: ignore[assignment]
         cell_filter_kwargs: dict | None = None,
         perturb_distance: float | None = None,
+        perturb_min_distance: float | None = 0.0,
+        perturb_seed: int | None = None,
         fix_symmetry: bool = False,
         fix_atoms: bool | list[int] = False,
         symprec: float = 1e-3,
@@ -81,6 +85,11 @@ class RelaxCalc(PropCalc):
             cell_filter: Cell filter class (default ``FrechetCellFilter``).
             cell_filter_kwargs: Kwargs for the cell filter.
             perturb_distance: Random displacement (Å) before relax, or None.
+            perturb_min_distance: Lower bound (Å) of the displacement magnitude, which is drawn uniformly from
+                [``perturb_min_distance``, ``perturb_distance``] for each site. None displaces every site by exactly
+                ``perturb_distance``.
+            perturb_seed: Seed of the random number generator of the displacements. None (default) gives a
+                different perturbation on every call.
             fix_symmetry: Constrain symmetry when True.
             fix_atoms: Fix all atoms if True, or indices to fix.
             symprec: Symmetry precision for ``FixSymmetry``.
@@ -97,6 +106,8 @@ class RelaxCalc(PropCalc):
         self.cell_filter = cell_filter
         self.cell_filter_kwargs = cell_filter_kwargs
         self.perturb_distance = perturb_distance
+        self.perturb_min_distance = perturb_min_distance
+        self.perturb_seed = perturb_seed
         self.fix_symmetry = fix_symmetry
         self.fix_atoms = fix_atoms
         self.symprec = symprec
@@ -128,7 +139,11 @@ class RelaxCalc(PropCalc):
         if self.perturb_distance is not None:
             # Copy first: ``Structure.perturb`` mutates in place, which would clobber a
             # caller-owned (e.g. session-scoped) Structure passed in by reference.
-            structure_in = to_pmg_structure(structure_in).copy().perturb(distance=self.perturb_distance, seed=None)
+            structure_in = (
+                to_pmg_structure(structure_in)
+                .copy()
+                .perturb(distance=self.perturb_distance, min_distance=self.perturb_min_distance, seed=self.perturb_seed)
+            )
 
         atoms = to_ase_atoms(structure_in)
         # The backend only runs an optimizer (and hence the cell filter) when relax_atoms is True, so a cell-only
