@@ -44,6 +44,11 @@ def test_gb_calc(Si: Structure, matpes_calculator: PESCalculator) -> None:
     assert isinstance(results["grain_boundary_energy"], float)
     assert math.isfinite(results["grain_boundary_energy"])
     assert results["grain_boundary_energy"] >= 0
+    assert results["_units"] == {
+        "bulk_energy_per_atom": "eV/atom",
+        "gb_relax_energy": "eV",
+        "grain_boundary_energy": "eV/A^2",
+    }
 
 
 def test_gb_calc_from_dict(Si: Structure, matpes_calculator: PESCalculator) -> None:
@@ -56,7 +61,7 @@ def test_gb_calc_from_dict(Si: Structure, matpes_calculator: PESCalculator) -> N
         max_steps=100,
     )
 
-    results = gb_calc.calc({"grain_boundary": Si, "bulk": Si})
+    results = gb_calc.calc({"grain_boundary": Si, "bulk": Si, "_units": {"energy": "eV"}})
 
     assert "final_bulk" in results
     assert "final_grain_boundary" in results
@@ -68,6 +73,8 @@ def test_gb_calc_from_dict(Si: Structure, matpes_calculator: PESCalculator) -> N
     assert isinstance(results["gb_relax_energy"], float)
     assert isinstance(results["grain_boundary_energy"], float)
     assert math.isfinite(results["grain_boundary_energy"])
+    assert results["_units"]["energy"] == "eV"
+    assert results["_units"]["grain_boundary_energy"] == "eV/A^2"
 
 
 def test_gb_calc_invalid_input(Si: Structure, matpes_calculator: PESCalculator) -> None:

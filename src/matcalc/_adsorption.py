@@ -356,7 +356,9 @@ class AdsorptionCalc(PropCalc):
                 recomputed.
 
         Returns:
-            Dict including ``adsorption_energy`` and merged slab/adsorbate fields.
+            Dict including ``adsorption_energy`` (eV), ``adslab_energy`` (eV), merged slab/adsorbate fields
+            (``slab_energy`` and ``adsorbate_energy`` in eV, ``slab_energy_per_atom`` in eV/atom), and ``_units``
+            mapping each numeric output to its unit string.
         """
         if not isinstance(structure, dict):
             msg = (
@@ -412,4 +414,14 @@ class AdsorptionCalc(PropCalc):
             "final_adslab": final_adslab,
             "adslab_energy": adslab_energy,
             "adsorption_energy": ads_energy,
+            "_units": self._merge_units(
+                result_dict,
+                {
+                    "adsorbate_energy": "eV",
+                    "slab_energy": "eV",
+                    "slab_energy_per_atom": "eV/atom",
+                    "adslab_energy": "eV",
+                    "adsorption_energy": "eV",
+                },
+            ),
         }

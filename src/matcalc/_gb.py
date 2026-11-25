@@ -179,8 +179,9 @@ class GBCalc(PropCalc):
 
         Returns:
             A dictionary containing the updated structure data, including fields like
-            'grain_boundary', 'final_grain_boundary', 'gb_relax_energy',
-            'grain_boundary_energy', and possibly updated 'bulk_energy_per_atom' and 'final_bulk'.
+            'grain_boundary', 'final_grain_boundary', 'gb_relax_energy' (eV),
+            'grain_boundary_energy' (eV/A^2), and possibly updated 'bulk_energy_per_atom' (eV/atom) and
+            'final_bulk'. '_units' maps each numeric output to its unit string.
 
         Raises:
             ValueError: If structure is not a dict with the required keys.
@@ -227,6 +228,10 @@ class GBCalc(PropCalc):
             "final_grain_boundary": final_gb,
             "gb_relax_energy": gb_energy,
             "grain_boundary_energy": gamma_gb,
+            "_units": self._merge_units(
+                structure,
+                {"bulk_energy_per_atom": "eV/atom", "gb_relax_energy": "eV", "grain_boundary_energy": "eV/A^2"},
+            ),
         }
 
     def _calc_bulk(self, bulk: Structure | Atoms) -> dict[str, Any]:
