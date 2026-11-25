@@ -5,6 +5,7 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING, Any, Literal
 
+import numpy as np
 from ase import units
 from pymatgen.core import Element
 from scipy import constants
@@ -36,7 +37,7 @@ _ASE_ENSEMBLES = Literal[
 
 
 class DiffusionCalc(PropCalc):
-    """Calculate ionic diffusivity and conductivity from an MD trajectory.
+    """Calculate ionic diffusivities, conductivity and Haven ratio from an MD trajectory.
 
     Runs MD with :class:`MDCalc` (on the simulation backend selected by ``MATCALC_BACKEND``) and analyses the
     equilibrated trajectory with
@@ -146,7 +147,7 @@ class DiffusionCalc(PropCalc):
         )
 
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict[str, Any]:
-        """Compute diffusivity and conductivity.
+        """Compute tracer and charge diffusivity, conductivity and Haven ratio.
 
         Args:
             structure: Structure, ASE Atoms, or a result dict. If the dict contains
@@ -155,9 +156,12 @@ class DiffusionCalc(PropCalc):
                 temperature, timestep and loginterval to match that trajectory.
 
         Returns:
-            Dict with ``diffusivity`` (cm²/s), ``conductivity`` (mS/cm),
-            ``final_structure``, ``trajectory`` and ``_units``, preserving upstream
-            fields and the energy outputs from any internal MD run.
+            Dict with ``diffusivity`` (tracer diffusivity, cm²/s), ``charge_diffusivity`` (cm²/s, from the
+            mean square displacement of the summed mobile-ion positions), ``haven_ratio``
+            (``diffusivity / charge_diffusivity``, dimensionless), ``conductivity`` (mS/cm, Nernst-Einstein
+            with the tracer diffusivity), ``final_structure``, ``trajectory`` and ``_units``, preserving
+            upstream fields and the energy outputs from any internal MD run. ``charge_diffusivity`` and
+            ``haven_ratio`` are NaN for a trajectory of fewer than two frames.
         """
         from pymatgen.analysis.diffusion.analyzer import DiffusionAnalyzer
 
@@ -185,10 +189,17 @@ class DiffusionCalc(PropCalc):
             1000 * n_mobile / volume * charge**2 * constants.e**2 * diffusivity / (constants.k * self.temperature)
         )
         result["diffusivity"] = diffusivity
+        result["charge_diffusivity"] = float(getattr(analyzer, "chg_diffusivity", np.nan))
+        result["haven_ratio"] = float(getattr(analyzer, "haven_ratio", np.nan))
         result["conductivity"] = float(conductivity)
         result["_units"] = self._merge_units(
             result.get("_units"),
-            {"diffusivity": "cm^2/s", "conductivity": "mS/cm"},
+            {
+                "diffusivity": "cm^2/s",
+                "charge_diffusivity": "cm^2/s",
+                "haven_ratio": "dimensionless",
+                "conductivity": "mS/cm",
+            },
         )
         return result
 

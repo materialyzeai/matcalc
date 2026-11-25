@@ -60,11 +60,21 @@ def test_existing_trajectory(
     number_density = len(mobile_indices) / (Li2O.volume * 1e-30)
     conductivity = number_density * elementary_charge**2 * (diffusivity * 1e-4) / (Boltzmann * temperature)
     assert result["diffusivity"] == pytest.approx(diffusivity)
+    # The ions move together, so the summed displacement is len(mobile_indices) times that of one ion.
+    assert result["charge_diffusivity"] == pytest.approx(len(mobile_indices) * diffusivity)
+    assert result["haven_ratio"] == pytest.approx(result["diffusivity"] / result["charge_diffusivity"])
+    assert result["haven_ratio"] == pytest.approx(1 / len(mobile_indices))
     assert result["conductivity"] == pytest.approx(conductivity * 10)
     assert result["trajectory"] is trajectory
     assert result["final_structure"] is Li2O
     assert result["potential_energy"] == -10.0
-    assert result["_units"] == {"potential_energy": "eV", "diffusivity": "cm^2/s", "conductivity": "mS/cm"}
+    assert result["_units"] == {
+        "potential_energy": "eV",
+        "diffusivity": "cm^2/s",
+        "charge_diffusivity": "cm^2/s",
+        "haven_ratio": "dimensionless",
+        "conductivity": "mS/cm",
+    }
 
 
 def _hopping_trajectory(structure: Structure, specie: str) -> list[Structure]:
@@ -223,6 +233,8 @@ def test_diffusion_md(Li2O: Structure, matpes_calculator: PESCalculator) -> None
     assert np.isfinite(result["total_energy"])
     assert result["diffusivity"] >= 0
     assert result["conductivity"] >= 0
+    assert np.isfinite(result["charge_diffusivity"])
+    assert result["haven_ratio"] == pytest.approx(result["diffusivity"] / result["charge_diffusivity"])
 
 
 @pytest.mark.parametrize("frames", [None, 7])
