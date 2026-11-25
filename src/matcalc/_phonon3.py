@@ -15,7 +15,7 @@ except ImportError:
     Phono3py = None  # type: ignore[assignment,misc]
 
 from ._base import PropCalc
-from .backend import run_pes_calc
+from .backend import calc_forces
 from .utils import to_pmg_structure
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,7 @@ class Phonon3Calc(PropCalc):
         t_min, t_max, t_step: Temperature grid for κ(T) (K).
         write_phonon3: Path to save phono3py state, True for default, or False.
         write_kappa: Whether phono3py writes κ output files.
+        batch_size: Displaced supercells per forward pass of the model.
     """
 
     def __init__(
@@ -74,6 +75,7 @@ class Phonon3Calc(PropCalc):
         t_step: float = 10,
         write_phonon3: bool | str | Path = False,
         write_kappa: bool = False,
+        batch_size: int = 1,
     ) -> None:
         """
         Initializes the class for thermal conductivity calculation and structure relaxation
@@ -100,6 +102,10 @@ class Phonon3Calc(PropCalc):
             t_step: Temperature step (K).
             write_phonon3: Save path, True for default YAML, or False.
             write_kappa: Pass ``write_kappa`` to phono3py RTA.
+            batch_size: Number of displaced supercells evaluated per forward pass of the model, for both the FC2 and
+                FC3 sets. Values above 1 batch the supercells for MatGL potentials on the ASE backend; other
+                calculators and the LAMMPS backend evaluate them one at a time. See
+                :func:`matcalc.backend.calc_forces`.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.fc2_supercell = fc2_supercell
@@ -118,6 +124,9 @@ class Phonon3Calc(PropCalc):
         self.t_step = t_step
         self.write_phonon3 = write_phonon3
         self.write_kappa = write_kappa
+        self.batch_size = batch_size
+        if batch_size < 1:
+            raise ValueError(f"batch_size must be at least 1, got {batch_size}.")
 
         # Set default paths for saving output files.
         for key, val, default_path in (("write_phonon3", self.write_phonon3, "phonon3.yaml"),):
@@ -166,24 +175,11 @@ class Phonon3Calc(PropCalc):
 
         phonon3.generate_displacements(**self.disp_kwargs)
 
-        phonon_forces = []
-        for supercell in phonon3.phonon_supercells_with_displacements:
-            struct_supercell = get_pmg_structure(supercell)
-            r = run_pes_calc(struct_supercell, self.calculator)
-            f = r.forces
-            phonon_forces.append(f)
-        fc2_set = np.array(phonon_forces)
-        phonon3.phonon_forces = fc2_set
+        fc2_supercells = [get_pmg_structure(sc) for sc in phonon3.phonon_supercells_with_displacements]
+        phonon3.phonon_forces = np.array(calc_forces(fc2_supercells, self.calculator, batch_size=self.batch_size))
 
-        forces = []
-        for supercell in phonon3.supercells_with_displacements:
-            if supercell is not None:
-                struct_supercell = get_pmg_structure(supercell)
-                r = run_pes_calc(struct_supercell, self.calculator)
-                f = r.forces
-                forces.append(f)
-        fc3_set = np.array(forces)
-        phonon3.forces = fc3_set
+        fc3_supercells = [get_pmg_structure(sc) for sc in phonon3.supercells_with_displacements if sc is not None]
+        phonon3.forces = np.array(calc_forces(fc3_supercells, self.calculator, batch_size=self.batch_size))
 
         phonon3.produce_fc2(symmetrize_fc2=True)
         phonon3.produce_fc3(symmetrize_fc3r=True)

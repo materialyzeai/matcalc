@@ -9,6 +9,7 @@ from matcalc.utils import PESCalculator
 
 from ._ase import run_ase
 from ._base import SimulationResult  # noqa: TC001
+from ._batch import batched_forces_fn, supports_batched_forces
 from ._lammps import run_lammps, run_lammps_md
 from ._lammps_engine import (
     LAMMPSCalculator,
@@ -19,7 +20,12 @@ from ._lammps_engine import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import numpy as np
+    from ase import Atoms
     from ase.calculators.calculator import Calculator
+    from pymatgen.core import Structure
 
 
 def is_lammps_backend() -> bool:
@@ -73,3 +79,31 @@ def run_pes_calc(*arg, **kwargs) -> SimulationResult:  # noqa:ANN002,ANN003
     if not is_lammps_backend():
         return run_ase(*arg, **kwargs)
     return run_lammps(*arg, **kwargs)
+
+
+def calc_forces(
+    structures: Sequence[Structure | Atoms], calculator: Calculator, *, batch_size: int = 1
+) -> list[np.ndarray]:
+    """Static forces on many independent structures, batched through the model where supported.
+
+    With ``batch_size > 1``, the ASE backend and a calculator that supports batching (MatGL, MACE and GRACE; see
+    :mod:`matcalc.backend._batch`), ``batch_size`` structures are evaluated per forward pass.
+    This mainly pays off on a GPU with small cells; on a CPU the cost per structure is about the same, and very large
+    batches can be slower because of memory pressure. Otherwise each structure goes through :func:`run_pes_calc`.
+
+    Args:
+        structures: Structures to evaluate.
+        calculator: ASE calculator.
+        batch_size: Number of structures per forward pass. 1 evaluates them one at a time.
+
+    Returns:
+        Forces (eV/Å), one ``(n_atoms, 3)`` array per structure, in input order.
+
+    Raises:
+        ValueError: If ``batch_size`` is less than 1.
+    """
+    if batch_size < 1:
+        raise ValueError(f"batch_size must be at least 1, got {batch_size}.")
+    if batch_size > 1 and not is_lammps_backend() and (batched := batched_forces_fn(calculator)) is not None:
+        return batched(structures, calculator, batch_size)
+    return [run_pes_calc(structure, calculator).forces for structure in structures]

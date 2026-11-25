@@ -405,3 +405,25 @@ def test_phonon_calc_imaginary_mode_message(matpes_calculator: PESCalculator) ->
     phonon_calc = PhononCalc(calculator=matpes_calculator, on_imaginary_modes="error")
     with pytest.raises(ValueError, match=r"1/3 \(33\.33%\) modes are imaginary"):
         phonon_calc._check_imaginary_modes(np.array([-1.0, 1.0, 2.0]))  # noqa: SLF001
+
+
+def test_phonon_calc_batch_size(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """Batching the displaced supercells does not change the phonons."""
+    kwargs = {
+        "supercell_matrix": ((2, 0, 0), (0, 2, 0), (0, 0, 2)),
+        "relax_structure": False,
+        "write_phonon": False,
+        "t_step": 100,
+    }
+    serial = PhononCalc(matpes_calculator, **kwargs).calc(Si)  # type: ignore[arg-type]
+    batched = PhononCalc(matpes_calculator, batch_size=4, **kwargs).calc(Si)  # type: ignore[arg-type]
+    assert_allclose(batched["phonon"].force_constants, serial["phonon"].force_constants, atol=1e-4)
+    # The Gamma acoustic modes are ~3e-3 THz; omega = sqrt(eigenvalue) amplifies the float32 force noise there, so
+    # they move by a few 1e-3 THz between the two paths. All other modes agree to ~1e-5 THz. A mode that flips sign
+    # drops out of the thermal sums, which shifts the heat capacity by ~1e-3 J/(K*mol), i.e. ~6e-5 relative.
+    assert_allclose(batched["frequencies"], serial["frequencies"], atol=1e-2)
+    assert_allclose(
+        batched["thermal_properties"]["heat_capacity"], serial["thermal_properties"]["heat_capacity"], rtol=1e-4
+    )
+    with pytest.raises(ValueError, match="batch_size must be at least 1"):
+        PhononCalc(matpes_calculator, batch_size=0)

@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.parametrize(
-    ("phonon3_file", "write_kappa"),
-    [("", False), ("ph3.yaml", True)],
+    ("phonon3_file", "write_kappa", "batch_size"),
+    [("", False, 1), ("ph3.yaml", True, 8)],
 )
 def test_phonon3_calc(
     Si: Structure,
@@ -29,8 +29,9 @@ def test_phonon3_calc(
     phonon3_file: str,
     *,
     write_kappa: bool,
+    batch_size: int,
 ) -> None:
-    """Tests for Phonon3Calc class"""
+    """Tests for Phonon3Calc class, with the displaced supercells evaluated one at a time and batched."""
     # Note: fmax is set relatively high for testing purposes only.
 
     # Change directory to tmp_path to ensure that generated files are created there.
@@ -49,6 +50,7 @@ def test_phonon3_calc(
         thermal_conductivity_kwargs={"is_isotope": True, "transport_type": "SMM19"},
         write_phonon3=write_phonon3_path,
         write_kappa=write_kappa,
+        batch_size=batch_size,
     )
 
     result = phonon3_calc.calc(Si)

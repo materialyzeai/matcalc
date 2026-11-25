@@ -15,7 +15,7 @@ from phonopy.file_IO import write_FORCE_CONSTANTS as write_force_constants
 from pymatgen.io.phonopy import get_phonopy_structure, get_pmg_structure
 
 from ._base import PropCalc
-from .backend import run_pes_calc
+from .backend import calc_forces
 from .utils import to_ase_atoms, to_pmg_structure
 
 if TYPE_CHECKING:
@@ -67,6 +67,7 @@ class PhononCalc(PropCalc):
         write_band_structure: Band structure YAML path (or False).
         write_total_dos: Total DOS path (or False).
         write_phonon: Phonopy save path (e.g. ``phonon.yaml``) or False.
+        batch_size: Displaced supercells per forward pass of the model.
     """
 
     def __init__(
@@ -98,6 +99,7 @@ class PhononCalc(PropCalc):
         write_band_structure: bool | str | Path = False,
         write_total_dos: bool | str | Path = False,
         write_phonon: bool | str | Path = True,
+        batch_size: int = 1,
     ) -> None:
         """
         Args:
@@ -140,6 +142,10 @@ class PhononCalc(PropCalc):
             write_band_structure: Path, True for default YAML, or False.
             write_total_dos: Path, True for default DOS file, or False.
             write_phonon: Path, True for default ``phonon.yaml``, or False.
+            batch_size: Number of displaced supercells evaluated per forward pass of the model. Values above 1
+                batch the supercells for MatGL potentials on the ASE backend, which mainly speeds up GPU runs on
+                small cells; other calculators and the LAMMPS backend evaluate them one at a time. See
+                :func:`matcalc.backend.calc_forces`.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.atom_disp = atom_disp
@@ -167,7 +173,10 @@ class PhononCalc(PropCalc):
         self.write_band_structure = write_band_structure
         self.write_total_dos = write_total_dos
         self.write_phonon = write_phonon
+        self.batch_size = batch_size
 
+        if batch_size < 1:
+            raise ValueError(f"batch_size must be at least 1, got {batch_size}.")
         if supercell_matrix is None and min_length is None:
             raise ValueError("min_length must be set when supercell_matrix is None.")
         if rattle_method not in ("random", "mc", "phonon"):
@@ -278,7 +287,7 @@ class PhononCalc(PropCalc):
             if supercell is not None
         ]
         logger.info("Computing forces on %d displaced supercells", len(disp_supercells))
-        phonon.forces = [run_pes_calc(supercell, self.calculator).forces for supercell in disp_supercells]
+        phonon.forces = calc_forces(disp_supercells, self.calculator, batch_size=self.batch_size)
         phonon.produce_force_constants()
         if self.mesh is None:
             phonon.run_mesh(with_eigenvectors=True, is_gamma_center=self.is_gamma_center)
