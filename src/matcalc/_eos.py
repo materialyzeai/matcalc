@@ -110,8 +110,7 @@ class EOSCalc(PropCalc):
         Returns:
             Dict with ``eos`` (``volumes`` in A^3, ``energies`` in eV), ``bulk_modulus``
             (GPa), ``r2_score`` (dimensionless) of the fitted EOS model, and fields from the
-            final relaxation merged in. With ``eos="birch_murnaghan"``, ``bulk_modulus_bm`` and
-            ``r2_score_bm`` are returned as well, with the same values. ``_units`` maps each
+            final relaxation merged in. ``_units`` maps each
             numeric output to its unit string. See pymatgen ``EOS`` / ``EOSBase`` for fit
             details. If the fit fails (pymatgen ``EOSError``), a ``RuntimeWarning`` is emitted
             and the bulk modulus and R² are NaN; ``eos`` is still returned.
@@ -193,8 +192,9 @@ class EOSCalc(PropCalc):
             )
 
         eos_units = {**result.get("_units", {}), "eos.volumes": "A^3", "eos.energies": "eV", "bulk_modulus": "GPa"}
-        eos_result = {"eos": {"volumes": volumes, "energies": energies}, "bulk_modulus": bulk_modulus, "r2_score": r2}
-        if self.eos == "birch_murnaghan":
-            eos_units["bulk_modulus_bm"] = "GPa"
-            eos_result |= {"bulk_modulus_bm": bulk_modulus, "r2_score_bm": r2}
-        return result | eos_result | {"_units": eos_units}
+        return result | {
+            "eos": {"volumes": volumes, "energies": energies},
+            "bulk_modulus": bulk_modulus,
+            "r2_score": r2,
+            "_units": eos_units,
+        }
