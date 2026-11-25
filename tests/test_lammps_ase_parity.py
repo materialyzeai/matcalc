@@ -549,7 +549,7 @@ def test_relaxing_prop_calcs(ar_cell: Atoms, monkeypatch: pytest.MonkeyPatch) ->
 
     assert elastic["bulk_modulus_vrh"] == pytest.approx(ref_elastic["bulk_modulus_vrh"], rel=1e-2)
     assert elastic["shear_modulus_vrh"] == pytest.approx(ref_elastic["shear_modulus_vrh"], rel=2e-2)
-    assert eos["bulk_modulus"] == pytest.approx(ref_eos["bulk_modulus"], rel=1e-2)
+    assert eos["bulk_modulus_eos"] == pytest.approx(ref_eos["bulk_modulus_eos"], rel=1e-2)
 
 
 # --- Molecular dynamics -----------------------------------------------------------------------------------------------

@@ -26,8 +26,8 @@ def test_eos_calc(
     eos_calc = EOSCalc(matpes_calculator, fmax=0.1, relax_calc_kwargs={"cell_filter": ExpCellFilter})
     result = eos_calc.calc(Li2O)
 
-    assert result["bulk_modulus"] == pytest.approx(84.08164565338282, rel=1e-1)
-    assert result["_units"]["bulk_modulus"] == "GPa"
+    assert result["bulk_modulus_eos"] == pytest.approx(84.08164565338282, rel=1e-1)
+    assert result["_units"]["bulk_modulus_eos"] == "GPa"
     assert result["_units"]["eos.volumes"] == "A^3"
     assert result["_units"]["eos.energies"] == "eV"
     assert result["_units"]["energy"] == "eV"
@@ -69,8 +69,8 @@ def test_eos_calc(
     eos_calc = EOSCalc(matpes_calculator, relax_structure=False, max_abs_strain=0.05)
     results = list(eos_calc.calc_many([Li2O, LiFePO4]))
     assert len(results) == 2
-    assert results[1]["bulk_modulus"] == pytest.approx(68.09, rel=1e-2)
-    assert results[1]["r2_score"] > 0.999
+    assert results[1]["bulk_modulus_eos"] == pytest.approx(68.09, rel=1e-2)
+    assert results[1]["r2_score_eos"] > 0.999
 
 
 def test_eos_calc_atoms(
@@ -82,7 +82,7 @@ def test_eos_calc_atoms(
     eos_calc = EOSCalc(matpes_calculator, fmax=0.1, relax_structure=False)
     result = eos_calc.calc(Si_atoms)
 
-    assert result["bulk_modulus"] == pytest.approx(76.57813407426684, rel=1e-1)
+    assert result["bulk_modulus_eos"] == pytest.approx(76.57813407426684, rel=1e-1)
 
 
 def test_eos_calc_keeps_user_cell_filter_kwargs(
@@ -107,7 +107,7 @@ def test_eos_calc_keeps_user_cell_filter_kwargs(
         relax_calc_kwargs={"cell_filter_kwargs": {"mask": mask}},
     ).calc(Si)
 
-    assert result["bulk_modulus"] > 0
+    assert result["bulk_modulus_eos"] > 0
     (eos_kwargs,) = captured
     assert eos_kwargs["relax_cell"] is True
     assert eos_kwargs["cell_filter_kwargs"] == {"mask": mask, "constant_volume": True}
@@ -124,8 +124,8 @@ def test_eos_calc_fit_failure_keeps_ev(
     with pytest.warns(RuntimeWarning, match="Birch-Murnaghan EOS fit failed"):
         result = eos_calc.calc(expanded)
 
-    assert math.isnan(result["bulk_modulus"])
-    assert math.isnan(result["r2_score"])
+    assert math.isnan(result["bulk_modulus_eos"])
+    assert math.isnan(result["r2_score_eos"])
     assert len(result["eos"]["volumes"]) == 11
     assert len(result["eos"]["energies"]) == 11
     assert result["eos"]["volumes"] == sorted(result["eos"]["volumes"])
@@ -140,15 +140,15 @@ def test_eos_calc_eos_model(
     """The fitted equation of state is selected with ``eos``."""
     result_bm = EOSCalc(matpes_calculator, relax_structure=False).calc(Si)
 
-    assert result_bm["_units"]["bulk_modulus"] == "GPa"
+    assert result_bm["_units"]["bulk_modulus_eos"] == "GPa"
 
     for eos in ("vinet", "murnaghan", "pourier_tarantola"):
         result = EOSCalc(matpes_calculator, relax_structure=False, eos=eos).calc(Si)
-        assert math.isfinite(result["bulk_modulus"])
-        assert result["bulk_modulus"] > 0
-        assert result["bulk_modulus"] == pytest.approx(result_bm["bulk_modulus"], rel=1e-1)
-        assert result["r2_score"] > 0.99
-        assert result["_units"]["bulk_modulus"] == "GPa"
+        assert math.isfinite(result["bulk_modulus_eos"])
+        assert result["bulk_modulus_eos"] > 0
+        assert result["bulk_modulus_eos"] == pytest.approx(result_bm["bulk_modulus_eos"], rel=1e-1)
+        assert result["r2_score_eos"] > 0.99
+        assert result["_units"]["bulk_modulus_eos"] == "GPa"
 
 
 @pytest.mark.parametrize(("eos", "eos_name"), [("vinet", "Vinet"), ("pourier_tarantola", "Pourier-Tarantola")])
@@ -165,8 +165,8 @@ def test_eos_calc_eos_model_fit_failure(
     with pytest.warns(RuntimeWarning, match=f"{eos_name} EOS fit failed"):
         result = eos_calc.calc(expanded)
 
-    assert math.isnan(result["bulk_modulus"])
-    assert math.isnan(result["r2_score"])
+    assert math.isnan(result["bulk_modulus_eos"])
+    assert math.isnan(result["r2_score_eos"])
     assert len(result["eos"]["volumes"]) == 11
     assert len(result["eos"]["energies"]) == 11
 

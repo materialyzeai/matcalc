@@ -108,8 +108,8 @@ class EOSCalc(PropCalc):
             structure: Pymatgen structure, ASE atoms, or dict with structure keys.
 
         Returns:
-            Dict with ``eos`` (``volumes`` in A^3, ``energies`` in eV), ``bulk_modulus``
-            (GPa), ``r2_score`` (dimensionless) of the fitted EOS model, and fields from the
+            Dict with ``eos`` (``volumes`` in A^3, ``energies`` in eV), ``bulk_modulus_eos``
+            (GPa), ``r2_score_eos`` (dimensionless) of the fitted EOS model, and fields from the
             final relaxation merged in. ``_units`` maps each
             numeric output to its unit string. See pymatgen ``EOS`` / ``EOSBase`` for fit
             details. If the fit fails (pymatgen ``EOSError``), a ``RuntimeWarning`` is emitted
@@ -166,7 +166,7 @@ class EOSCalc(PropCalc):
             eos_fit.fit()
         except EOSError as exc:
             warnings.warn(
-                f"{eos_name} EOS fit failed ({exc}); bulk_modulus and r2_score are set to NaN. "
+                f"{eos_name} EOS fit failed ({exc}); bulk_modulus_eos and r2_score_eos are set to NaN. "
                 f"The energy-volume data are returned in eos.",
                 RuntimeWarning,
                 stacklevel=2,
@@ -191,10 +191,10 @@ class EOSCalc(PropCalc):
                 stacklevel=2,
             )
 
-        eos_units = {**result.get("_units", {}), "eos.volumes": "A^3", "eos.energies": "eV", "bulk_modulus": "GPa"}
+        eos_units = {**result.get("_units", {}), "eos.volumes": "A^3", "eos.energies": "eV", "bulk_modulus_eos": "GPa"}
         return result | {
             "eos": {"volumes": volumes, "energies": energies},
-            "bulk_modulus": bulk_modulus,
-            "r2_score": r2,
+            "bulk_modulus_eos": bulk_modulus,
+            "r2_score_eos": r2,
             "_units": eos_units,
         }
