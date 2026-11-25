@@ -192,6 +192,13 @@ def test_softening_benchmark_checkpoint(softening_dataset: Path, matpes_calculat
     assert not checkpoint.path.exists()
 
 
+def test_softening_benchmark_empty_frames(matpes_calculator: PESCalculator) -> None:
+    row, error = SofteningBenchmark._calc_material("wbm-0", {}, matpes_calculator, "toy")  # noqa: SLF001
+    assert error is not None
+    assert "StopIteration" in error
+    assert row == {"material_id": "wbm-0", "formula": None, "softening_scale_toy": None, "raw_force_predictions": None}
+
+
 def test_softening_benchmark_in_suite(softening_dataset: Path, matpes_calculator: PESCalculator) -> None:
     suite = BenchmarkSuite([SofteningBenchmark(benchmark_name=softening_dataset)])
     results = suite.run({"toy": matpes_calculator}, n_jobs=1)

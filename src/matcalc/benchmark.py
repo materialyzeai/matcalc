@@ -762,12 +762,15 @@ class SofteningBenchmark:
 
         Returns:
             Row with ``material_id``, ``formula``, ``softening_scale_{model_name}`` and ``raw_force_predictions``,
-            and the error message; if the calculation fails, the last two entries of the row are ``None``.
+            and the error message; if the calculation fails, the last two entries of the row are ``None`` (and
+            ``formula`` too if ``frames`` is empty).
         """
-        test_structure = next(iter(frames.values()))["structure"]
         error = None
+        formula = None
 
         try:
+            # Inside the try so that an empty ``frames`` is reported as a failed material instead of aborting the run.
+            formula = next(iter(frames.values()))["structure"].composition.reduced_formula
             force_ground_truth, force_prediction = [], []
             for frame in frames.values():
                 r = run_pes_calc(frame["structure"], calculator)
@@ -783,7 +786,7 @@ class SofteningBenchmark:
 
         row = {
             "material_id": material_id,
-            "formula": test_structure.composition.reduced_formula,
+            "formula": formula,
             f"softening_scale_{model_name}": softening_scale,
             "raw_force_predictions": force_prediction,
         }
@@ -812,7 +815,12 @@ class SofteningBenchmark:
             checkpoint_file: Optional resume path.
             checkpoint_freq: Checkpoint every N materials completed.
             n_jobs: ``joblib`` worker count for evaluating the materials in parallel; ``None`` uses joblib defaults.
-            delete_checkpoint_on_finish: Remove checkpoint file after success.
+                With ``n_jobs > 1`` the calculator is pickled into every task, so it must be picklable (some
+                LAMMPS-backed calculators are not) and each task pays for a full model serialization. Prefer
+                ``n_jobs=1`` on GPU.
+            delete_checkpoint_on_finish: Remove the checkpoint file once every material has been processed, including
+                when some materials failed. Failed materials are stored in the checkpoint with
+                ``softening_scale=None`` and are not retried on resume, so keeping the checkpoint would not retry them.
             include_full_results: Keep ``raw_force_predictions`` column when True.
 
         Returns:
@@ -832,12 +840,13 @@ class SofteningBenchmark:
                 delayed(self._calc_material)(material_id, self.data[material_id], calculator, model_name)
                 for material_id in material_ids
             )
-        for material_id, (row, error) in zip(material_ids, rows, strict=True):
-            if error:
-                logger.warning("SofteningBenchmark: failed for material_id=%s %s", material_id, error)
-            results.append(row)
-            if checkpoint and (len(results) % checkpoint_freq == 0 or material_id == self.material_ids[-1]):
-                checkpoint.save(results)
+            # Consume the generator inside the ``parallel_config`` block so that the backend settings apply throughout.
+            for material_id, (row, error) in zip(material_ids, rows, strict=True):
+                if error:
+                    logger.warning("SofteningBenchmark: failed for material_id=%s %s", material_id, error)
+                results.append(row)
+                if checkpoint and (len(results) % checkpoint_freq == 0 or material_id == self.material_ids[-1]):
+                    checkpoint.save(results)
 
         if checkpoint and delete_checkpoint_on_finish:
             checkpoint.path.unlink(missing_ok=True)
