@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
@@ -137,7 +138,8 @@ def test_adapter_missing_property_uses_serial(monkeypatch: pytest.MonkeyPatch, S
     adapter = _RecordingAdapter()
     register_batch_adapter(EMT, lambda _calc: adapter)
     serial = _fake_serial(monkeypatch)
-    results = calc_batch([Si, Si * 2], EMT(), properties=("energy", "stress"), batch_size=4)
+    with pytest.warns(UserWarning, match="batch_size=4 has no effect: _RecordingAdapter does not implement stress"):
+        results = calc_batch([Si, Si * 2], EMT(), properties=("energy", "stress"), batch_size=4)
     assert serial.call_count == 2
     assert adapter.batches == []
     assert [sorted(r) for r in results] == [["energy", "stress"], ["energy", "stress"]]
@@ -263,9 +265,35 @@ def test_calc_forces_serial_fallback(monkeypatch: pytest.MonkeyPatch, Si: Struct
 
     monkeypatch.setattr(backend, "SIMULATION_BACKEND", "ASE")
     serial = _fake_serial(monkeypatch)
-    forces = backend.calc_forces([Si, Si * 2], EMT(), batch_size=8)
+    with pytest.warns(UserWarning, match="no batch adapter supports ase.calculators.emt.EMT"):
+        forces = backend.calc_forces([Si, Si * 2], EMT(), batch_size=8)
     assert [f.shape for f in forces] == [(2, 3), (16, 3)]
     assert serial.call_count == 2
+
+
+@pytest.mark.usefixtures("registry")
+def test_fallback_warnings(monkeypatch: pytest.MonkeyPatch, Si: Structure) -> None:
+    """batch_size > 1 warns when it has no effect, and is silent when an adapter is used or batch_size is 1."""
+    from matcalc import backend
+
+    _fake_serial(monkeypatch)
+    monkeypatch.setattr(backend, "SIMULATION_BACKEND", "ASE")
+    backend.register_batch_adapter(EMT, lambda _calc: None)  # declines
+    with pytest.warns(UserWarning, match="its adapter declined this calculator's configuration"):
+        backend.calc_forces([Si, Si], EMT(), batch_size=2)
+
+    adapter = _RecordingAdapter()
+    backend.register_batch_adapter(EMT, lambda _calc: adapter)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        backend.calc_forces([Si, Si], EMT(), batch_size=2)
+        backend.calc_forces([Si, Si], EMT(), batch_size=1)
+    assert adapter.batches == [2]
+
+    monkeypatch.setattr(backend, "SIMULATION_BACKEND", "LAMMPS")
+    with pytest.warns(UserWarning, match="batch adapters apply only to the ASE backend"):
+        backend.calc_forces([Si, Si], EMT(), batch_size=2)
+    assert adapter.batches == [2]
 
 
 def test_calc_batch_invalid_arguments(Si: Structure) -> None:
