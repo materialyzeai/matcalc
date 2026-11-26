@@ -11,7 +11,7 @@ from pymatgen.core.elasticity import DeformedStructureSet, ElasticTensor, Strain
 from pymatgen.core.elasticity.elastic import get_strain_state_dict
 
 from ._base import PropCalc
-from .backend import run_pes_calc
+from .backend import calc_batch, run_pes_calc
 from .utils import to_pmg_structure
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ class ElasticityCalc(PropCalc):
         use_equilibrium: Include equilibrium stress in the fit when applicable.
         units_GPa: If True, report moduli in GPa instead of pymatgen's native eV/A^3.
         relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
+        batch_size: Deformed structures evaluated per forward pass of the model.
     """
 
     def __init__(
@@ -59,6 +60,7 @@ class ElasticityCalc(PropCalc):
         units_GPa: bool = False,  # noqa: N803
         relax_calc_kwargs: dict | None = None,
         r2_min: float = 0.95,
+        batch_size: int = 1,
     ) -> None:
         """
         Args:
@@ -78,6 +80,11 @@ class ElasticityCalc(PropCalc):
                 strain-stress fits (see ``r2_score_mean``). A ``RuntimeWarning`` is emitted (and values
                 are still returned) when the pooled R² drops below this. Set
                 negative to disable. Default 0.95.
+            batch_size: Number of structures evaluated per forward pass of the model when
+                ``relax_deformed_structures`` is False: the deformed structures and the equilibrium structure
+                are independent static stress evaluations. Values above 1 batch them for potentials with a batch
+                adapter (see :func:`matcalc.backend.calc_batch`). Has no effect (with a warning) when
+                ``relax_deformed_structures`` is True, since each deformed structure is then relaxed.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.norm_strains = tuple(np.array([1]) * np.asarray(norm_strains))
@@ -99,6 +106,15 @@ class ElasticityCalc(PropCalc):
         self.units_GPa = units_GPa
         self.relax_calc_kwargs = relax_calc_kwargs
         self.r2_min = r2_min
+        self.batch_size = batch_size
+        if batch_size < 1:
+            raise ValueError(f"batch_size must be at least 1, got {batch_size}.")
+        if batch_size > 1 and relax_deformed_structures:
+            warnings.warn(
+                f"batch_size={batch_size} has no effect with relax_deformed_structures=True: each deformed "
+                "structure is relaxed, one at a time.",
+                stacklevel=2,
+            )
 
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict[str, Any]:
         """
@@ -132,17 +148,29 @@ class ElasticityCalc(PropCalc):
             self.shear_strains,
             self.symmetry,
         )
+        # DeformedStructureSet iterates its deformed structures in the order of ``deformations``.
+        deformed_structures = list(deformed_structure_set)
+        eq_stress = None
+        if relax_calc is not None:
+            # The relaxation result already carries the stress of the relaxed structure.
+            deformed_stresses = [relax_calc.calc(s)["stress"] for s in deformed_structures]
+            if self.use_equilibrium:
+                eq_stress = run_pes_calc(structure_in, self.calculator).stress
+        else:
+            # Without relaxation, the deformed structures and the equilibrium structure are independent static
+            # evaluations, so they are evaluated together (in batches where the calculator supports it).
+            to_evaluate = deformed_structures + ([structure_in] if self.use_equilibrium else [])
+            all_stresses = [
+                r["stress"]
+                for r in calc_batch(to_evaluate, self.calculator, properties=("stress",), batch_size=self.batch_size)
+            ]
+            deformed_stresses = all_stresses[: len(deformed_structures)]
+            if self.use_equilibrium:
+                eq_stress = all_stresses[-1]
+
         strains = []
         stresses = []
-        # DeformedStructureSet iterates its deformed structures in the order of ``deformations``.
-        for deformation, deformed_structure in zip(
-            deformed_structure_set.deformations, deformed_structure_set, strict=True
-        ):
-            if relax_calc is not None:
-                # The relaxation result already carries the stress of the relaxed structure.
-                stress = relax_calc.calc(deformed_structure)["stress"]
-            else:
-                stress = run_pes_calc(deformed_structure, self.calculator).stress
+        for deformation, stress in zip(deformed_structure_set.deformations, deformed_stresses, strict=True):
             strain = Strain.from_deformation(deformation)
             strains.append(strain)
             stresses.append(stress)
@@ -155,7 +183,6 @@ class ElasticityCalc(PropCalc):
                     strains.append(strain.transform(symmop).zeroed(1e-6))
                     stresses.append(Stress(stress).transform(symmop))
 
-        eq_stress = run_pes_calc(structure_in, self.calculator).stress if self.use_equilibrium else None
         elastic_tensor, residuals_sum, mean_r2 = self._elastic_tensor_from_strains(
             strains,
             stresses,

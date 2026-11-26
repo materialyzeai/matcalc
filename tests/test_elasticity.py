@@ -196,3 +196,18 @@ def test_symmetry_allowed() -> None:
     for i, j in [(0, 3), (1, 3), (4, 5)]:
         expected[i, j] = expected[j, i] = True
     assert (_symmetry_allowed(bi) == expected).all()
+
+
+def test_elasticity_calc_batch_size(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """Batching the deformed structures does not change the elastic tensor."""
+    kwargs = {"relax_structure": False, "units_GPa": True}
+    serial = ElasticityCalc(matpes_calculator, **kwargs).calc(Si)
+    batched = ElasticityCalc(matpes_calculator, batch_size=8, **kwargs).calc(Si)
+    np.testing.assert_allclose(batched["elastic_tensor"], serial["elastic_tensor"], atol=1e-2)
+    assert batched["bulk_modulus_vrh"] == pytest.approx(serial["bulk_modulus_vrh"], abs=1e-3)
+    assert batched["shear_modulus_vrh"] == pytest.approx(serial["shear_modulus_vrh"], abs=1e-3)
+
+    with pytest.warns(UserWarning, match="has no effect with relax_deformed_structures=True"):
+        ElasticityCalc(matpes_calculator, batch_size=8, relax_deformed_structures=True)
+    with pytest.raises(ValueError, match="batch_size must be at least 1"):
+        ElasticityCalc(matpes_calculator, batch_size=0)
