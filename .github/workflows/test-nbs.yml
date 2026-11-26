@@ -18,6 +18,9 @@ on:
         default: test
         description: Run notebook tests.
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
