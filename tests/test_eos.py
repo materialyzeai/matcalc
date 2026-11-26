@@ -137,13 +137,13 @@ def test_eos_calc_eos_model(
     Si: Structure,
     matpes_calculator: PESCalculator,
 ) -> None:
-    """The fitted equation of state is selected with ``eos``."""
+    """The fitted equation of state is selected with ``eos_model``."""
     result_bm = EOSCalc(matpes_calculator, relax_structure=False).calc(Si)
 
     assert result_bm["_units"]["bulk_modulus_eos"] == "GPa"
 
-    for eos in ("vinet", "murnaghan", "pourier_tarantola"):
-        result = EOSCalc(matpes_calculator, relax_structure=False, eos=eos).calc(Si)
+    for eos_model in ("vinet", "murnaghan", "pourier_tarantola"):
+        result = EOSCalc(matpes_calculator, relax_structure=False, eos_model=eos_model).calc(Si)
         assert math.isfinite(result["bulk_modulus_eos"])
         assert result["bulk_modulus_eos"] > 0
         assert result["bulk_modulus_eos"] == pytest.approx(result_bm["bulk_modulus_eos"], rel=1e-1)
@@ -151,9 +151,9 @@ def test_eos_calc_eos_model(
         assert result["_units"]["bulk_modulus_eos"] == "GPa"
 
 
-@pytest.mark.parametrize(("eos", "eos_name"), [("vinet", "Vinet"), ("pourier_tarantola", "Pourier-Tarantola")])
+@pytest.mark.parametrize(("eos_model", "eos_name"), [("vinet", "Vinet"), ("pourier_tarantola", "Pourier-Tarantola")])
 def test_eos_calc_eos_model_fit_failure(
-    eos: str,
+    eos_model: str,
     eos_name: str,
     Si: Structure,
     matpes_calculator: PESCalculator,
@@ -161,7 +161,7 @@ def test_eos_calc_eos_model_fit_failure(
     """A failed fit of another EOS model warns with the model name and still returns the energy-volume data."""
     expanded = Si.copy()
     expanded.apply_strain(0.15)
-    eos_calc = EOSCalc(matpes_calculator, relax_structure=False, allow_shape_change=False, eos=eos)
+    eos_calc = EOSCalc(matpes_calculator, relax_structure=False, allow_shape_change=False, eos_model=eos_model)
     with pytest.warns(RuntimeWarning, match=f"{eos_name} EOS fit failed"):
         result = eos_calc.calc(expanded)
 
@@ -173,5 +173,7 @@ def test_eos_calc_eos_model_fit_failure(
 
 def test_eos_calc_unknown_eos(matpes_calculator: PESCalculator) -> None:
     """An unknown EOS model name is rejected at construction."""
-    with pytest.raises(ValueError, match=r"Unknown eos 'not_an_eos'\. Allowed values: .*'birch_murnaghan'.*'vinet'"):
-        EOSCalc(matpes_calculator, eos="not_an_eos")
+    with pytest.raises(
+        ValueError, match=r"Unknown eos_model 'not_an_eos'\. Allowed values: .*'birch_murnaghan'.*'vinet'"
+    ):
+        EOSCalc(matpes_calculator, eos_model="not_an_eos")

@@ -47,7 +47,7 @@ class EOSCalc(PropCalc):
         max_steps: Max optimizer steps per relaxation.
         allow_shape_change: Allow cell shape to change at fixed volume during EOS points.
         relax_calc_kwargs: Optional kwargs for ``RelaxCalc``.
-        eos: EOS model for the energy-volume fit (``birch``, ``birch_murnaghan``, ``murnaghan``,
+        eos_model: EOS model for the energy-volume fit (``birch``, ``birch_murnaghan``, ``murnaghan``,
             ``pourier_tarantola``, ``vinet``).
     """
 
@@ -64,7 +64,7 @@ class EOSCalc(PropCalc):
         relax_structure: bool = True,
         relax_calc_kwargs: dict | None = None,
         r2_min: float = 0.95,
-        eos: str = "birch_murnaghan",
+        eos_model: str = "birch_murnaghan",
     ) -> None:
         """
         Args:
@@ -82,14 +82,14 @@ class EOSCalc(PropCalc):
                 ``RuntimeWarning`` is emitted (and the value is still returned)
                 if the fit's R² falls below this threshold. Set to a negative
                 number to disable the check.
-            eos: EOS model for the energy-volume fit, one of the pymatgen ``EOS`` model names
+            eos_model: EOS model for the energy-volume fit, one of the pymatgen ``EOS`` model names
                 ``birch``, ``birch_murnaghan``, ``murnaghan``, ``pourier_tarantola`` and ``vinet``.
 
         Raises:
-            ValueError: If ``eos`` is not one of the supported EOS models.
+            ValueError: If ``eos_model`` is not one of the supported EOS models.
         """
-        if eos not in EOS_MODELS:
-            raise ValueError(f"Unknown eos {eos!r}. Allowed values: {EOS_MODELS}.")
+        if eos_model not in EOS_MODELS:
+            raise ValueError(f"Unknown eos_model {eos_model!r}. Allowed values: {EOS_MODELS}.")
         self.calculator = calculator  # type: ignore[assignment]
         self.optimizer = optimizer
         self.max_steps = max_steps
@@ -100,7 +100,7 @@ class EOSCalc(PropCalc):
         self.relax_structure = relax_structure
         self.relax_calc_kwargs = relax_calc_kwargs
         self.r2_min = r2_min
-        self.eos = eos
+        self.eos_model = eos_model
 
     def calc(self, structure: Structure | Atoms | dict[str, Any]) -> dict:
         """
@@ -160,8 +160,8 @@ class EOSCalc(PropCalc):
             volumes.append(r["final_structure"].volume)
             energies.append(r["energy"])
 
-        eos_name = self.eos.replace("_", "-").title()
-        eos_fit = EOS.MODELS[self.eos](volumes=volumes, energies=energies)
+        eos_name = self.eos_model.replace("_", "-").title()
+        eos_fit = EOS.MODELS[self.eos_model](volumes=volumes, energies=energies)
         try:
             eos_fit.fit()
         except EOSError as exc:
