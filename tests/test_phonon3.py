@@ -92,3 +92,8 @@ def test_phonon3_calc_atoms(
     result = phonon3_calc.calc(Si_atoms)
     ind = result["temperatures"].tolist().index(300)
     assert result["thermal_conductivity"][ind] == pytest.approx(88.87, rel=1e-1)
+
+
+def test_phonon3_calc_invalid_batch_size(matpes_calculator: PESCalculator) -> None:
+    with pytest.raises(ValueError, match="batch_size must be at least 1"):
+        Phonon3Calc(calculator=matpes_calculator, batch_size=0)

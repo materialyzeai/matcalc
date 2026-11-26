@@ -63,7 +63,7 @@ class BatchAdapter(Protocol):
             ``"forces"`` (``(n_atoms, 3)``, eV/Å) and ``"stress"`` (``(3, 3)``, eV/Å³, ASE sign convention, i.e.
             positive is tensile).
         """
-        ...
+        ...  # pragma: no cover
 
 
 # (target, factory) in registration order. A target is a class, or a "module:QualName" path resolved lazily.

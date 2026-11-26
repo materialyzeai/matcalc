@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from ase.calculators.calculator import Calculator
 
 
-class GRACEBatchAdapter:
+class GRACEBatchAdapter:  # pragma: no cover (tensorpotential is not in the main CI env; see test_backend.py)
     """Evaluates a batch with the calculator's data builders joining the structures, as in GRACE training.
 
     GRACE models are compiled for fixed input shapes, and ``TPCalculator``'s own padding holds one structure per call.
@@ -106,7 +106,9 @@ class GRACEBatchAdapter:
         return split_results(atoms, properties, energies=energies, forces=forces, stresses=stresses)
 
 
-def _structure_stress(pair_forces: np.ndarray, bond_vectors: np.ndarray, volume: float) -> np.ndarray:
+def _structure_stress(  # pragma: no cover
+    pair_forces: np.ndarray, bond_vectors: np.ndarray, volume: float
+) -> np.ndarray:
     """ASE stress (3x3, eV/Å³) of one structure from its bonds, following ``TPCalculator``.
 
     The virial is GRACE's ``compute_structure_virials_from_pair_forces``: sum over bonds of ``f_a * r_b`` for (xx, yy,

@@ -310,3 +310,27 @@ def test_supports_batched_forces(matpes_calculator: PESCalculator) -> None:
 
     assert supports_batched_forces(matpes_calculator)
     assert not supports_batched_forces(EMT())
+
+
+def test_matgl_adapter_declines_and_fixed_state(Si: Structure, matpes_calculator: PESCalculator) -> None:
+    """The MatGL adapter declines charge and Hessian models, and uses a calculator's fixed state_attr."""
+    import copy
+
+    import torch
+
+    from matcalc.backend import MatGLBatchAdapter
+    from matcalc.utils import to_ase_atoms
+
+    for flag in ("compute_charge", "compute_hessian"):
+        calc = copy.copy(matpes_calculator)
+        setattr(calc, flag, True)
+        assert MatGLBatchAdapter.from_calculator(calc) is None
+
+    fixed = copy.copy(matpes_calculator)
+    fixed.state_attr = torch.zeros(2)  # the converter's default state, given explicitly
+    structures = [to_ase_atoms(s) for s in (Si, (Si * 2).perturb(0.05, seed=0))]
+    default_results = MatGLBatchAdapter(matpes_calculator).calculate(structures, ("energy", "forces"))
+    fixed_results = MatGLBatchAdapter(fixed).calculate(structures, ("energy", "forces"))
+    for r_default, r_fixed in zip(default_results, fixed_results, strict=True):
+        assert r_fixed["energy"] == pytest.approx(r_default["energy"])
+        assert_allclose(r_fixed["forces"], r_default["forces"], atol=1e-6)

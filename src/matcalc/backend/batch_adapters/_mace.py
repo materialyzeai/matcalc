@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ase.calculators.calculator import Calculator
 
 
-class MACEBatchAdapter:
+class MACEBatchAdapter:  # pragma: no cover (mace-torch is not in the main CI env; see test_backend.py)
     """Evaluates a batch as one MACE ``Batch``, mirroring ``MACECalculator.calculate``.
 
     The graphs are built with the calculator's key specification, head, atomic number table and cutoff, and the outputs
