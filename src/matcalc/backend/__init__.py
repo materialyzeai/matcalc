@@ -5,11 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from matcalc.config import SIMULATION_BACKEND
-from matcalc.utils import PESCalculator
+from matcalc.utils import PESCalculator, to_ase_atoms
 
 from ._ase import run_ase
 from ._base import SimulationResult  # noqa: TC001
-from ._batch import batched_forces_fn, supports_batched_forces
+from ._batch import (
+    BatchAdapter,
+    get_batch_adapter,
+    register_batch_adapter,
+    supports_batched_forces,
+)
 from ._lammps import run_lammps, run_lammps_md
 from ._lammps_engine import (
     LAMMPSCalculator,
@@ -18,9 +23,11 @@ from ._lammps_engine import (
     load_lammps_calculator,
     to_lammps_calculator,
 )
+from .batch_adapters import GRACEBatchAdapter, MACEBatchAdapter, MatGLBatchAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from typing import Any
 
     import numpy as np
     from ase import Atoms
@@ -81,29 +88,76 @@ def run_pes_calc(*arg, **kwargs) -> SimulationResult:  # noqa:ANN002,ANN003
     return run_lammps(*arg, **kwargs)
 
 
-def calc_forces(
-    structures: Sequence[Structure | Atoms], calculator: Calculator, *, batch_size: int = 1
-) -> list[np.ndarray]:
-    """Static forces on many independent structures, batched through the model where supported.
+def calc_batch(
+    structures: Sequence[Structure | Atoms],
+    calculator: Calculator,
+    *,
+    properties: Sequence[str] = ("energy", "forces", "stress"),
+    batch_size: int = 1,
+) -> list[dict[str, Any]]:
+    """Static energies, forces and stresses of many independent structures, batched through the model where possible.
 
-    With ``batch_size > 1``, the ASE backend and a calculator that supports batching (MatGL, MACE and GRACE; see
-    :mod:`matcalc.backend._batch`), ``batch_size`` structures are evaluated per forward pass.
-    This mainly pays off on a GPU with small cells; on a CPU the cost per structure is about the same, and very large
-    batches can be slower because of memory pressure. Otherwise each structure goes through :func:`run_pes_calc`.
+    With ``batch_size > 1``, the ASE backend and a calculator with a batch adapter that implements the requested
+    properties (see :mod:`matcalc.backend._batch`; matcalc ships adapters for MatGL, MACE and GRACE), the structures
+    are evaluated ``batch_size`` at a time in one model call each. This mainly pays off on a GPU with small cells;
+    very large batches can be slower because of memory pressure. Otherwise each structure goes through
+    :func:`run_pes_calc`.
 
     Args:
         structures: Structures to evaluate.
         calculator: ASE calculator.
-        batch_size: Number of structures per forward pass. 1 evaluates them one at a time.
+        properties: Properties to return, from ``"energy"``, ``"forces"`` and ``"stress"``.
+        batch_size: Number of structures per model call. 1 evaluates them one at a time.
 
     Returns:
-        Forces (eV/Å), one ``(n_atoms, 3)`` array per structure, in input order.
+        One dict per structure, in input order, with each requested property: ``"energy"`` (eV), ``"forces"``
+        (``(n_atoms, 3)``, eV/Å) and ``"stress"`` (``(3, 3)``, eV/Å³, ASE sign convention).
 
     Raises:
-        ValueError: If ``batch_size`` is less than 1.
+        ValueError: If ``batch_size`` is less than 1 or a property is unknown.
+        RuntimeError: If a batch adapter returns the wrong number of results.
     """
     if batch_size < 1:
         raise ValueError(f"batch_size must be at least 1, got {batch_size}.")
-    if batch_size > 1 and not is_lammps_backend() and (batched := batched_forces_fn(calculator)) is not None:
-        return batched(structures, calculator, batch_size)
-    return [run_pes_calc(structure, calculator).forces for structure in structures]
+    if unknown := set(properties) - {"energy", "forces", "stress"}:
+        raise ValueError(f"Unknown properties {sorted(unknown)}; choose from energy, forces and stress.")
+    adapter = get_batch_adapter(calculator) if batch_size > 1 and not is_lammps_backend() else None
+    if adapter is not None and set(properties) <= set(adapter.implemented_properties):
+        atoms = [to_ase_atoms(s) for s in structures]
+        results: list[dict[str, Any]] = []
+        for start in range(0, len(atoms), batch_size):
+            chunk = atoms[start : start + batch_size]
+            batch_results = adapter.calculate(chunk, properties)
+            if len(batch_results) != len(chunk):
+                raise RuntimeError(
+                    f"{type(adapter).__name__} returned {len(batch_results)} results for {len(chunk)} structures."
+                )
+            results.extend(batch_results)
+        return results
+    serial = (run_pes_calc(structure, calculator) for structure in structures)
+    return [
+        {
+            key: value
+            for key, value in (("energy", r.potential_energy), ("forces", r.forces), ("stress", r.stress))
+            if key in properties
+        }
+        for r in serial
+    ]
+
+
+def calc_forces(
+    structures: Sequence[Structure | Atoms], calculator: Calculator, *, batch_size: int = 1
+) -> list[np.ndarray]:
+    """Static forces on many independent structures, batched through the model where possible.
+
+    Shorthand for :func:`calc_batch` with ``properties=("forces",)``.
+
+    Args:
+        structures: Structures to evaluate.
+        calculator: ASE calculator.
+        batch_size: Number of structures per model call. 1 evaluates them one at a time.
+
+    Returns:
+        Forces (eV/Å), one ``(n_atoms, 3)`` array per structure, in input order.
+    """
+    return [r["forces"] for r in calc_batch(structures, calculator, properties=("forces",), batch_size=batch_size)]
