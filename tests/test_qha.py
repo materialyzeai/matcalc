@@ -572,3 +572,39 @@ def test_qha_pressure_suffix(tmp_path: Path, matpes_calculator: PESCalculator) -
     gibbs_file = qha.write_gibbs_temperature.call_args.kwargs["filename"]
     assert Path(alpha_file) == tmp_path / "run.v1" / "alpha_P1.0GPa.dat"
     assert Path(gibbs_file) == tmp_path / "run.v1" / "gibbs_P1.0GPa"
+
+
+def test_qha_calc_batch_size(
+    Li2O: Structure, matpes_calculator: PESCalculator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The displaced supercells of all volumes are evaluated in one pooled call, and batching them does not change
+    the QHA results."""
+    from matcalc import _qha
+
+    pooled = MagicMock(side_effect=_qha.calc_forces)
+    monkeypatch.setattr(_qha, "calc_forces", pooled)
+    kwargs = {
+        "t_step": 100,
+        "t_max": 500,
+        "scale_factors": [0.98, 0.99, 1.00, 1.01, 1.02],
+        "fmax": 0.1,
+        "relax_structure": False,
+        "phonon_calc_kwargs": {"supercell_matrix": ((2, 0, 0), (0, 2, 0), (0, 0, 2))},
+    }
+    serial = QHACalc(matpes_calculator, **kwargs).calc(Li2O)  # type: ignore[arg-type]
+    batched = QHACalc(matpes_calculator, batch_size=8, **kwargs).calc(Li2O)  # type: ignore[arg-type]
+    assert pooled.call_count == 2  # one pooled call per QHA run
+    n_disp = sum(len(h["disp_supercells"]) for h in batched["ha"])
+    assert len(pooled.call_args.args[0]) == n_disp
+    assert pooled.call_args.kwargs["batch_size"] == 8
+    for s, b in zip(serial["ha"], batched["ha"], strict=True):
+        assert_allclose(b["phonon"].force_constants, s["phonon"].force_constants, atol=1e-4)
+    assert_allclose(batched["gibbs_free_energies"], serial["gibbs_free_energies"], atol=1e-5)
+    # Thermal expansion is a temperature derivative of the fitted V(T), which amplifies the float32 force noise.
+    assert_allclose(batched["thermal_expansion_coefficients"], serial["thermal_expansion_coefficients"], rtol=1e-2)
+
+    # A batch_size in phonon_calc_kwargs takes precedence, including for the pooled evaluation.
+    qha = QHACalc(matpes_calculator, **(kwargs | {"phonon_calc_kwargs": {"batch_size": 4}}))  # type: ignore[arg-type]
+    assert qha._phonon_calc().batch_size == 4  # noqa: SLF001
+    with pytest.raises(ValueError, match="batch_size must be at least 1"):
+        QHACalc(matpes_calculator, batch_size=0)

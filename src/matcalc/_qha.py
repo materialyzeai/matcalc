@@ -12,6 +12,7 @@ from phonopy import PhonopyQHA
 from ._base import PropCalc
 from ._phonon import PhononCalc
 from ._relaxation import RelaxCalc
+from .backend import calc_forces
 from .utils import to_pmg_structure
 
 if TYPE_CHECKING:
@@ -61,6 +62,7 @@ class QHACalc(PropCalc):
             with a ``{scale_factor}`` placeholder selects a custom name.
         write_energy_volume: Output path (or True for ``e-v.dat``) for the electronic energy vs.
             volume data read by ``phonopy-qha``.
+        batch_size: Displaced supercells per forward pass of the model, pooled across all volumes.
         write_*: Output paths (or True for defaults) for phonopy QHA text files.
         write_*: Output paths (or True for defaults) for phonopy QHA text files. When multiple
             pressures are requested a ``_P{pressure}GPa`` suffix is inserted before the file
@@ -98,6 +100,7 @@ class QHACalc(PropCalc):
         write_heat_capacity_p_polyfit: bool | str | os.PathLike = False,
         write_gruneisen_temperature: bool | str | os.PathLike = False,
         write_energy_volume: bool | str | os.PathLike = False,
+        batch_size: int = 1,
     ) -> None:
         """
         Args:
@@ -138,6 +141,11 @@ class QHACalc(PropCalc):
             write_gruneisen_temperature: Write Gruneisen gamma(T).
             write_energy_volume: Write the electronic energy vs. volume data (``e-v.dat``) in the
                 format read by ``phonopy-qha``. Written once, independent of pressure.
+            batch_size: Number of displaced supercells evaluated per forward pass of the model. The displaced
+                supercells of all scale factors are independent, so they are evaluated together and batched
+                across volumes. Values above 1 batch them for potentials with a batch adapter (see
+                :func:`matcalc.backend.calc_batch`). Passed to each ``PhononCalc`` (for imaginary-mode retries);
+                a ``batch_size`` in ``phonon_calc_kwargs`` takes precedence.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.t_step = t_step
@@ -158,6 +166,9 @@ class QHACalc(PropCalc):
         self.fix_imaginary_attempts = fix_imaginary_attempts
         self.store_ha_phonon = store_ha_phonon
         self.write_ha_phonon = write_ha_phonon
+        self.batch_size = batch_size
+        if batch_size < 1:
+            raise ValueError(f"batch_size must be at least 1, got {batch_size}.")
 
         # Normalize pressure to an internal list; None becomes [None].
         self.pressure = pressure
@@ -342,6 +353,7 @@ class QHACalc(PropCalc):
         ha = []
         temperatures = np.array([])
         relaxer = RelaxCalc(self.calculator, **self._fixed_cell_relax_calc_kwargs)
+        jobs = []
         for scale_factor in self.scale_factors:
             # Apply linear strain
             scaled_structure = self._scale_structure(structure, scale_factor)
@@ -358,6 +370,19 @@ class QHACalc(PropCalc):
             else:
                 write_phonon = str(self.write_ha_phonon).format(scale_factor=scale_factor)
 
+            phonon_calc = self._phonon_calc(write_phonon=write_phonon)
+            setup = phonon_calc.prepare(relaxed_result["final_structure"])
+            jobs.append((scale_factor, scaled_structure, relaxed_result, phonon_calc, setup))
+
+        # The displaced supercells of all volumes are independent, so they are evaluated together, which lets
+        # batching fill each forward pass across volumes.
+        supercells = [sc for *_, setup in jobs for sc in setup.disp_supercells]
+        logger.info("Computing forces on %d displaced supercells over %d volumes", len(supercells), len(jobs))
+        batch_size = jobs[0][3].batch_size if jobs else 1
+        forces = calc_forces(supercells, self.calculator, batch_size=batch_size)
+
+        offset = 0
+        for scale_factor, scaled_structure, relaxed_result, phonon_calc, setup in jobs:
             # Calculate thermal properties from phonon calculation and tabulate results.
             # We must store the energy, structure, etc. from the phonon calculation if
             # available in case there are any correction attempts made to resolve imaginary modes,
@@ -367,9 +392,9 @@ class QHACalc(PropCalc):
                 scale_factor,
                 relaxed_result["final_structure"].volume,
             )
-            phonon_result = self._calculate_thermal_properties(
-                relaxed_result["final_structure"], write_phonon=write_phonon
-            )
+            n_disp = len(setup.disp_supercells)
+            phonon_result = phonon_calc.finalize(setup, forces[offset : offset + n_disp])
+            offset += n_disp
 
             # Collect properties
             volume = phonon_result["final_structure"].volume
@@ -417,18 +442,17 @@ class QHACalc(PropCalc):
         struct.apply_strain(scale_factor - 1)
         return struct
 
-    def _calculate_thermal_properties(self, structure: Structure, *, write_phonon: bool | str = False) -> dict:
-        """Helper to calculate the thermal properties of a structure.
+    def _phonon_calc(self, *, write_phonon: bool | str = False) -> PhononCalc:
+        """The PhononCalc for the thermal properties at one volume.
 
         Args:
-            structure: Pymatgen structure for which the thermal properties are calculated.
             write_phonon: Passed directly to ``PhononCalc`` as ``write_phonon``. False disables
                 writing, True uses the phonopy default name, or a string path is used as-is.
 
         Returns:
-            Full result dict from PhononCalc, containing "energy" (eV, from the
-            volume-fixed ionic relaxation) and "thermal_properties" (free energies,
-            entropies and heat capacities).
+            A ``PhononCalc`` that does not relax (the structure is already relaxed at fixed volume). Its result dict
+            contains "energy" (eV) only when an imaginary-mode correction relaxed the structure again, and
+            "thermal_properties" (free energies, entropies and heat capacities).
         """
         phonon_calc_kwargs = {
             "t_step": self.t_step,
@@ -439,13 +463,10 @@ class QHACalc(PropCalc):
             "on_imaginary_modes": self.on_imaginary_modes,
             "fix_imaginary_attempts": self.fix_imaginary_attempts,
             "write_phonon": write_phonon,
+            "batch_size": self.batch_size,
         } | (self.phonon_calc_kwargs or {})
         phonon_calc_kwargs["relax_structure"] = False  # already relaxed
-        phonon_calc = PhononCalc(
-            self.calculator,
-            **cast("Any", phonon_calc_kwargs),
-        )
-        return phonon_calc.calc(structure)
+        return PhononCalc(self.calculator, **cast("Any", phonon_calc_kwargs))
 
     def _write_output_files(self, qha: PhonopyQHA, pressure: float | None = None) -> None:  # noqa: C901
         """Helper to write various output files based on the QHA calculation.

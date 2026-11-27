@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import warnings
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -15,7 +16,7 @@ from phonopy.file_IO import write_FORCE_CONSTANTS as write_force_constants
 from pymatgen.io.phonopy import get_phonopy_structure, get_pmg_structure
 
 from ._base import PropCalc
-from .backend import run_pes_calc
+from .backend import calc_forces
 from .utils import to_ase_atoms, to_pmg_structure
 
 if TYPE_CHECKING:
@@ -29,6 +30,23 @@ if TYPE_CHECKING:
     from pymatgen.core import Structure
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PhononSetup:
+    """A phonon calculation up to the force evaluation, from :meth:`PhononCalc.prepare`.
+
+    Attributes:
+        result: Result dict so far (input normalization and any relaxation).
+        structure: Structure whose phonons are computed (relaxed if ``relax_structure``).
+        phonon: Phonopy object with the displacements generated.
+        disp_supercells: Displaced supercells whose forces :meth:`PhononCalc.finalize` needs, in phonopy order.
+    """
+
+    result: dict[str, Any]
+    structure: Structure
+    phonon: phonopy.Phonopy
+    disp_supercells: list[Structure]
 
 
 class PhononCalc(PropCalc):
@@ -67,6 +85,7 @@ class PhononCalc(PropCalc):
         write_band_structure: Band structure YAML path (or False).
         write_total_dos: Total DOS path (or False).
         write_phonon: Phonopy save path (e.g. ``phonon.yaml``) or False.
+        batch_size: Displaced supercells per forward pass of the model.
     """
 
     def __init__(
@@ -98,6 +117,7 @@ class PhononCalc(PropCalc):
         write_band_structure: bool | str | Path = False,
         write_total_dos: bool | str | Path = False,
         write_phonon: bool | str | Path = True,
+        batch_size: int = 1,
     ) -> None:
         """
         Args:
@@ -140,6 +160,10 @@ class PhononCalc(PropCalc):
             write_band_structure: Path, True for default YAML, or False.
             write_total_dos: Path, True for default DOS file, or False.
             write_phonon: Path, True for default ``phonon.yaml``, or False.
+            batch_size: Number of displaced supercells evaluated per forward pass of the model. Values above 1
+                batch the supercells for MatGL potentials on the ASE backend, which mainly speeds up GPU runs on
+                small cells; other calculators and the LAMMPS backend evaluate them one at a time. See
+                :func:`matcalc.backend.calc_forces`.
         """
         self.calculator = calculator  # type: ignore[assignment]
         self.atom_disp = atom_disp
@@ -167,7 +191,10 @@ class PhononCalc(PropCalc):
         self.write_band_structure = write_band_structure
         self.write_total_dos = write_total_dos
         self.write_phonon = write_phonon
+        self.batch_size = batch_size
 
+        if batch_size < 1:
+            raise ValueError(f"batch_size must be at least 1, got {batch_size}.")
         if supercell_matrix is None and min_length is None:
             raise ValueError("min_length must be set when supercell_matrix is None.")
         if rattle_method not in ("random", "mc", "phonon"):
@@ -197,6 +224,20 @@ class PhononCalc(PropCalc):
             any relaxation fields merged in. ``_units`` maps each numeric output to its unit
             string.
         """
+        return self.finalize(self.prepare(structure))
+
+    def prepare(self, structure: Structure | Atoms | dict[str, Any]) -> PhononSetup:
+        """Relax the structure (if ``relax_structure``) and generate the displaced supercells, without forces.
+
+        Together with :meth:`finalize`, this splits :meth:`calc` around the force evaluation, so that the displaced
+        supercells of several phonon calculations can be evaluated together (as ``QHACalc`` does across volumes).
+
+        Args:
+            structure: Pymatgen structure, ASE atoms, or dict with structure keys.
+
+        Returns:
+            The calculation up to the force evaluation.
+        """
         result = super().calc(structure)
         structure_in: Structure = to_pmg_structure(result["final_structure"])
 
@@ -205,7 +246,29 @@ class PhononCalc(PropCalc):
             result |= self._relax_structure(structure_in)
             structure_in = result["final_structure"]
 
-        phonon, frequencies, disp_supercells = self._run_phonopy(structure_in)
+        phonon, disp_supercells = self._build_phonopy(structure_in)
+        return PhononSetup(result=result, structure=structure_in, phonon=phonon, disp_supercells=disp_supercells)
+
+    def finalize(self, setup: PhononSetup, forces: Sequence[np.ndarray] | None = None) -> dict:
+        """Complete a calculation from :meth:`prepare`: force constants, imaginary modes and thermal properties.
+
+        Args:
+            setup: Result of :meth:`prepare`.
+            forces: Forces (eV/Å) on ``setup.disp_supercells``, in order, e.g. from a pooled evaluation. If None,
+                they are computed here with :func:`matcalc.backend.calc_forces`.
+
+        Returns:
+            The result dict of :meth:`calc`.
+        """
+        result, structure_in, phonon, disp_supercells = (
+            setup.result,
+            setup.structure,
+            setup.phonon,
+            setup.disp_supercells,
+        )
+        if forces is None:
+            forces = self._compute_forces(disp_supercells)
+        frequencies = self._complete_phonopy(phonon, forces)
 
         if self.fix_imaginary_attempts > 0 and np.any(frequencies < self.imaginary_freq_tol):
             relax_result, phonon, frequencies, disp_supercells = self._resolve_imaginary_modes(
@@ -259,6 +322,24 @@ class PhononCalc(PropCalc):
         Returns:
             Tuple of (phonon, frequencies, disp_supercells).
         """
+        phonon, disp_supercells = self._build_phonopy(structure)
+        frequencies = self._complete_phonopy(phonon, self._compute_forces(disp_supercells))
+        return phonon, frequencies, disp_supercells
+
+    def _compute_forces(self, disp_supercells: list[Structure]) -> list[np.ndarray]:
+        """Forces on the displaced supercells, batched per ``batch_size``."""
+        logger.info("Computing forces on %d displaced supercells", len(disp_supercells))
+        return calc_forces(disp_supercells, self.calculator, batch_size=self.batch_size)
+
+    def _build_phonopy(self, structure: Structure) -> tuple[phonopy.Phonopy, list[Structure]]:
+        """Build a Phonopy object with displacements generated.
+
+        Args:
+            structure: Pymatgen structure.
+
+        Returns:
+            Tuple of (phonon, disp_supercells).
+        """
         cell = get_phonopy_structure(structure)
         if self.supercell_matrix is not None:
             supercell_matrix = np.array(self.supercell_matrix, dtype=int)
@@ -277,8 +358,19 @@ class PhononCalc(PropCalc):
             for supercell in phonon.supercells_with_displacements  # type:ignore[union-attr]
             if supercell is not None
         ]
-        logger.info("Computing forces on %d displaced supercells", len(disp_supercells))
-        phonon.forces = [run_pes_calc(supercell, self.calculator).forces for supercell in disp_supercells]
+        return phonon, disp_supercells
+
+    def _complete_phonopy(self, phonon: phonopy.Phonopy, forces: Sequence[np.ndarray]) -> np.ndarray:
+        """Set the forces, produce the force constants and run the mesh.
+
+        Args:
+            phonon: Phonopy object from :meth:`_build_phonopy`.
+            forces: Forces (eV/Å) on its displaced supercells.
+
+        Returns:
+            Mesh frequencies (THz).
+        """
+        phonon.forces = list(forces)
         phonon.produce_force_constants()
         if self.mesh is None:
             phonon.run_mesh(with_eigenvectors=True, is_gamma_center=self.is_gamma_center)
@@ -286,8 +378,7 @@ class PhononCalc(PropCalc):
             phonon.run_mesh(self.mesh, with_eigenvectors=True, is_gamma_center=self.is_gamma_center)
         if phonon.mesh is None:
             raise RuntimeError("phonon.mesh is None after run_mesh")
-        frequencies = phonon.mesh.frequencies  # type: ignore[union-attr]
-        return phonon, frequencies, disp_supercells
+        return phonon.mesh.frequencies  # type: ignore[union-attr]
 
     def _check_imaginary_modes(self, frequencies: np.ndarray) -> None:
         """Warn or raise if imaginary modes are present, based on on_imaginary_modes setting.
